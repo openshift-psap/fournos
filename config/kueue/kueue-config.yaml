@@ -37,7 +37,9 @@ kind: ClusterQueue
 metadata:
   name: fournos-queue
 spec:
-  namespaceSelector: {}
+  namespaceSelector:
+    matchLabels:
+      fournos.dev/queue-access: "true"
   preemption:
     withinClusterQueue: LowerPriority
     reclaimWithinCohort: Any
@@ -82,6 +84,8 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: psap-automation
+  labels:
+    fournos.dev/queue-access: "true"
 
 ---
 # LocalQueue — all Fournos Workloads are submitted here.
