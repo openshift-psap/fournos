@@ -1,0 +1,143 @@
+# =============================================================================
+# ResourceFlavors -- one per target cluster (auto-managed by controller)
+# =============================================================================
+# No nodeLabels: these are abstract quota buckets representing remote GPU
+# capacity. GPU types are encoded as distinct resource names in the
+# ClusterQueue (e.g. nvidia.com/gpu-a100, nvidia.com/gpu-h200) rather than
+# as flavor labels. This keeps flavors simple and lets a single podSet
+# request multiple GPU types while guaranteeing cluster co-location.
+
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: cluster-1
+spec: {}
+
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: cluster-2
+spec: {}
+
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: cluster-3
+spec: {}
+
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: cluster-4
+spec: {}
+
+
+---
+# =============================================================================
+# ClusterQueue -- managed by controller, updated when clusters change
+# =============================================================================
+# nominalQuota values come from BenchmarkCluster.spec.resources.gpus.total.
+# The controller adds/removes flavor entries as clusters are registered/removed.
+
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: fournos-queue
+spec:
+  namespaceSelector: {}
+  preemption:
+    withinClusterQueue: LowerPriority
+    reclaimWithinCohort: Any
+  resourceGroups:
+    - coveredResources: ["nvidia.com/gpu-a100", "nvidia.com/gpu-h200", "cpu"]
+      flavors:
+        - name: cluster-1
+          resources:
+            - name: "nvidia.com/gpu-a100"
+              nominalQuota: 8    # cluster-1: 8x A100
+            - name: "nvidia.com/gpu-h200"
+              nominalQuota: 0
+            - name: "cpu"
+              nominalQuota: 32
+        - name: cluster-2
+          resources:
+            - name: "nvidia.com/gpu-a100"
+              nominalQuota: 8    # cluster-2: 8x A100
+            - name: "nvidia.com/gpu-h200"
+              nominalQuota: 0
+            - name: "cpu"
+              nominalQuota: 32
+        - name: cluster-3
+          resources:
+            - name: "nvidia.com/gpu-a100"
+              nominalQuota: 0
+            - name: "nvidia.com/gpu-h200"
+              nominalQuota: 8    # cluster-3: 8x H200
+            - name: "cpu"
+              nominalQuota: 32
+        - name: cluster-4
+          resources:
+            - name: "nvidia.com/gpu-a100"
+              nominalQuota: 0
+            - name: "nvidia.com/gpu-h200"
+              nominalQuota: 8    # cluster-4: 8x H200
+            - name: "cpu"
+              nominalQuota: 32
+
+
+---
+# =============================================================================
+# Namespace -- must exist before the LocalQueue can be created
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: psap-automation
+
+---
+# =============================================================================
+# LocalQueue -- static, one-time setup
+# =============================================================================
+# All BenchmarkRun Workloads are submitted to this namespace-scoped queue.
+
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  name: fournos-queue
+  namespace: psap-automation
+spec:
+  clusterQueue: fournos-queue
+
+
+---
+# =============================================================================
+# WorkloadPriorityClasses -- static, one-time setup
+# =============================================================================
+# Higher value = higher priority. Kueue uses these to order the queue and
+# to decide which Workloads can preempt others.
+
+# apiVersion: kueue.x-k8s.io/v1beta1
+# kind: WorkloadPriorityClass
+# metadata:
+#   name: manual
+# value: 200
+# description: "Manual user-triggered runs (highest priority)"
+
+# ---
+# apiVersion: kueue.x-k8s.io/v1beta1
+# kind: WorkloadPriorityClass
+# metadata:
+#   name: nightly
+# value: 100
+# description: "Nightly benchmark runs"
+
+# ---
+# apiVersion: kueue.x-k8s.io/v1beta1
+# kind: WorkloadPriorityClass
+# metadata:
+#   name: presubmit
+# value: 50
+# description: "PR presubmit runs (CI triggers)"

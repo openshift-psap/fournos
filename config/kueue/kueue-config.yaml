@@ -1,0 +1,133 @@
+# ResourceFlavors — one per target cluster (abstract quota buckets).
+# GPU types are encoded as distinct resource names in the ClusterQueue
+# (e.g. fournos/gpu-a100) rather than as flavor labels.
+
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: cluster-1
+spec: {}
+
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: cluster-2
+spec: {}
+
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: cluster-3
+spec: {}
+
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: cluster-4
+spec: {}
+
+---
+# ClusterQueue — per-cluster GPU quotas.
+
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: fournos-queue
+spec:
+  namespaceSelector:
+    matchLabels:
+      fournos.dev/queue-access: "true"
+  preemption:
+    withinClusterQueue: LowerPriority
+    reclaimWithinCohort: Any
+  resourceGroups:
+    - coveredResources: ["fournos/gpu-a100", "fournos/gpu-h200", "cpu"]
+      flavors:
+        - name: cluster-1
+          resources:
+            - name: "fournos/gpu-a100"
+              nominalQuota: 8
+            - name: "fournos/gpu-h200"
+              nominalQuota: 0
+            - name: "cpu"
+              nominalQuota: 32
+        - name: cluster-2
+          resources:
+            - name: "fournos/gpu-a100"
+              nominalQuota: 8
+            - name: "fournos/gpu-h200"
+              nominalQuota: 0
+            - name: "cpu"
+              nominalQuota: 32
+        - name: cluster-3
+          resources:
+            - name: "fournos/gpu-a100"
+              nominalQuota: 0
+            - name: "fournos/gpu-h200"
+              nominalQuota: 8
+            - name: "cpu"
+              nominalQuota: 32
+        - name: cluster-4
+          resources:
+            - name: "fournos/gpu-a100"
+              nominalQuota: 0
+            - name: "fournos/gpu-h200"
+              nominalQuota: 8
+            - name: "cpu"
+              nominalQuota: 32
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: psap-automation
+  labels:
+    fournos.dev/queue-access: "true"
+
+---
+# LocalQueue — all Fournos Workloads are submitted here.
+
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  name: fournos-queue
+  namespace: psap-automation
+spec:
+  clusterQueue: fournos-queue
+
+---
+# WorkloadPriorityClasses — higher value = higher priority.
+
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: WorkloadPriorityClass
+metadata:
+  name: manual
+value: 200
+description: "Manual user-triggered runs (highest priority)"
+
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: WorkloadPriorityClass
+metadata:
+  name: nightly
+value: 100
+description: "Nightly benchmark runs"
+
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: WorkloadPriorityClass
+metadata:
+  name: presubmit
+value: 50
+description: "PR presubmit runs (CI triggers)"
+
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: WorkloadPriorityClass
+metadata:
+  name: adhoc
+value: 10
+description: "Ad-hoc / low-priority runs"

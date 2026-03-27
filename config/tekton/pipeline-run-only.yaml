@@ -1,0 +1,53 @@
+# Single-step pipeline: run only (no prepare, no cleanup).
+# Use on pre-configured clusters where setup/teardown is handled externally.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: fournos-run-only
+  namespace: psap-automation
+spec:
+  params:
+    - name: job-id
+      type: string
+    - name: job-name
+      type: string
+    - name: forge-project
+      type: string
+    - name: forge-preset
+      type: string
+    - name: forge-args
+      type: array
+      default: []
+    - name: kubeconfig-secret
+      type: string
+    - name: gpu-count
+      type: string
+    - name: secrets
+      type: array
+      default: []
+  tasks:
+    - name: run
+      taskRef:
+        name: fournos-run
+      params:
+        - name: forge-project
+          value: "$(params.forge-project)"
+        - name: forge-preset
+          value: "$(params.forge-preset)"
+        - name: forge-args
+          value: "$(params.forge-args[*])"
+        - name: kubeconfig-secret
+          value: "$(params.kubeconfig-secret)"
+        - name: gpu-count
+          value: "$(params.gpu-count)"
+        - name: job-name
+          value: "$(params.job-name)"
+        - name: secrets
+          value: "$(params.secrets[*])"
+  finally:
+    - name: notify-fournos
+      taskRef:
+        name: fournos-notify
+      params:
+        - name: job-id
+          value: "$(params.job-id)"
