@@ -19,9 +19,12 @@ def test_hardware_request_admitted_and_launched(client: httpx.Client):
     try:
         assert data["status"] == "pending"
 
-        status = poll_job_status(client, job_id, timeout=60)
-        assert status in ("running", "succeeded", "failed"), (
-            f"Expected terminal-ish state, still {status}"
+        poll_job_status(client, job_id, timeout=60)
+        poll_job_status(
+            client,
+            job_id,
+            terminal={"succeeded", "failed"},
+            timeout=120,
         )
     finally:
         complete_job(client, job_id)
@@ -46,6 +49,7 @@ def test_inadmissible_stays_pending(client: httpx.Client):
             terminal={"running", "succeeded", "failed"},
             interval=3,
             timeout=9,
+            raise_on_timeout=False,
         )
         assert status == "pending"
     finally:

@@ -60,8 +60,14 @@ def poll_job_status(
     terminal: set[str] = frozenset({"running", "succeeded", "failed"}),
     interval: float = 3.0,
     timeout: float = 60.0,
+    raise_on_timeout: bool = True,
 ) -> str:
-    """Poll GET /api/v1/job/{id} until the status reaches one of *terminal* states."""
+    """Poll GET /api/v1/job/{id} until the status reaches one of *terminal* states.
+
+    By default, raises ``AssertionError`` if the timeout expires before a
+    terminal status is reached.  Pass ``raise_on_timeout=False`` to return
+    the last observed status instead (useful for negative tests).
+    """
     deadline = time.monotonic() + timeout
     status = None
     while True:
@@ -73,6 +79,11 @@ def poll_job_status(
         if time.monotonic() >= deadline:
             break
         time.sleep(interval)
+    if raise_on_timeout:
+        raise AssertionError(
+            f"Job {job_id} did not reach {terminal} within {timeout}s "
+            f"(last status: {status})"
+        )
     return status
 
 
