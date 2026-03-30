@@ -11,3 +11,6 @@ build/
 .cursor/
 .ruff_cache/
 .pytest_cache/
+.env
+.env.*
+secrets/

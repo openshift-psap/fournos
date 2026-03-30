@@ -1,0 +1,30 @@
+name: Image Push
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  image-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Fournos Image
+        id: build
+        uses: redhat-actions/buildah-build@v2
+        with:
+          image: fournos
+          context: .
+          tags: latest ${{ github.sha }}
+          containerfiles: |
+            ./Dockerfile
+
+      - name: Push Fournos Image
+        uses: redhat-actions/push-to-registry@v2
+        with:
+          image: ${{ steps.build.outputs.image }}
+          tags: ${{ steps.build.outputs.tags }}
+          registry: quay.io/rh_perfscale
+          username: ${{ secrets.QUAY_USER }}
+          password: ${{ secrets.QUAY_TOKEN }}

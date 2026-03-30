@@ -6,9 +6,10 @@ CLUSTER_NAME="${KIND_CLUSTER_NAME:-fournos-dev}"
 echo "=== Fournos local dev setup ==="
 
 # ---------------------------------------------------------------
-# 0. Use Podman as the container runtime for kind
+# 0. Container runtime for kind (default: podman, override with
+#    KIND_EXPERIMENTAL_PROVIDER=docker for CI / Docker-based envs)
 # ---------------------------------------------------------------
-export KIND_EXPERIMENTAL_PROVIDER=podman
+export KIND_EXPERIMENTAL_PROVIDER="${KIND_EXPERIMENTAL_PROVIDER:-podman}"
 
 # ---------------------------------------------------------------
 # 1. kind cluster
