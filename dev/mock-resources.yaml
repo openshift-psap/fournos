@@ -1,0 +1,238 @@
+# Mock Tekton Tasks — replace the real Tasks with lightweight stubs
+# that echo parameters and sleep briefly instead of running FORGE.
+
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: fournos-prepare
+  namespace: psap-automation
+spec:
+  params:
+    - name: kubeconfig-secret
+      type: string
+    - name: job-name
+      type: string
+  steps:
+    - name: validate
+      image: busybox:1.36
+      script: |
+        #!/bin/sh
+        echo "[mock-prepare] job=$(params.job-name)"
+        echo "[mock-prepare] kubeconfig-secret=$(params.kubeconfig-secret)"
+        echo "[mock-prepare] connectivity check: OK"
+
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: fournos-run
+  namespace: psap-automation
+spec:
+  params:
+    - name: forge-project
+      type: string
+    - name: forge-preset
+      type: string
+    - name: forge-args
+      type: array
+    - name: kubeconfig-secret
+      type: string
+    - name: gpu-count
+      type: string
+    - name: job-name
+      type: string
+    - name: secrets
+      type: array
+  steps:
+    - name: run-forge
+      image: busybox:1.36
+      script: |
+        #!/bin/sh
+        echo "[mock-run] forge run $(params.forge-project) --preset $(params.forge-preset)"
+        echo "[mock-run] gpu-count=$(params.gpu-count)"
+        echo "[mock-run] job=$(params.job-name)"
+        echo "[mock-run] simulating workload (10s)..."
+        sleep 10
+        echo "[mock-run] done"
+
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: fournos-cleanup
+  namespace: psap-automation
+spec:
+  params:
+    - name: kubeconfig-secret
+      type: string
+    - name: job-name
+      type: string
+  steps:
+    - name: cleanup
+      image: busybox:1.36
+      script: |
+        #!/bin/sh
+        echo "[mock-cleanup] job=$(params.job-name)"
+        echo "[mock-cleanup] nothing to clean up in mock mode"
+
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: fournos-notify
+  namespace: psap-automation
+spec:
+  params:
+    - name: job-id
+      type: string
+  steps:
+    - name: notify
+      image: curlimages/curl:8.12.1
+      script: |
+        #!/bin/sh
+        echo "[mock-notify] job-id=$(params.job-id)"
+        curl -sf -X POST \
+          "http://host.docker.internal:8000/api/v1/job/$(params.job-id)/complete" \
+          || echo "[mock-notify] callback failed (Fournos not reachable from cluster)"
+
+---
+# Mock run-only Pipeline — references the mock fournos-run Task above.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: fournos-run-only
+  namespace: psap-automation
+spec:
+  params:
+    - name: job-id
+      type: string
+    - name: job-name
+      type: string
+    - name: forge-project
+      type: string
+    - name: forge-preset
+      type: string
+    - name: forge-args
+      type: array
+      default: []
+    - name: kubeconfig-secret
+      type: string
+    - name: gpu-count
+      type: string
+    - name: secrets
+      type: array
+      default: []
+  tasks:
+    - name: run
+      taskRef:
+        name: fournos-run
+      params:
+        - name: forge-project
+          value: "$(params.forge-project)"
+        - name: forge-preset
+          value: "$(params.forge-preset)"
+        - name: forge-args
+          value: "$(params.forge-args[*])"
+        - name: kubeconfig-secret
+          value: "$(params.kubeconfig-secret)"
+        - name: gpu-count
+          value: "$(params.gpu-count)"
+        - name: job-name
+          value: "$(params.job-name)"
+        - name: secrets
+          value: "$(params.secrets[*])"
+
+---
+# Dev-only pipeline with no fournos-notify finally step.
+# Used by reconciler tests to guarantee the Workload is never cleaned up
+# by the completion callback, so only the reconciler can delete it.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: fournos-run-no-notify
+  namespace: psap-automation
+spec:
+  params:
+    - name: job-id
+      type: string
+    - name: job-name
+      type: string
+    - name: forge-project
+      type: string
+    - name: forge-preset
+      type: string
+    - name: forge-args
+      type: array
+      default: []
+    - name: kubeconfig-secret
+      type: string
+    - name: gpu-count
+      type: string
+    - name: secrets
+      type: array
+      default: []
+  tasks:
+    - name: run
+      taskRef:
+        name: fournos-run
+      params:
+        - name: forge-project
+          value: "$(params.forge-project)"
+        - name: forge-preset
+          value: "$(params.forge-preset)"
+        - name: forge-args
+          value:
+            - "$(params.forge-args[*])"
+        - name: kubeconfig-secret
+          value: "$(params.kubeconfig-secret)"
+        - name: gpu-count
+          value: "$(params.gpu-count)"
+        - name: job-name
+          value: "$(params.job-name)"
+        - name: secrets
+          value:
+            - "$(params.secrets[*])"
+
+---
+# Mock kubeconfig Secrets — one per cluster defined in kueue-config.
+# Content is a placeholder; Fournos only checks existence and passes
+# the Secret name to the PipelineRun (the mock Tasks ignore it).
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cluster-1-kubeconfig
+  namespace: psap-automation
+type: Opaque
+stringData:
+  kubeconfig: "mock"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cluster-2-kubeconfig
+  namespace: psap-automation
+type: Opaque
+stringData:
+  kubeconfig: "mock"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cluster-3-kubeconfig
+  namespace: psap-automation
+type: Opaque
+stringData:
+  kubeconfig: "mock"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cluster-4-kubeconfig
+  namespace: psap-automation
+type: Opaque
+stringData:
+  kubeconfig: "mock"

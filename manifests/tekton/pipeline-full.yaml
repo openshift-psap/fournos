@@ -1,0 +1,71 @@
+# Full three-step pipeline: prepare → run → cleanup (finally).
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: fournos-full
+  namespace: psap-automation
+spec:
+  params:
+    - name: job-id
+      type: string
+    - name: job-name
+      type: string
+    - name: forge-project
+      type: string
+    - name: forge-preset
+      type: string
+    - name: forge-args
+      type: array
+      default: []
+    - name: kubeconfig-secret
+      type: string
+    - name: gpu-count
+      type: string
+    - name: secrets
+      type: array
+      default: []
+  tasks:
+    - name: prepare
+      taskRef:
+        name: fournos-prepare
+      params:
+        - name: kubeconfig-secret
+          value: "$(params.kubeconfig-secret)"
+        - name: job-name
+          value: "$(params.job-name)"
+    - name: run
+      runAfter: [prepare]
+      taskRef:
+        name: fournos-run
+      params:
+        - name: forge-project
+          value: "$(params.forge-project)"
+        - name: forge-preset
+          value: "$(params.forge-preset)"
+        - name: forge-args
+          value:
+            - "$(params.forge-args[*])"
+        - name: kubeconfig-secret
+          value: "$(params.kubeconfig-secret)"
+        - name: gpu-count
+          value: "$(params.gpu-count)"
+        - name: job-name
+          value: "$(params.job-name)"
+        - name: secrets
+          value:
+            - "$(params.secrets[*])"
+  finally:
+    - name: cleanup
+      taskRef:
+        name: fournos-cleanup
+      params:
+        - name: kubeconfig-secret
+          value: "$(params.kubeconfig-secret)"
+        - name: job-name
+          value: "$(params.job-name)"
+    - name: notify-fournos
+      taskRef:
+        name: fournos-notify
+      params:
+        - name: job-id
+          value: "$(params.job-id)"
