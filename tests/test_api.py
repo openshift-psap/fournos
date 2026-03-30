@@ -44,7 +44,7 @@ def test_cluster_pinned(client: httpx.Client):
     try:
         assert data["status"] == "pending"
 
-        poll_job_status(client, job_id, timeout=30)
+        poll_job_status(client, job_id, timeout=30, terminal={"running"})
 
         resp = client.get(f"/api/v1/job/{job_id}")
         assert resp.status_code == 200
@@ -109,7 +109,7 @@ def test_cluster_and_hardware(client: httpx.Client):
     try:
         assert data["status"] == "pending"
 
-        poll_job_status(client, job_id, timeout=30)
+        poll_job_status(client, job_id, timeout=30, terminal={"running"})
 
         resp = client.get(f"/api/v1/job/{job_id}")
         assert resp.status_code == 200

@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 KUEUE_GROUP = "kueue.x-k8s.io"
 KUEUE_VERSION = "v1beta2"
 KUEUE_WORKLOAD_PLURAL = "workloads"
+KUEUE_RESOURCE_FLAVOR_PLURAL = "resourceflavors"
 
 
 class KueueClient:
@@ -120,6 +121,15 @@ class KueueClient:
             label_selector=f"{LABEL_MANAGED_BY}=fournos",
         )
         return result.get("items", [])
+
+    def list_flavors(self) -> set[str]:
+        """Return the set of ResourceFlavor names known to Kueue."""
+        result = self._k8s.list_cluster_custom_object(
+            group=KUEUE_GROUP,
+            version=KUEUE_VERSION,
+            plural=KUEUE_RESOURCE_FLAVOR_PLURAL,
+        )
+        return {item["metadata"]["name"] for item in result.get("items", [])}
 
     @staticmethod
     def is_admitted(workload: dict) -> bool:

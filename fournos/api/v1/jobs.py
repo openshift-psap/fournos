@@ -65,13 +65,13 @@ async def submit_job(request: Request, body: JobSubmitRequest):
     if not body.cluster and not body.hardware:
         raise HTTPException(400, "Must specify 'cluster', 'hardware', or both")
 
-    if body.cluster:
-        registry = request.app.state.cluster_registry
-        if not await asyncio.to_thread(registry.cluster_exists, body.cluster):
-            raise HTTPException(404, f"Cluster '{body.cluster}' not found")
-
     job_id = uuid.uuid4().hex[:12]
     kueue: KueueClient = request.app.state.kueue
+
+    if body.cluster:
+        flavors = await asyncio.to_thread(kueue.list_flavors)
+        if body.cluster not in flavors:
+            raise HTTPException(404, f"Cluster '{body.cluster}' not found")
 
     wl = await asyncio.to_thread(
         kueue.create_workload,
