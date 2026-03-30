@@ -70,6 +70,8 @@ spec:
         echo "Launching FORGE on target cluster…"
         forge run "$(params.forge-project)" \
           --preset "$(params.forge-preset)" \
+          --gpu-count "$(params.gpu-count)" \
+          --job-name "$(params.job-name)" \
           "$@"
   volumes:
     - name: kubeconfig
