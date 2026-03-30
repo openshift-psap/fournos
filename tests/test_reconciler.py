@@ -1,12 +1,13 @@
 """Reconciler e2e tests — verify cleanup of dangling Kueue Workloads.
 
-Requires FOURNOS_RECONCILE_INTERVAL_SEC=10 (set by ``make dev-run``).
-With interval=10s the minimum-age threshold is 20s, so tests wait ~30s
-for the reconciler to act.
+Requires FOURNOS_RECONCILE_INTERVAL_SEC to be set (``make dev-run`` uses 10).
+The reconciler's min-age threshold is 2 × interval; the polling helper
+below waits up to 3 × interval + margin so the test adapts automatically.
 """
 
 from __future__ import annotations
 
+import os
 import time
 
 import httpx
@@ -17,6 +18,22 @@ from tests.conftest import (
     submit_job,
     workload_exists,
 )
+
+_RECONCILE_INTERVAL = float(os.environ.get("FOURNOS_RECONCILE_INTERVAL_SEC", "60"))
+
+
+def _wait_until_workload_gone(job_id: str, *, reason: str) -> None:
+    """Poll until the Workload is deleted, or fail with a clear message."""
+    timeout = 3 * _RECONCILE_INTERVAL + 10
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not workload_exists(job_id):
+            return
+        time.sleep(2)
+    raise AssertionError(
+        f"Reconciler should have deleted the {reason} Workload "
+        f"within {timeout:.0f}s (interval={_RECONCILE_INTERVAL:.0f}s)"
+    )
 
 
 def test_orphaned_workload_cleaned_up(client: httpx.Client):
@@ -38,10 +55,7 @@ def test_orphaned_workload_cleaned_up(client: httpx.Client):
         "Workload should still exist right after deleting PipelineRun"
     )
 
-    time.sleep(30)
-    assert not workload_exists(job_id), (
-        "Reconciler should have deleted the orphaned Workload"
-    )
+    _wait_until_workload_gone(job_id, reason="orphaned")
 
 
 def test_stale_workload_cleaned_up(client: httpx.Client):
@@ -74,9 +88,4 @@ def test_stale_workload_cleaned_up(client: httpx.Client):
     )
     assert status in ("succeeded", "failed")
 
-    # The reconciler should detect the stale Workload (finished PR, no
-    # notify callback) and delete it within a few cycles.
-    time.sleep(30)
-    assert not workload_exists(job_id), (
-        "Reconciler should have deleted the stale Workload"
-    )
+    _wait_until_workload_gone(job_id, reason="stale")
