@@ -127,5 +127,9 @@ spec:
         set -eu
         echo "Notifying Fournos that job $(params.job-id) is complete…"
         curl -sf -X POST \
+          --max-time 10 \
+          --retry 5 \
+          --retry-delay 3 \
+          --retry-connrefused \
           "http://fournos.psap-automation.svc:8000/api/v1/job/$(params.job-id)/complete"
         echo "Fournos notified."

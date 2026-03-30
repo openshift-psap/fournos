@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -7,6 +8,7 @@ from kubernetes import client, config
 from fournos.api.v1.router import router as v1_router
 from fournos.core.clusters import ClusterRegistry
 from fournos.core.kueue import KueueClient
+from fournos.core.reconciler import run_reconciler
 from fournos.core.tekton import TektonClient
 from fournos.settings import settings
 
@@ -15,7 +17,11 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logging.basicConfig(level=settings.log_level)
+    logging.basicConfig(
+        level=settings.log_level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
 
     try:
         config.load_incluster_config()
@@ -31,7 +37,21 @@ async def lifespan(app: FastAPI):
     app.state.tekton = TektonClient(custom_objects)
     app.state.kueue = KueueClient(custom_objects)
 
+    reconciler_task = asyncio.create_task(
+        run_reconciler(
+            app.state.kueue,
+            app.state.tekton,
+            settings.reconcile_interval_sec,
+        )
+    )
+
     yield
+
+    reconciler_task.cancel()
+    try:
+        await reconciler_task
+    except asyncio.CancelledError:
+        pass
 
 
 def create_app() -> FastAPI:

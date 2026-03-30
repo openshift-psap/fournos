@@ -135,6 +135,10 @@ async def _wait_and_launch(
 
     try:
         cluster = await kueue.poll_admission(job_id)
+        if cluster is None:
+            logger.info("Job %s: Workload deleted before admission, abandoning", job_id)
+            return
+
         kubeconfig_secret = registry.resolve_kubeconfig_secret(cluster)
 
         await asyncio.to_thread(

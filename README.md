@@ -48,7 +48,8 @@ FOURNOS_URL=http://other-host:8000 make dev-test # override target
 ```
 
 The tests cover both submission modes, Kueue admission polling, inadmissible
-workloads, job listing/filtering, the completion callback, and artifacts.
+workloads, job listing/filtering, the completion callback, artifacts, and
+reconciler cleanup of orphaned/stale Workloads.
 
 ## API
 
@@ -106,15 +107,30 @@ curl -X POST http://localhost:8000/api/v1/job/{id}/complete   # returns 204
 curl http://localhost:8000/api/v1/job/{id}/artifacts
 ```
 
+## Reconciler
+
+A background reconciler loop scans for Kueue Workloads that are leaking quota
+and deletes them. It runs every `FOURNOS_RECONCILE_INTERVAL_SEC` (default 60
+seconds) and handles two cases:
+
+- **Orphaned Workloads** — admitted but no corresponding PipelineRun exists
+  (e.g. the admission-polling task was lost after a process restart).
+- **Stale Workloads** — a PipelineRun reached a terminal state but the
+  `fournos-notify` completion callback failed to delete the Workload.
+
+Only Workloads that have been admitted for at least `2 × reconcile_interval` are
+eligible for cleanup, avoiding races with the normal fast-path. Pending
+Workloads (waiting for cluster resources) are never touched.
+
 ## Deployment
 
 Apply the Kubernetes manifests in order:
 
 ```bash
-kubectl apply -f config/rbac/
-kubectl apply -f config/kueue/
-kubectl apply -f config/tekton/
-kubectl apply -f config/deployment/
+kubectl apply -f manifests/rbac.yaml
+kubectl apply -f manifests/kueue-config.yaml
+kubectl apply -f manifests/tekton/
+kubectl apply -f manifests/deployment.yaml
 ```
 
 ## Configuration
@@ -127,6 +143,7 @@ All settings are read from environment variables with the `FOURNOS_` prefix:
 | `FOURNOS_TEKTON_DASHBOARD_URL` | | Tekton Dashboard base URL |
 | `FOURNOS_KUEUE_LOCAL_QUEUE_NAME` | `fournos-queue` | Kueue LocalQueue name |
 | `FOURNOS_GPU_RESOURCE_PREFIX` | `fournos/gpu-` | Resource name prefix for GPU types |
-| `FOURNOS_ADMISSION_POLL_INTERVAL` | `5.0` | Seconds between admission polls |
-| `FOURNOS_ADMISSION_POLL_TIMEOUT` | `3600.0` | Max seconds to wait for admission |
+| `FOURNOS_ADMISSION_POLL_INTERVAL_SEC` | `5.0` | Seconds between admission polls |
+| `FOURNOS_ADMISSION_POLL_TIMEOUT_SEC` | `3600.0` | Max seconds to wait for admission |
+| `FOURNOS_RECONCILE_INTERVAL_SEC` | `60.0` | Seconds between reconciler scans |
 | `FOURNOS_LOG_LEVEL` | `INFO` | Logging level |

@@ -9,8 +9,9 @@ class Settings(BaseSettings):
     kubeconfig_secret_pattern: str = "{cluster}-kubeconfig"
     kueue_local_queue_name: str = "fournos-queue"
     gpu_resource_prefix: str = "fournos/gpu-"
-    admission_poll_interval: float = 5.0
-    admission_poll_timeout: float = 3600.0
+    admission_poll_interval_sec: float = 5.0
+    admission_poll_timeout_sec: float = 3600.0
+    reconcile_interval_sec: float = 60.0
     log_level: str = "INFO"
 
 

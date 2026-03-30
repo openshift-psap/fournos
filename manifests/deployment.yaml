@@ -39,12 +39,14 @@ spec:
               port: http
             initialDelaySeconds: 3
             periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 1000m
+              memory: 512Mi
             limits:
-              cpu: 500m
+              cpu: 1500m
               memory: 512Mi
 
 ---

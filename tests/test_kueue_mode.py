@@ -1,0 +1,72 @@
+"""Kueue mode: hardware request — scheduling, inadmissible workloads, validation."""
+
+import httpx
+
+from tests.conftest import complete_job, poll_job_status, submit_job
+
+
+def test_hardware_request_admitted_and_launched(client: httpx.Client):
+    data = submit_job(
+        client,
+        {
+            "name": "test-hardware",
+            "hardware": {"gpu_type": "a100", "gpu_count": 2},
+            "forge": {"project": "testproj/llmd", "preset": "llama3"},
+            "priority": "nightly",
+        },
+    )
+    assert data["status"] == "pending"
+
+    status = poll_job_status(client, data["id"], timeout=60)
+    assert status in ("running", "succeeded", "failed"), (
+        f"Expected terminal-ish state, still {status}"
+    )
+
+    complete_job(client, data["id"])
+
+
+def test_inadmissible_stays_pending(client: httpx.Client):
+    data = submit_job(
+        client,
+        {
+            "name": "test-inadmissible",
+            "hardware": {"gpu_type": "a100", "gpu_count": 100},
+            "forge": {"project": "testproj/llmd", "preset": "cks"},
+        },
+    )
+    assert data["status"] == "pending"
+
+    status = poll_job_status(
+        client,
+        data["id"],
+        terminal={"running", "succeeded", "failed"},
+        interval=3,
+        timeout=9,
+    )
+    assert status == "pending"
+
+    complete_job(client, data["id"])
+
+
+def test_validation_both_cluster_and_hardware(client: httpx.Client):
+    resp = client.post(
+        "/api/v1/jobs",
+        json={
+            "name": "test-invalid",
+            "cluster": "cluster-1",
+            "hardware": {"gpu_type": "a100", "gpu_count": 1},
+            "forge": {"project": "testproj/llmd", "preset": "cks"},
+        },
+    )
+    assert resp.status_code == 400
+
+
+def test_validation_neither_cluster_nor_hardware(client: httpx.Client):
+    resp = client.post(
+        "/api/v1/jobs",
+        json={
+            "name": "test-invalid",
+            "forge": {"project": "testproj/llmd", "preset": "cks"},
+        },
+    )
+    assert resp.status_code == 400

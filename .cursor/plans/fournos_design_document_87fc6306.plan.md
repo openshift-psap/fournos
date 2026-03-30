@@ -33,19 +33,19 @@ todos:
     content: "core/kueue.py: KueueClient — create, get, list, delete Workloads; poll admission; read assigned flavor"
     status: complete
   - id: 11-kueue-manifests
-    content: "config/kueue/ manifests: ResourceFlavors, ClusterQueue, LocalQueue, WorkloadPriorityClasses (v1beta2)"
+    content: "manifests/kueue-config.yaml: ResourceFlavors, ClusterQueue, LocalQueue, WorkloadPriorityClasses (v1beta2)"
     status: complete
   - id: 12-tekton-manifests
-    content: "config/tekton/ manifests: shared Tasks (prepare, run, cleanup, notify), fournos-full Pipeline, fournos-run-only Pipeline"
+    content: "manifests/tekton/: shared Tasks (prepare, run, cleanup, notify), fournos-full Pipeline, fournos-run-only Pipeline"
     status: complete
   - id: 13-rbac-manifests
-    content: "config/rbac/ manifests: ClusterRole + ClusterRoleBinding for Kueue resources"
+    content: "manifests/rbac.yaml: ClusterRole + ClusterRoleBinding for Kueue resources"
     status: complete
   - id: 14-dockerfile
     content: "Dockerfile: Python base, install deps, copy source, uvicorn entrypoint"
     status: complete
   - id: 15-deployment-manifests
-    content: "config/deployment/ manifests: Deployment + Service in psap-automation namespace"
+    content: "manifests/deployment.yaml: Deployment + Service in psap-automation namespace"
     status: complete
   - id: 16-local-dev
     content: "Local dev environment: kind cluster setup script, mock resources, Makefile targets (dev-setup, dev-run, dev-test, dev-teardown)"
@@ -157,11 +157,26 @@ sequenceDiagram
     Note over Tekton: pipeline runs...
     Tekton->>Fournos: POST /job/{id}/complete
     Fournos->>Kueue: delete Workload
+
+    Note over Fournos,Kueue: fallback: reconciler deletes<br/>orphaned/stale Workloads
 ```
 
 
 
-## 5. Persistence
+## 5. Reconciler
+
+A background reconciler loop runs every `FOURNOS_RECONCILE_INTERVAL_SEC` (default 60s / 1 minute) and cleans up Kueue Workloads that are leaking quota. It handles two cases:
+
+1. **Orphaned Workload** — a Workload is admitted but has no corresponding PipelineRun. This happens when the fire-and-forget admission-polling task is lost (e.g. Fournos process restart). Without the reconciler, the Workload would hold quota indefinitely.
+2. **Stale Workload** — a Workload exists but its PipelineRun has already reached a terminal state (succeeded or failed). This happens when the `fournos-notify` completion callback fails after retries.
+
+Both cases are guarded by a minimum age threshold of `2 × reconcile_interval` to avoid racing with the normal fast-path (fire-and-forget task or completion callback). The age is computed from the `lastTransitionTime` of the Workload's `Admitted` condition.
+
+Pending Workloads (not yet admitted by Kueue) are never touched — they are legitimately waiting for cluster resources.
+
+Implementation: `[fournos/core/reconciler.py](fournos/core/reconciler.py)`, started as an `asyncio.create_task` in the FastAPI lifespan.
+
+## 6. Persistence
 
 Job state is stored entirely in Kubernetes resources — no in-memory store:
 
@@ -170,15 +185,15 @@ Job state is stored entirely in Kubernetes resources — no in-memory store:
 
 Listing/status endpoints query these resources directly and merge them.
 
-## 6. FORGE integration
+## 7. FORGE integration
 
 FORGE is an existing benchmark execution framework that runs on the hub cluster inside Tekton Task pods and owns all operations on target clusters — setup, benchmark execution, and cleanup — by issuing remote `oc`/`kubectl` commands via kubeconfig Secrets. Fournos has a strict separation of concerns: it handles cluster selection, scheduling, and bookkeeping, but never interacts with target clusters directly. All FORGE parameters (`project`, `preset`, `args`) are passed through opaquely to the Tekton Pipeline as params. Fournos also passes `job-id` and `job-name` so FORGE can use them for its own resource naming and correlation.
 
-The Tekton Task definitions in `config/tekton/tasks.yaml` are stub implementations showing the expected parameter interface. The real FORGE tasks will replace them.
+The Tekton Task definitions in `manifests/tekton/tasks.yaml` are stub implementations showing the expected parameter interface. The real FORGE tasks will replace them.
 
-## 7. Tekton Pipelines and Tasks
+## 8. Tekton Pipelines and Tasks
 
-### Tasks ([config/tekton/tasks.yaml](config/tekton/tasks.yaml))
+### Tasks ([manifests/tekton/tasks.yaml](manifests/tekton/tasks.yaml))
 
 FORGE-owned tasks (stubs in this repo, replaced by real FORGE implementation):
 
@@ -201,56 +216,57 @@ Fournos-owned task:
 ### Pipelines
 
 
-| Pipeline           | File                                                           | Tasks         | Finally                 |
-| ------------------ | -------------------------------------------------------------- | ------------- | ----------------------- |
-| `fournos-full`     | [pipeline-full.yaml](config/tekton/pipeline-full.yaml)         | prepare → run | cleanup, notify-fournos |
-| `fournos-run-only` | [pipeline-run-only.yaml](config/tekton/pipeline-run-only.yaml) | run           | notify-fournos          |
+| Pipeline           | File                                                              | Tasks         | Finally                 |
+| ------------------ | ----------------------------------------------------------------- | ------------- | ----------------------- |
+| `fournos-full`     | [pipeline-full.yaml](manifests/tekton/pipeline-full.yaml)         | prepare → run | cleanup, notify-fournos |
+| `fournos-run-only` | [pipeline-run-only.yaml](manifests/tekton/pipeline-run-only.yaml) | run           | notify-fournos          |
 
 
 The `pipeline` field in `JobSubmitRequest` selects which pipeline to use (default: `fournos-full`).
 
-## 8. Kueue configuration
+## 9. Kueue configuration
 
-[config/kueue/kueue-config.yaml](config/kueue/kueue-config.yaml):
+[manifests/kueue-config.yaml](manifests/kueue-config.yaml):
 
 - **ResourceFlavors**: one per cluster (abstract quota buckets mapped to cluster names)
 - **ClusterQueue** `fournos-queue`: per-cluster GPU quotas using virtual resource `fournos/gpu-{type}`
 - **LocalQueue** in `psap-automation` namespace
 - **WorkloadPriorityClasses** (v1beta2): `manual`, `nightly`, `presubmit`, `adhoc`
 
-## 9. Deployment
+## 10. Deployment
 
 Namespace-scoped tenant on a shared OpenShift management cluster:
 
-- [config/rbac/](config/rbac/) — ClusterRole + ClusterRoleBinding for Kueue cluster resources
-- [config/deployment/](config/deployment/) — Deployment + Service in `psap-automation`
+- [manifests/rbac.yaml](manifests/rbac.yaml) — ClusterRole + ClusterRoleBinding for Kueue cluster resources
+- [manifests/deployment.yaml](manifests/deployment.yaml) — Deployment + Service in `psap-automation`
 - [Dockerfile](Dockerfile) — Python base image, pip install, uvicorn entrypoint
 
 ```bash
-kubectl apply -f config/rbac/
-kubectl apply -f config/kueue/
-kubectl apply -f config/tekton/
-kubectl apply -f config/deployment/
+kubectl apply -f manifests/rbac.yaml
+kubectl apply -f manifests/kueue-config.yaml
+kubectl apply -f manifests/tekton/
+kubectl apply -f manifests/deployment.yaml
 ```
 
-## 10. Configuration
+## 11. Configuration
 
 All settings via environment variables with `FOURNOS_` prefix ([fournos/settings.py](fournos/settings.py)):
 
 
-| Variable                            | Default                | Description                       |
-| ----------------------------------- | ---------------------- | --------------------------------- |
-| `FOURNOS_NAMESPACE`                 | `psap-automation`      | Kubernetes namespace              |
-| `FOURNOS_TEKTON_DASHBOARD_URL`      | *(empty)*              | Tekton Dashboard base URL         |
-| `FOURNOS_KUBECONFIG_SECRET_PATTERN` | `{cluster}-kubeconfig` | Secret name pattern               |
-| `FOURNOS_KUEUE_LOCAL_QUEUE_NAME`    | `fournos-queue`        | Kueue LocalQueue name             |
-| `FOURNOS_GPU_RESOURCE_PREFIX`       | `fournos/gpu-`         | Virtual resource name prefix      |
-| `FOURNOS_ADMISSION_POLL_INTERVAL`   | `5.0`                  | Seconds between admission polls   |
-| `FOURNOS_ADMISSION_POLL_TIMEOUT`    | `3600.0`               | Max seconds to wait for admission |
-| `FOURNOS_LOG_LEVEL`                 | `INFO`                 | Logging level                     |
+| Variable                              | Default                | Description                       |
+| ------------------------------------- | ---------------------- | --------------------------------- |
+| `FOURNOS_NAMESPACE`                   | `psap-automation`      | Kubernetes namespace              |
+| `FOURNOS_TEKTON_DASHBOARD_URL`        | *(empty)*              | Tekton Dashboard base URL         |
+| `FOURNOS_KUBECONFIG_SECRET_PATTERN`   | `{cluster}-kubeconfig` | Secret name pattern               |
+| `FOURNOS_KUEUE_LOCAL_QUEUE_NAME`      | `fournos-queue`        | Kueue LocalQueue name             |
+| `FOURNOS_GPU_RESOURCE_PREFIX`         | `fournos/gpu-`         | Virtual resource name prefix      |
+| `FOURNOS_ADMISSION_POLL_INTERVAL_SEC` | `5.0`                  | Seconds between admission polls   |
+| `FOURNOS_ADMISSION_POLL_TIMEOUT_SEC`  | `3600.0`               | Max seconds to wait for admission |
+| `FOURNOS_RECONCILE_INTERVAL_SEC`      | `60.0`                 | Seconds between reconciler scans  |
+| `FOURNOS_LOG_LEVEL`                   | `INFO`                 | Logging level                     |
 
 
-## 11. Project structure
+## 12. Project structure
 
 ```
 fournos/
@@ -266,17 +282,22 @@ fournos/
     clusters.py            # ClusterRegistry (Secret lookup)
     tekton.py              # TektonClient (PipelineRun CRUD)
     kueue.py               # KueueClient (Workload CRUD, admission polling)
-config/
-  kueue/                   # ClusterQueue, ResourceFlavors, LocalQueue, WorkloadPriorityClasses
+    reconciler.py          # Background loop: cleanup orphaned/stale Workloads
+  log-config.yaml          # Uvicorn log format with timestamps
+manifests/
+  kueue-config.yaml        # ClusterQueue, ResourceFlavors, LocalQueue, WorkloadPriorityClasses
+  rbac.yaml                # Role, ClusterRole, RoleBinding, ClusterRoleBinding
+  deployment.yaml          # Deployment, Service
   tekton/                  # Tasks, fournos-full Pipeline, fournos-run-only Pipeline
-  rbac/                    # ClusterRole, ClusterRoleBinding
-  deployment/              # Deployment, Service
 dev/
   setup.sh                 # kind cluster setup (Tekton + Kueue + mock resources)
   mock-resources.yaml      # Mock Tasks, Pipelines, kubeconfig Secrets
 tests/
-  conftest.py              # Fixtures (httpx client, helpers)
-  test_e2e.py              # E2e tests against a live Fournos instance
+  conftest.py              # Fixtures (httpx client, helpers, cleanup)
+  test_api.py              # Health, Mode A, completion callback, artifacts
+  test_kueue_mode.py       # Mode B (Kueue scheduling), validation
+  test_jobs_list.py        # List/filter jobs
+  test_reconciler.py       # Reconciler: orphaned + stale Workload cleanup
 Dockerfile
 Makefile                   # dev-setup, dev-run, dev-test, dev-teardown, lint, format
 pyproject.toml
@@ -284,7 +305,7 @@ pyproject.toml
 README.md
 ```
 
-## 12. Key design decisions
+## 13. Key design decisions
 
 - **Python HTTP service** (FastAPI), not a Go controller or CRD-based operator
 - **Two scheduling modes**: explicit cluster (bypass Kueue) and hardware request (through Kueue)
@@ -293,6 +314,7 @@ README.md
 - **Tekton for execution, Kueue for scheduling** — virtual Workload pattern with `fournos/gpu-`* resources
 - **Stateless service** — all job state lives in Kubernetes resources (PipelineRuns, Workloads), not in memory
 - **Completion callback** — Tekton `finally` task notifies Fournos instead of Fournos polling each PipelineRun
+- **Reconciler as safety net** — background loop deletes orphaned/stale Workloads that leak quota when the fast-path (fire-and-forget task or completion callback) fails; guarded by a minimum admission age to avoid races
 - **Multiple pipelines** — `fournos-full` (prepare → run → cleanup) and `fournos-run-only` (run only), selectable per job
 - **Target clusters need nothing installed** — FORGE runs on the hub cluster inside Tekton Task pods and communicates with targets via remote `oc`/`kubectl` commands through kubeconfig Secrets
 

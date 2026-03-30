@@ -172,11 +172,21 @@ class KueueClient:
             if exc.status != 404:
                 raise
 
-    async def poll_admission(self, job_id: str) -> str:
-        """Block until the Workload is admitted; return the assigned flavor (cluster)."""
-        deadline = asyncio.get_event_loop().time() + settings.admission_poll_timeout
+    async def poll_admission(self, job_id: str) -> str | None:
+        """Block until the Workload is admitted; return the assigned flavor (cluster).
+
+        Returns ``None`` if the Workload is deleted before admission (e.g. by
+        manual cleanup, or test teardown).
+        """
+        deadline = asyncio.get_event_loop().time() + settings.admission_poll_timeout_sec
         while True:
-            workload = await asyncio.to_thread(self.get_workload, job_id)
+            workload = await asyncio.to_thread(self.get_workload_or_none, job_id)
+            if workload is None:
+                logger.info(
+                    "Workload fournos-%s disappeared, stopping admission poll",
+                    job_id,
+                )
+                return None
             if self.is_admitted(workload):
                 flavor = self.get_assigned_flavor(workload)
                 if flavor:
@@ -186,9 +196,9 @@ class KueueClient:
                     return flavor
             if asyncio.get_event_loop().time() >= deadline:
                 break
-            await asyncio.sleep(settings.admission_poll_interval)
+            await asyncio.sleep(settings.admission_poll_interval_sec)
 
         raise TimeoutError(
             f"Workload fournos-{job_id} not admitted within "
-            f"{settings.admission_poll_timeout}s"
+            f"{settings.admission_poll_timeout_sec}s"
         )

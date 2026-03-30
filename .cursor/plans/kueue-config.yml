@@ -47,7 +47,9 @@ kind: ClusterQueue
 metadata:
   name: fournos-queue
 spec:
-  namespaceSelector: {}
+  namespaceSelector:
+    matchLabels:
+      fournos.dev/queue-access: "true"
   preemption:
     withinClusterQueue: LowerPriority
     reclaimWithinCohort: Any

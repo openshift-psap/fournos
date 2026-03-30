@@ -1,12 +1,38 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import time
 
 import httpx
 import pytest
 
 FOURNOS_URL = os.environ.get("FOURNOS_URL", "http://localhost:8000")
+NAMESPACE = "psap-automation"
+
+
+def _kubectl_delete_all(resource: str) -> None:
+    subprocess.run(
+        [
+            "kubectl",
+            "delete",
+            resource,
+            "-n",
+            NAMESPACE,
+            "-l",
+            "app.kubernetes.io/managed-by=fournos",
+            "--ignore-not-found",
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _clean_before_test():
+    """Wipe Fournos resources before every test for a deterministic state."""
+    _kubectl_delete_all("pipelineruns")
+    _kubectl_delete_all("workloads")
 
 
 @pytest.fixture(scope="session")
@@ -48,3 +74,35 @@ def poll_job_status(
             break
         time.sleep(interval)
     return status
+
+
+def workload_exists(job_id: str) -> bool:
+    """Check whether a Kueue Workload for *job_id* exists via kubectl."""
+    result = subprocess.run(
+        ["kubectl", "get", "workload", f"fournos-{job_id}", "-n", "psap-automation"],
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
+def delete_pipelinerun(job_id: str) -> None:
+    """Delete a PipelineRun for *job_id* via kubectl."""
+    subprocess.run(
+        [
+            "kubectl",
+            "delete",
+            "pipelinerun",
+            f"fournos-{job_id}",
+            "-n",
+            "psap-automation",
+            "--ignore-not-found",
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+
+def complete_job(client: httpx.Client, job_id: str) -> None:
+    """Call the completion callback for *job_id*."""
+    resp = client.post(f"/api/v1/job/{job_id}/complete")
+    assert resp.status_code == 204

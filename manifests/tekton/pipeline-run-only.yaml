@@ -1,8 +1,9 @@
-# Full three-step pipeline: prepare → run → cleanup (finally).
+# Single-step pipeline: run only (no prepare, no cleanup).
+# Use on pre-configured clusters where setup/teardown is handled externally.
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
-  name: fournos-full
+  name: fournos-run-only
   namespace: psap-automation
 spec:
   params:
@@ -25,16 +26,7 @@ spec:
       type: array
       default: []
   tasks:
-    - name: prepare
-      taskRef:
-        name: fournos-prepare
-      params:
-        - name: kubeconfig-secret
-          value: "$(params.kubeconfig-secret)"
-        - name: job-name
-          value: "$(params.job-name)"
     - name: run
-      runAfter: [prepare]
       taskRef:
         name: fournos-run
       params:
@@ -43,7 +35,8 @@ spec:
         - name: forge-preset
           value: "$(params.forge-preset)"
         - name: forge-args
-          value: "$(params.forge-args[*])"
+          value:
+            - "$(params.forge-args[*])"
         - name: kubeconfig-secret
           value: "$(params.kubeconfig-secret)"
         - name: gpu-count
@@ -51,16 +44,9 @@ spec:
         - name: job-name
           value: "$(params.job-name)"
         - name: secrets
-          value: "$(params.secrets[*])"
+          value:
+            - "$(params.secrets[*])"
   finally:
-    - name: cleanup
-      taskRef:
-        name: fournos-cleanup
-      params:
-        - name: kubeconfig-secret
-          value: "$(params.kubeconfig-secret)"
-        - name: job-name
-          value: "$(params.job-name)"
     - name: notify-fournos
       taskRef:
         name: fournos-notify
