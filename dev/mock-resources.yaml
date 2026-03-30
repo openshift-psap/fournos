@@ -51,8 +51,8 @@ spec:
         echo "[mock-run] forge run $(params.forge-project) --preset $(params.forge-preset)"
         echo "[mock-run] gpu-count=$(params.gpu-count)"
         echo "[mock-run] job=$(params.job-name)"
-        echo "[mock-run] simulating workload (10s)..."
-        sleep 10
+        echo "[mock-run] simulating workload (3s)..."
+        sleep 3
         echo "[mock-run] done"
 
 ---

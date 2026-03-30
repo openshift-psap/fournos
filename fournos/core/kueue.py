@@ -28,12 +28,31 @@ class KueueClient:
         *,
         job_id: str,
         job_name: str,
-        gpu_type: str,
-        gpu_count: int,
+        gpu_type: str | None = None,
+        gpu_count: int = 0,
+        cluster: str | None = None,
         priority: str | None = None,
     ) -> dict:
         workload_name = f"fournos-{job_id}"
-        gpu_resource = self._gpu_resource_name(gpu_type)
+
+        resource_requests: dict[str, str] = {"cpu": "1"}
+        if gpu_type and gpu_count:
+            gpu_resource = self._gpu_resource_name(gpu_type)
+            resource_requests[gpu_resource] = str(gpu_count)
+
+        pod_spec: dict = {
+            "containers": [
+                {
+                    "name": "placeholder",
+                    "image": "registry.k8s.io/pause:3.9",
+                    "resources": {"requests": resource_requests},
+                }
+            ],
+            "restartPolicy": "Never",
+        }
+
+        if cluster:
+            pod_spec["nodeSelector"] = {"fournos.dev/cluster": cluster}
 
         body: dict = {
             "apiVersion": f"{KUEUE_GROUP}/{KUEUE_VERSION}",
@@ -56,23 +75,7 @@ class KueueClient:
                     {
                         "name": "launcher",
                         "count": 1,
-                        "template": {
-                            "spec": {
-                                "containers": [
-                                    {
-                                        "name": "placeholder",
-                                        "image": "registry.k8s.io/pause:3.9",
-                                        "resources": {
-                                            "requests": {
-                                                gpu_resource: str(gpu_count),
-                                                "cpu": "1",
-                                            }
-                                        },
-                                    }
-                                ],
-                                "restartPolicy": "Never",
-                            }
-                        },
+                        "template": {"spec": pod_spec},
                     }
                 ],
             },

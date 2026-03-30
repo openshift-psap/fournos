@@ -62,62 +62,24 @@ async def list_jobs(
 
 @router.post("/jobs", response_model=JobStatusResponse, status_code=201)
 async def submit_job(request: Request, body: JobSubmitRequest):
-    if body.cluster and body.hardware:
-        raise HTTPException(400, "Specify either 'cluster' or 'hardware', not both")
     if not body.cluster and not body.hardware:
-        raise HTTPException(400, "Must specify either 'cluster' or 'hardware'")
-
-    job_id = uuid.uuid4().hex[:12]
+        raise HTTPException(400, "Must specify 'cluster', 'hardware', or both")
 
     if body.cluster:
-        return await _submit_explicit(request, job_id, body)
-    return await _submit_hardware(request, job_id, body)
+        registry = request.app.state.cluster_registry
+        if not await asyncio.to_thread(registry.cluster_exists, body.cluster):
+            raise HTTPException(404, f"Cluster '{body.cluster}' not found")
 
-
-async def _submit_explicit(
-    request: Request, job_id: str, body: JobSubmitRequest
-) -> JobStatusResponse:
-    """Mode A: explicit cluster — resolve kubeconfig, create PipelineRun immediately."""
-    registry = request.app.state.cluster_registry
-    tekton: TektonClient = request.app.state.tekton
-
-    cluster = body.cluster
-    if not await asyncio.to_thread(registry.cluster_exists, cluster):
-        raise HTTPException(404, f"Cluster '{cluster}' not found")
-
-    kubeconfig_secret = registry.resolve_kubeconfig_secret(cluster)
-
-    pr = await asyncio.to_thread(
-        tekton.create_pipeline_run,
-        job_id=job_id,
-        job_name=body.name,
-        pipeline=body.pipeline,
-        forge_project=body.forge.project,
-        forge_preset=body.forge.preset,
-        forge_args=body.forge.args,
-        kubeconfig_secret=kubeconfig_secret,
-        gpu_count=0,
-        secrets=body.secrets,
-        cluster=cluster,
-        mode="explicit",
-    )
-
-    return _pr_to_response(pr)
-
-
-async def _submit_hardware(
-    request: Request, job_id: str, body: JobSubmitRequest
-) -> JobStatusResponse:
-    """Mode B: hardware request — create Kueue Workload, poll admission in background."""
+    job_id = uuid.uuid4().hex[:12]
     kueue: KueueClient = request.app.state.kueue
-    hw = body.hardware
 
     wl = await asyncio.to_thread(
         kueue.create_workload,
         job_id=job_id,
         job_name=body.name,
-        gpu_type=hw.gpu_type,
-        gpu_count=hw.gpu_count,
+        gpu_type=body.hardware.gpu_type if body.hardware else None,
+        gpu_count=body.hardware.gpu_count if body.hardware else 0,
+        cluster=body.cluster,
         priority=body.priority,
     )
 
@@ -140,6 +102,7 @@ async def _wait_and_launch(
             return
 
         kubeconfig_secret = registry.resolve_kubeconfig_secret(cluster)
+        gpu_count = body.hardware.gpu_count if body.hardware else 0
 
         await asyncio.to_thread(
             tekton.create_pipeline_run,
@@ -150,10 +113,9 @@ async def _wait_and_launch(
             forge_preset=body.forge.preset,
             forge_args=body.forge.args,
             kubeconfig_secret=kubeconfig_secret,
-            gpu_count=body.hardware.gpu_count,
+            gpu_count=gpu_count,
             secrets=body.secrets,
             cluster=cluster,
-            mode="hardware",
         )
 
         logger.info("Job %s launched on cluster %s", job_id, cluster)
