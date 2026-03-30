@@ -15,14 +15,16 @@ def test_hardware_request_admitted_and_launched(client: httpx.Client):
             "priority": "nightly",
         },
     )
-    assert data["status"] == "pending"
+    job_id = data["id"]
+    try:
+        assert data["status"] == "pending"
 
-    status = poll_job_status(client, data["id"], timeout=60)
-    assert status in ("running", "succeeded", "failed"), (
-        f"Expected terminal-ish state, still {status}"
-    )
-
-    complete_job(client, data["id"])
+        status = poll_job_status(client, job_id, timeout=60)
+        assert status in ("running", "succeeded", "failed"), (
+            f"Expected terminal-ish state, still {status}"
+        )
+    finally:
+        complete_job(client, job_id)
 
 
 def test_inadmissible_stays_pending(client: httpx.Client):
@@ -34,18 +36,20 @@ def test_inadmissible_stays_pending(client: httpx.Client):
             "forge": {"project": "testproj/llmd", "preset": "cks"},
         },
     )
-    assert data["status"] == "pending"
+    job_id = data["id"]
+    try:
+        assert data["status"] == "pending"
 
-    status = poll_job_status(
-        client,
-        data["id"],
-        terminal={"running", "succeeded", "failed"},
-        interval=3,
-        timeout=9,
-    )
-    assert status == "pending"
-
-    complete_job(client, data["id"])
+        status = poll_job_status(
+            client,
+            job_id,
+            terminal={"running", "succeeded", "failed"},
+            interval=3,
+            timeout=9,
+        )
+        assert status == "pending"
+    finally:
+        complete_job(client, job_id)
 
 
 def test_validation_both_cluster_and_hardware(client: httpx.Client):
