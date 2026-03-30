@@ -71,17 +71,19 @@ flowchart LR
         Fournos["Fournos API\n(FastAPI)"]
         Kueue["Kueue"]
         Tekton["Tekton Pipelines"]
+        FORGE["FORGE\n(in Tekton Tasks)"]
         Fournos --> Kueue
         Fournos --> Tekton
+        Tekton --> FORGE
     end
-    Tekton --> Target1["Target cluster 1"]
-    Tekton --> Target2["Target cluster 2"]
+    FORGE -- "remote oc/kubectl\nvia kubeconfig Secrets" --> Target1["Target cluster 1"]
+    FORGE -- "remote oc/kubectl\nvia kubeconfig Secrets" --> Target2["Target cluster 2"]
 ```
 
 
 
-- **Hub cluster**: hosts Fournos, Kueue, and Tekton Pipelines in the `psap-automation` namespace
-- **Target clusters**: nothing installed — FORGE runs inside Jobs created by launcher pods via kubeconfig Secrets
+- **Hub cluster**: hosts Fournos, Kueue, Tekton Pipelines, and FORGE (running inside Tekton Task pods) in the `psap-automation` namespace
+- **Target clusters**: nothing installed — FORGE runs on the hub cluster and communicates with targets via remote `oc`/`kubectl` commands using kubeconfig Secrets
 
 ## 3. API
 
@@ -170,7 +172,7 @@ Listing/status endpoints query these resources directly and merge them.
 
 ## 6. FORGE integration
 
-FORGE is an existing benchmark execution framework that owns all operations on target clusters — setup, benchmark execution, and cleanup. Fournos has a strict separation of concerns: it handles cluster selection, scheduling, and bookkeeping, but never interacts with target clusters directly. All FORGE parameters (`project`, `preset`, `args`) are passed through opaquely to the Tekton Pipeline as params. Fournos also passes `job-id` and `job-name` so FORGE can use them for its own resource naming and correlation.
+FORGE is an existing benchmark execution framework that runs on the hub cluster inside Tekton Task pods and owns all operations on target clusters — setup, benchmark execution, and cleanup — by issuing remote `oc`/`kubectl` commands via kubeconfig Secrets. Fournos has a strict separation of concerns: it handles cluster selection, scheduling, and bookkeeping, but never interacts with target clusters directly. All FORGE parameters (`project`, `preset`, `args`) are passed through opaquely to the Tekton Pipeline as params. Fournos also passes `job-id` and `job-name` so FORGE can use them for its own resource naming and correlation.
 
 The Tekton Task definitions in `config/tekton/tasks.yaml` are stub implementations showing the expected parameter interface. The real FORGE tasks will replace them.
 
@@ -292,5 +294,5 @@ README.md
 - **Stateless service** — all job state lives in Kubernetes resources (PipelineRuns, Workloads), not in memory
 - **Completion callback** — Tekton `finally` task notifies Fournos instead of Fournos polling each PipelineRun
 - **Multiple pipelines** — `fournos-full` (prepare → run → cleanup) and `fournos-run-only` (run only), selectable per job
-- **Target clusters need nothing installed** — FORGE runs via the remote-job-launcher pattern through kubeconfig Secrets
+- **Target clusters need nothing installed** — FORGE runs on the hub cluster inside Tekton Task pods and communicates with targets via remote `oc`/`kubectl` commands through kubeconfig Secrets
 
