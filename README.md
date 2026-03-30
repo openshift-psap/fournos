@@ -141,9 +141,26 @@ All settings are read from environment variables with the `FOURNOS_` prefix:
 |---|---|---|
 | `FOURNOS_NAMESPACE` | `psap-automation` | Kubernetes namespace |
 | `FOURNOS_TEKTON_DASHBOARD_URL` | | Tekton Dashboard base URL |
+| `FOURNOS_KUBECONFIG_SECRET_PATTERN` | `{cluster}-kubeconfig` | Pattern for resolving cluster names to Kubernetes Secret names (see below) |
 | `FOURNOS_KUEUE_LOCAL_QUEUE_NAME` | `fournos-queue` | Kueue LocalQueue name |
 | `FOURNOS_GPU_RESOURCE_PREFIX` | `fournos/gpu-` | Resource name prefix for GPU types |
 | `FOURNOS_ADMISSION_POLL_INTERVAL_SEC` | `5.0` | Seconds between admission polls |
 | `FOURNOS_ADMISSION_POLL_TIMEOUT_SEC` | `3600.0` | Max seconds to wait for admission |
 | `FOURNOS_RECONCILE_INTERVAL_SEC` | `60.0` | Seconds between reconciler scans |
 | `FOURNOS_LOG_LEVEL` | `INFO` | Logging level |
+
+### Cluster-to-kubeconfig mapping
+
+Fournos uses a convention-based mapping to resolve cluster names to kubeconfig
+Secrets. There is no explicit cluster registry — a cluster is considered
+available if a matching Secret exists in the Fournos namespace.
+
+The Secret name is derived from the cluster name using
+`FOURNOS_KUBECONFIG_SECRET_PATTERN` (default `{cluster}-kubeconfig`). For
+example, a cluster named `gpu-cluster-01` resolves to a Secret named
+`gpu-cluster-01-kubeconfig`. In Mode A the resolution happens at job submission
+time; in Mode B (Kueue-routed) it happens after admission, using the Kueue
+ResourceFlavor name as the cluster name.
+
+Each Tekton task mounts the resolved Secret at `/workspace/kubeconfig/kubeconfig`
+so that `kubectl` and `forge` commands target the correct remote cluster.
