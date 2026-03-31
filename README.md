@@ -2,10 +2,14 @@
 
 > *Fournos* (φούρνος) = "oven" in Greek.
 
-Fournos is a job scheduling HTTP service that accepts benchmark jobs, schedules them via
-[Kueue](https://kueue.sigs.k8s.io/), and executes them as
+Fournos is a Kubernetes operator that schedules benchmark jobs via
+[Kueue](https://kueue.sigs.k8s.io/) and executes them as
 [Tekton](https://tekton.dev/) PipelineRuns on remote clusters through the
 FORGE framework.
+
+Jobs are submitted as `FournosJob` custom resources. The operator watches
+for new CRs, creates Kueue Workloads for quota management, waits for
+admission, then launches the corresponding Tekton PipelineRun.
 
 ## Quick start
 
@@ -16,8 +20,66 @@ pip install -e ".[dev]"
 pre-commit install
 ```
 
-This installs a Git pre-commit hook that runs `ruff` (lint + format) on every
-commit.
+## Submitting a job
+
+Create a `FournosJob` resource. Use `generateName` for automatic unique naming
+and `displayName` for a human-readable label:
+
+```yaml
+apiVersion: fournos.dev/v1
+kind: FournosJob
+metadata:
+  generateName: nightly-llama3-
+  namespace: psap-automation
+spec:
+  owner: perf-team
+  displayName: nightly-llama3-benchmark
+  cluster: cluster-1
+  forge:
+    project: testproj/llmd
+    preset: cks
+  env:
+    OCPCI_SUITE: regression
+    OCPCI_VARIANT: nightly
+```
+
+```bash
+kubectl create -f job.yaml                               # returns the generated name, e.g. nightly-llama3-x7k2m
+kubectl get fournosjobs -n psap-automation  -w           # watch status transitions
+kubectl delete fournosjob -n psap-automation  <name>     # cleanup
+```
+
+### Spec fields
+
+| Field | Required | Description |
+|---|---|---|
+| `spec.forge.project` | yes | FORGE project path |
+| `spec.forge.preset` | yes | FORGE preset name |
+| `spec.forge.configOverrides` | no | Key-value overrides passed to the test framework |
+| `spec.env` | no | Environment variables for test identification (e.g. OCPCI suite/variant) |
+| `spec.cluster` | \* | Pin to a specific cluster (Kueue ResourceFlavor) |
+| `spec.hardware.gpuType` | \* | GPU model (e.g. `A100`, `H200`) |
+| `spec.hardware.gpuCount` | with gpuType | Number of GPUs (minimum 1) |
+| `spec.owner` | no | Team or individual that owns this job |
+| `spec.displayName` | no | Human-readable job name (defaults to `metadata.name`) |
+| `spec.pipeline` | no | Tekton Pipeline name (default: `fournos-full`) |
+| `spec.priority` | no | Kueue WorkloadPriorityClass name |
+| `spec.secrets` | no | Additional Secret names for the pipeline |
+
+\* At least one of `spec.cluster` or `spec.hardware` must be provided. Both can be
+set together to pin a hardware request to a specific cluster.
+
+### Status
+
+The operator writes status to `.status`:
+
+| Field | Description |
+|---|---|
+| `phase` | `Pending` → `Admitted` → `Running` → `Succeeded` / `Failed` |
+| `cluster` | Cluster assigned by Kueue |
+| `pipelineRun` | Name of the Tekton PipelineRun |
+| `dashboardURL` | Tekton Dashboard link (if configured) |
+| `message` | Error details on failure |
 
 ## Local development
 
@@ -25,9 +87,17 @@ Prerequisites: [Podman](https://podman.io/),
 [kind](https://kind.sigs.k8s.io/), and `kubectl`.
 
 ```bash
-make dev-setup    # creates a kind cluster, installs Tekton + Kueue, applies mock resources
-make dev-run      # starts Fournos locally (connects to the kind cluster)
-make dev-test     # runs the e2e pytest suite against the running instance
+make dev-setup    # creates a kind cluster, installs Tekton + Kueue + CRD, applies mock resources
+make dev-run      # starts the operator locally (connects to the kind cluster)
+```
+
+In another terminal:
+
+```bash
+make test                              # run the integration test suite
+```
+
+```bash
 make dev-teardown # deletes the kind cluster
 ```
 
@@ -35,127 +105,21 @@ make dev-teardown # deletes the kind cluster
 cluster, but substitutes lightweight mock Tasks (echo + sleep) in place of the
 real FORGE runner. The dev environment uses its own Kueue config
 (`dev/mock-kueue-config.yaml`) with four mock clusters and synthetic GPU quotas,
-plus matching kubeconfig Secrets (`cluster-{1..4}-kubeconfig`), so all
-scheduling options work end-to-end.
-
-### Testing
-
-The e2e test suite lives in `tests/` and uses pytest + httpx against a live
-Fournos instance. Start the server with `make dev-run`, then in another
-terminal:
-
-```bash
-make dev-test                                    # default: http://localhost:8000
-FOURNOS_URL=http://other-host:8000 make dev-test # override target
-```
-
-The tests cover cluster-pinned jobs, hardware-request jobs, Kueue admission
-polling, inadmissible workloads, job listing/filtering, the completion callback,
-artifacts, and reconciler cleanup of orphaned/stale Workloads.
+plus matching kubeconfig Secrets (`cluster-{1..4}-kubeconfig`).
 
 ### Before opening a PR
 
-Run the full lint and test suite locally before pushing:
-
 ```bash
-ruff check fournos/ tests/       # lint
-ruff format --check fournos/ tests/  # formatting
-make dev-test                    # e2e tests (requires dev-setup + dev-run)
+make lint                        # lint (fournos/ + tests/)
+make test                        # integration tests (operator must be running)
 ```
-
-CI runs the same checks via the `pull_request` workflow and will block merge on
-failures. Catching issues locally avoids unnecessary round-trips.
-
-## API
-
-### Submit a job
-
-All jobs are scheduled through Kueue. Specify `cluster` to pin to a specific
-cluster, `hardware` to let Kueue pick a cluster with available quota, or both
-to request specific hardware on a specific cluster.
-
-```bash
-# Pin to a specific cluster
-curl -X POST http://localhost:8000/api/v1/jobs \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "my-benchmark",
-    "cluster": "cluster-1",
-    "forge": {"project": "testproj/llmd", "preset": "cks"}
-  }'
-
-# Hardware request — Kueue picks the best-fit cluster
-curl -X POST http://localhost:8000/api/v1/jobs \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "my-benchmark",
-    "hardware": {"gpu_type": "A100", "gpu_count": 2},
-    "forge": {"project": "testproj/llmd", "preset": "llama3"},
-    "priority": "nightly"
-  }'
-
-# Both — specific hardware on a specific cluster
-curl -X POST http://localhost:8000/api/v1/jobs \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "my-benchmark",
-    "cluster": "cluster-1",
-    "hardware": {"gpu_type": "A100", "gpu_count": 2},
-    "forge": {"project": "testproj/llmd", "preset": "llama3"}
-  }'
-```
-
-### List jobs
-
-```bash
-curl http://localhost:8000/api/v1/jobs                # all jobs
-curl http://localhost:8000/api/v1/jobs?status=running  # filter by status
-curl http://localhost:8000/api/v1/jobs?status=pending
-```
-
-### Check job status
-
-```bash
-curl http://localhost:8000/api/v1/job/{id}
-curl http://localhost:8000/api/v1/job/{id}?wait=true   # long-poll
-```
-
-### Signal job completion
-
-Called by the Tekton `finally` task (or externally) to release the Kueue
-Workload quota after a pipeline finishes. Idempotent — safe to call multiple
-times.
-
-```bash
-curl -X POST http://localhost:8000/api/v1/job/{id}/complete   # returns 204
-```
-
-### Get artifacts
-
-```bash
-curl http://localhost:8000/api/v1/job/{id}/artifacts
-```
-
-## Reconciler
-
-A background reconciler loop scans for Kueue Workloads that are leaking quota
-and deletes them. It runs every `FOURNOS_RECONCILE_INTERVAL_SEC` (default 60
-seconds) and handles two cases:
-
-- **Orphaned Workloads** — admitted but no corresponding PipelineRun exists
-  (e.g. the admission-polling task was lost after a process restart).
-- **Stale Workloads** — a PipelineRun reached a terminal state but the
-  `fournos-notify` completion callback failed to delete the Workload.
-
-Only Workloads that have been admitted for at least `2 × reconcile_interval` are
-eligible for cleanup, avoiding races with the normal fast-path. Pending
-Workloads (waiting for cluster resources) are never touched.
 
 ## Deployment
 
 Apply the Kubernetes manifests in order:
 
 ```bash
+kubectl apply -f manifests/crd.yaml
 kubectl apply -f manifests/rbac.yaml
 kubectl apply -f manifests/kueue-config.yaml
 kubectl apply -f manifests/tekton/
@@ -170,27 +134,27 @@ All settings are read from environment variables with the `FOURNOS_` prefix:
 |---|---|---|
 | `FOURNOS_NAMESPACE` | `psap-automation` | Kubernetes namespace |
 | `FOURNOS_TEKTON_DASHBOARD_URL` | | Tekton Dashboard base URL |
-| `FOURNOS_KUBECONFIG_SECRET_PATTERN` | `{cluster}-kubeconfig` | Pattern for resolving cluster names to Kubernetes Secret names (see below) |
+| `FOURNOS_KUBECONFIG_SECRET_PATTERN` | `{cluster}-kubeconfig` | Pattern for resolving cluster names to Secret names |
 | `FOURNOS_KUEUE_LOCAL_QUEUE_NAME` | `fournos-queue` | Kueue LocalQueue name |
 | `FOURNOS_GPU_RESOURCE_PREFIX` | `fournos/gpu-` | Resource name prefix for GPU types |
-| `FOURNOS_ADMISSION_POLL_INTERVAL_SEC` | `5.0` | Seconds between admission polls |
-| `FOURNOS_ADMISSION_POLL_TIMEOUT_SEC` | `3600.0` | Max seconds to wait for admission |
-| `FOURNOS_RECONCILE_INTERVAL_SEC` | `60.0` | Seconds between reconciler scans |
 | `FOURNOS_LOG_LEVEL` | `INFO` | Logging level |
+| `FOURNOS_GC_INTERVAL_SEC` | `300` | Resource GC interval (seconds) |
 
-### Cluster-to-kubeconfig mapping
+## Architecture
 
-Fournos uses a convention-based mapping to resolve cluster names to kubeconfig
-Secrets. There is no explicit cluster registry — a cluster is considered
-available if a matching Secret exists in the Fournos namespace.
+```
+FournosJob CR ──→ Operator ──→ Kueue Workload ──→ (admission) ──→ Tekton PipelineRun ──→ FORGE ──→ target cluster
+```
 
-The Secret name is derived from the cluster name using
-`FOURNOS_KUBECONFIG_SECRET_PATTERN` (default `{cluster}-kubeconfig`). For
-example, a cluster named `gpu-cluster-01` resolves to a Secret named
-`gpu-cluster-01-kubeconfig`. When `cluster` is specified in the request, the
-Secret is validated at submission time (404 if missing). After Kueue admission,
-the assigned ResourceFlavor name is used as the cluster name to resolve the
-kubeconfig Secret.
+The operator runs as a single-replica Deployment using
+[kopf](https://kopf.dev/). On each `FournosJob`, it:
 
-Each Tekton task mounts the resolved Secret at `/workspace/kubeconfig/kubeconfig`
-so that `kubectl` and `forge` commands target the correct remote cluster.
+1. **Creates** a Kueue Workload with the requested GPU resources
+2. **Polls** (5 s timer) for Kueue admission and assigned cluster
+3. **Launches** a Tekton PipelineRun with FORGE parameters
+4. **Watches** the PipelineRun until completion
+5. **Deletes** the Workload to release Kueue quota
+
+Target clusters need nothing installed — FORGE runs on the hub cluster inside
+Tekton Task pods and communicates with targets via `oc`/`kubectl` through
+kubeconfig Secrets.

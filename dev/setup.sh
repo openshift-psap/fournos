@@ -62,7 +62,14 @@ do
 done
 
 # ---------------------------------------------------------------
-# 4. Apply Fournos Kubernetes manifests
+# 4. Apply FournosJob CRD
+# ---------------------------------------------------------------
+echo ""
+echo "Applying FournosJob CRD..."
+kubectl apply -f manifests/crd.yaml
+
+# ---------------------------------------------------------------
+# 5. Apply Fournos Kubernetes manifests
 # ---------------------------------------------------------------
 echo ""
 echo "Applying Fournos manifests..."
@@ -71,7 +78,7 @@ kubectl apply -f manifests/rbac.yaml
 kubectl apply -f manifests/tekton/
 
 # ---------------------------------------------------------------
-# 5. Apply mock resources (overrides real Tasks, adds fake secrets)
+# 6. Apply mock resources (overrides real Tasks, adds fake secrets)
 # ---------------------------------------------------------------
 echo ""
 echo "Applying mock resources..."
@@ -84,7 +91,7 @@ echo ""
 echo "============================================"
 echo "  Dev cluster ready!"
 echo ""
-echo "  Start Fournos:  make dev-run"
-echo "  Run tests:      make dev-test"
-echo "  Tear down:      make dev-teardown"
+echo "  Start operator:  make dev-run"
+echo "  Run tests:       make test"
+echo "  Tear down:       make dev-teardown"
 echo "============================================"

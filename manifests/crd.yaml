@@ -1,0 +1,134 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: fournosjobs.fournos.dev
+spec:
+  group: fournos.dev
+  names:
+    kind: FournosJob
+    listKind: FournosJobList
+    plural: fournosjobs
+    singular: fournosjob
+    shortNames:
+      - fj
+  scope: Namespaced
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Owner
+          type: string
+          jsonPath: .spec.owner
+        - name: Display Name
+          type: string
+          jsonPath: .spec.displayName
+          priority: 1
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Cluster
+          type: string
+          jsonPath: .status.cluster
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - forge
+              properties:
+                owner:
+                  type: string
+                  description: Team or individual that owns this job.
+                displayName:
+                  type: string
+                  description: >-
+                    Human-readable job name for external correlation.
+                    Falls back to metadata.name if not set. Does not need to be unique.
+                pipeline:
+                  type: string
+                  default: "fournos-full"
+                cluster:
+                  type: string
+                hardware:
+                  type: object
+                  required:
+                    - gpuType
+                    - gpuCount
+                  properties:
+                    gpuType:
+                      type: string
+                    gpuCount:
+                      type: integer
+                      minimum: 1
+                forge:
+                  type: object
+                  required:
+                    - project
+                    - preset
+                  properties:
+                    project:
+                      type: string
+                    preset:
+                      type: string
+                    configOverrides:
+                      type: object
+                      description: Key-value overrides passed to the test framework.
+                      additionalProperties:
+                        type: string
+                env:
+                  type: object
+                  description: Environment variables used to identify the test run.
+                  additionalProperties:
+                    type: string
+                secrets:
+                  type: array
+                  items:
+                    type: string
+                priority:
+                  type: string
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum:
+                    - Pending
+                    - Admitted
+                    - Running
+                    - Succeeded
+                    - Failed
+                cluster:
+                  type: string
+                pipelineRun:
+                  type: string
+                dashboardURL:
+                  type: string
+                message:
+                  type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string

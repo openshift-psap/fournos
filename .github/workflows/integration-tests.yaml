@@ -6,7 +6,6 @@ on:
 env:
   KIND_CLUSTER_NAME: fournos-ci
   KIND_EXPERIMENTAL_PROVIDER: docker
-  FOURNOS_RECONCILE_INTERVAL_SEC: 10
 
 jobs:
   integration:
@@ -31,16 +30,12 @@ jobs:
       - name: Set up kind cluster with Tekton, Kueue & mocks
         run: make ci-setup
 
-      - name: Start Fournos
+      - name: Start operator
         run: make ci-run
 
       - name: Run integration tests
-        run: make dev-test
+        run: make test
 
-      - name: Stop Fournos
+      - name: Stop operator and show logs
         if: always()
-        run: |
-          if [ -f fournos.pid ]; then
-            kill "$(cat fournos.pid)" 2>/dev/null || true
-            rm -f fournos.pid
-          fi
+        run: make ci-stop

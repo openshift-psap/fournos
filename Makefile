@@ -1,12 +1,48 @@
-.PHONY: dev-setup dev-run dev-test dev-teardown lint format ci-setup ci-run ci-test
-
+IMG ?= quay.io/rh_perfscale/fournos:latest
 KIND_CLUSTER_NAME              ?= fournos-dev
 KIND_EXPERIMENTAL_PROVIDER     ?= podman
 KIND_CONTEXT                   := kind-$(KIND_CLUSTER_NAME)
-FOURNOS_RECONCILE_INTERVAL_SEC ?= 10
 VENV_BIN                       := $(if $(wildcard .venv/bin/),.venv/bin/,)
 
-# Local dev cluster (kind + Tekton + Kueue + mock resources)
+.PHONY: lint format test docker-build docker-push \
+        install deploy dev-setup dev-run dev-teardown \
+        ci-setup ci-run ci-stop
+
+##@ Code Quality
+
+lint:
+	$(VENV_BIN)ruff check fournos/ tests/
+
+format:
+	$(VENV_BIN)ruff format fournos/ tests/
+
+##@ Container
+
+docker-build:
+	docker build -t $(IMG) .
+
+docker-push:
+	docker push $(IMG)
+
+##@ Cluster
+
+install:
+	kubectl apply -f manifests/crd.yaml
+
+deploy: install
+	kubectl apply -f manifests/rbac.yaml
+	kubectl apply -f manifests/kueue-config.yaml
+	kubectl apply -f manifests/tekton/
+	kubectl apply -f manifests/deployment.yaml
+
+##@ Testing
+
+test:
+	kubectl config use-context $(KIND_CONTEXT)
+	$(VENV_BIN)pytest -v tests/
+
+##@ Local Development
+
 dev-setup:
 	@KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 	 KIND_EXPERIMENTAL_PROVIDER=$(KIND_EXPERIMENTAL_PROVIDER) \
@@ -14,40 +50,35 @@ dev-setup:
 
 dev-run:
 	kubectl config use-context $(KIND_CONTEXT)
-	FOURNOS_ADMISSION_POLL_INTERVAL_SEC=1 FOURNOS_RECONCILE_INTERVAL_SEC=$(FOURNOS_RECONCILE_INTERVAL_SEC) \
-	  $(VENV_BIN)uvicorn fournos.app:app --reload --host 127.0.0.1 --port 8000 --log-config fournos/log-config.yaml
-
-dev-test:
-	kubectl config use-context $(KIND_CONTEXT)
-	FOURNOS_RECONCILE_INTERVAL_SEC=$(FOURNOS_RECONCILE_INTERVAL_SEC) \
-	  $(VENV_BIN)pytest tests/ -v -s
+	FOURNOS_GC_INTERVAL_SEC=5 $(VENV_BIN)kopf run -m fournos.operator
 
 dev-teardown:
 	KIND_EXPERIMENTAL_PROVIDER=$(KIND_EXPERIMENTAL_PROVIDER) kind delete cluster --name $(KIND_CLUSTER_NAME)
 
-# CI targets
+##@ CI
+
 ci-setup:
 	@KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
-	 KIND_EXPERIMENTAL_PROVIDER=$(KIND_EXPERIMENTAL_PROVIDER) \
+	 KIND_EXPERIMENTAL_PROVIDER=docker \
 	 bash dev/setup.sh
 
 ci-run:
 	kubectl config use-context $(KIND_CONTEXT)
-	FOURNOS_RECONCILE_INTERVAL_SEC=$(FOURNOS_RECONCILE_INTERVAL_SEC) \
-	  $(VENV_BIN)uvicorn fournos.app:app --host 127.0.0.1 --port 8000 --log-config fournos/log-config.yaml & \
+	FOURNOS_GC_INTERVAL_SEC=5 \
+	  $(VENV_BIN)kopf run -m fournos.operator \
+	  --liveness=http://0.0.0.0:8080/healthz > fournos.log 2>&1 & \
 	echo $$! > fournos.pid; \
-	echo "Waiting for Fournos to be ready..."; \
+	echo "Waiting for operator to be ready..."; \
 	for i in $$(seq 1 30); do \
-	  curl -sf --connect-timeout 1 --max-time 1 http://localhost:8000/healthz > /dev/null 2>&1 && echo "Fournos is up" && break; \
-	  if [ $$i -eq 30 ]; then echo "Fournos failed to start"; kill $$(cat fournos.pid); exit 1; fi; \
+	  curl -sf --connect-timeout 1 --max-time 1 http://localhost:8080/healthz > /dev/null 2>&1 \
+	    && echo "Operator is ready" && break; \
+	  if [ $$i -eq 30 ]; then echo "Operator failed to start"; cat fournos.log; exit 1; fi; \
 	  sleep 1; \
 	done
 
-ci-test: dev-test
-
-# Code quality
-lint:
-	$(VENV_BIN)ruff check fournos/
-
-format:
-	$(VENV_BIN)ruff format fournos/
+ci-stop:
+	@if [ -f fournos.pid ]; then \
+	  kill "$$(cat fournos.pid)" 2>/dev/null || true; \
+	  rm -f fournos.pid; \
+	fi
+	@cat fournos.log 2>/dev/null || true
