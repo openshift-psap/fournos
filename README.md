@@ -51,6 +51,19 @@ The tests cover both submission modes, Kueue admission polling, inadmissible
 workloads, job listing/filtering, the completion callback, artifacts, and
 reconciler cleanup of orphaned/stale Workloads.
 
+### Before opening a PR
+
+Run the full lint and test suite locally before pushing:
+
+```bash
+ruff check fournos/ tests/       # lint
+ruff format --check fournos/ tests/  # formatting
+make dev-test                    # e2e tests (requires dev-setup + dev-run)
+```
+
+CI runs the same checks via the `pull_request` workflow and will block merge on
+failures. Catching issues locally avoids unnecessary round-trips.
+
 ## API
 
 ### Submit a job

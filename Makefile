@@ -35,6 +35,7 @@ ci-run:
 	kubectl config use-context $(KIND_CONTEXT)
 	FOURNOS_RECONCILE_INTERVAL_SEC=$(FOURNOS_RECONCILE_INTERVAL_SEC) \
 	  $(VENV_BIN)uvicorn fournos.app:app --host 127.0.0.1 --port 8000 --log-config fournos/log-config.yaml & \
+	echo $$! > fournos.pid; \
 	echo "Waiting for Fournos to be ready..."; \
 	for i in $$(seq 1 30); do \
 	  curl -sf http://localhost:8000/healthz > /dev/null 2>&1 && echo "Fournos is up" && break; \

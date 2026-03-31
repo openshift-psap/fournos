@@ -17,7 +17,7 @@ export KIND_EXPERIMENTAL_PROVIDER="${KIND_EXPERIMENTAL_PROVIDER:-podman}"
 if kind get clusters 2>/dev/null | grep -q "^${CLUSTER_NAME}$"; then
   echo "kind cluster '${CLUSTER_NAME}' already exists, reusing."
 else
-  echo "Creating kind cluster '${CLUSTER_NAME}' (podman provider)..."
+  echo "Creating kind cluster '${CLUSTER_NAME}' (${KIND_EXPERIMENTAL_PROVIDER} provider)..."
   kind create cluster --name "${CLUSTER_NAME}" --wait 60s
 fi
 

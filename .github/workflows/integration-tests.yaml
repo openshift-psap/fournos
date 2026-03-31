@@ -37,6 +37,10 @@ jobs:
       - name: Run integration tests
         run: make dev-test
 
-      - name: Fournos logs
+      - name: Stop Fournos
         if: always()
-        run: kill %1 2>/dev/null || true
+        run: |
+          if [ -f fournos.pid ]; then
+            kill "$(cat fournos.pid)" 2>/dev/null || true
+            rm -f fournos.pid
+          fi
