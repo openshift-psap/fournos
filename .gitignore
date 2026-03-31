@@ -8,3 +8,6 @@ build/
 *.egg
 .ruff_cache/
 .pytest_cache/
+.env
+.env.*
+secrets/

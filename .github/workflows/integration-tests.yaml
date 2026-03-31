@@ -1,0 +1,46 @@
+name: Integration tests
+on:
+  workflow_call:
+  workflow_dispatch:
+
+env:
+  KIND_CLUSTER_NAME: fournos-ci
+  KIND_EXPERIMENTAL_PROVIDER: docker
+  FOURNOS_RECONCILE_INTERVAL_SEC: 10
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install fournos with dev deps
+        run: pip install .[dev]
+
+      - name: Install kind
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+
+      - name: Set up kind cluster with Tekton, Kueue & mocks
+        run: make ci-setup
+
+      - name: Start Fournos
+        run: make ci-run
+
+      - name: Run integration tests
+        run: make dev-test
+
+      - name: Stop Fournos
+        if: always()
+        run: |
+          if [ -f fournos.pid ]; then
+            kill "$(cat fournos.pid)" 2>/dev/null || true
+            rm -f fournos.pid
+          fi
