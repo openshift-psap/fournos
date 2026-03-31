@@ -126,10 +126,6 @@ async def _wait_and_launch(
             await asyncio.to_thread(kueue.annotate_workload_error, job_id, str(exc))
         except Exception:
             logger.exception("Failed to annotate error on Workload for job %s", job_id)
-        try:
-            await asyncio.to_thread(kueue.delete_workload, job_id)
-        except Exception:
-            logger.exception("Failed to delete Workload for job %s", job_id)
 
 
 # ---------------------------------------------------------------------------
