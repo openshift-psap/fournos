@@ -80,6 +80,7 @@ def test_admitted_without_flavor(k8s):
                     "status": "True",
                     "reason": "Admitted",
                     "message": "Admitted by test",
+                    "lastTransitionTime": "2000-01-01T00:00:00Z",
                 }
             ],
         },
