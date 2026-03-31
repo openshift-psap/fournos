@@ -61,7 +61,13 @@ def _clean_before_test(k8s):
             if exc.status != 404:
                 raise
 
-    time.sleep(2)
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        remaining = k8s.list_namespaced_custom_object(GROUP, VERSION, NAMESPACE, PLURAL)
+        if not remaining.get("items"):
+            break
+        time.sleep(1)
+
     _kubectl_delete_all("pipelineruns.tekton.dev")
     _kubectl_delete_all("workloads.kueue.x-k8s.io")
 
