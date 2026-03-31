@@ -62,7 +62,7 @@ def test_filter_by_running(client: httpx.Client):
         client,
         data["id"],
         terminal={"running", "succeeded", "failed"},
-        timeout=15,
+        timeout=30,
     )
 
     resp = client.get("/api/v1/jobs", params={"status": "running"})

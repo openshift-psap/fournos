@@ -33,8 +33,10 @@ make dev-teardown # deletes the kind cluster
 
 `dev-setup` installs real Tekton Pipelines and Kueue controllers into the kind
 cluster, but substitutes lightweight mock Tasks (echo + sleep) in place of the
-real FORGE runner. Four mock kubeconfig Secrets (`cluster-{1..4}-kubeconfig`)
-are created so both scheduling modes work end-to-end.
+real FORGE runner. The dev environment uses its own Kueue config
+(`dev/mock-kueue-config.yaml`) with four mock clusters and synthetic GPU quotas,
+plus matching kubeconfig Secrets (`cluster-{1..4}-kubeconfig`), so all
+scheduling options work end-to-end.
 
 ### Testing
 
@@ -47,9 +49,9 @@ make dev-test                                    # default: http://localhost:800
 FOURNOS_URL=http://other-host:8000 make dev-test # override target
 ```
 
-The tests cover both submission modes, Kueue admission polling, inadmissible
-workloads, job listing/filtering, the completion callback, artifacts, and
-reconciler cleanup of orphaned/stale Workloads.
+The tests cover cluster-pinned jobs, hardware-request jobs, Kueue admission
+polling, inadmissible workloads, job listing/filtering, the completion callback,
+artifacts, and reconciler cleanup of orphaned/stale Workloads.
 
 ### Before opening a PR
 
@@ -68,8 +70,12 @@ failures. Catching issues locally avoids unnecessary round-trips.
 
 ### Submit a job
 
+All jobs are scheduled through Kueue. Specify `cluster` to pin to a specific
+cluster, `hardware` to let Kueue pick a cluster with available quota, or both
+to request specific hardware on a specific cluster.
+
 ```bash
-# Mode A — explicit cluster (bypasses Kueue)
+# Pin to a specific cluster
 curl -X POST http://localhost:8000/api/v1/jobs \
   -H "Content-Type: application/json" \
   -d '{
@@ -78,7 +84,7 @@ curl -X POST http://localhost:8000/api/v1/jobs \
     "forge": {"project": "testproj/llmd", "preset": "cks"}
   }'
 
-# Mode B — hardware request (scheduled via Kueue)
+# Hardware request — Kueue picks the best-fit cluster
 curl -X POST http://localhost:8000/api/v1/jobs \
   -H "Content-Type: application/json" \
   -d '{
@@ -86,6 +92,16 @@ curl -X POST http://localhost:8000/api/v1/jobs \
     "hardware": {"gpu_type": "A100", "gpu_count": 2},
     "forge": {"project": "testproj/llmd", "preset": "llama3"},
     "priority": "nightly"
+  }'
+
+# Both — specific hardware on a specific cluster
+curl -X POST http://localhost:8000/api/v1/jobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-benchmark",
+    "cluster": "cluster-1",
+    "hardware": {"gpu_type": "A100", "gpu_count": 2},
+    "forge": {"project": "testproj/llmd", "preset": "llama3"}
   }'
 ```
 
@@ -108,7 +124,7 @@ curl http://localhost:8000/api/v1/job/{id}?wait=true   # long-poll
 
 Called by the Tekton `finally` task (or externally) to release the Kueue
 Workload quota after a pipeline finishes. Idempotent — safe to call multiple
-times or for Mode A jobs that have no Workload.
+times.
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/job/{id}/complete   # returns 204
@@ -171,9 +187,10 @@ available if a matching Secret exists in the Fournos namespace.
 The Secret name is derived from the cluster name using
 `FOURNOS_KUBECONFIG_SECRET_PATTERN` (default `{cluster}-kubeconfig`). For
 example, a cluster named `gpu-cluster-01` resolves to a Secret named
-`gpu-cluster-01-kubeconfig`. In Mode A the resolution happens at job submission
-time; in Mode B (Kueue-routed) it happens after admission, using the Kueue
-ResourceFlavor name as the cluster name.
+`gpu-cluster-01-kubeconfig`. When `cluster` is specified in the request, the
+Secret is validated at submission time (404 if missing). After Kueue admission,
+the assigned ResourceFlavor name is used as the cluster name to resolve the
+kubeconfig Secret.
 
 Each Tekton task mounts the resolved Secret at `/workspace/kubeconfig/kubeconfig`
 so that `kubectl` and `forge` commands target the correct remote cluster.

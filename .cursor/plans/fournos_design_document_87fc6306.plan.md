@@ -92,16 +92,18 @@ flowchart LR
 Request body:
 
 
-| Field      | Type   | Required | Description                                                 |
-| ---------- | ------ | -------- | ----------------------------------------------------------- |
-| `name`     | string | yes      | Job name                                                    |
-| `pipeline` | string | no       | Tekton Pipeline name (default: `fournos-full`)              |
-| `cluster`  | string | one of   | Explicit cluster name — Mode A, bypasses Kueue              |
-| `hardware` | object | one of   | `{gpu_type, gpu_count}` — Mode B, scheduled via Kueue       |
-| `forge`    | object | yes      | `{project, preset, args[]}` — passed through to Tekton Task |
-| `secrets`  | list   | no       | Secret names to mount in the runner pod                     |
-| `priority` | string | no       | Kueue `WorkloadPriorityClass` name (Mode B only)            |
+| Field      | Type   | Required | Description                                                      |
+| ---------- | ------ | -------- | ---------------------------------------------------------------- |
+| `name`     | string | yes      | Job name                                                         |
+| `pipeline` | string | no       | Tekton Pipeline name (default: `fournos-full`)                   |
+| `cluster`  | string | no       | Pin to a specific cluster (Kueue nodeSelector constraint)        |
+| `hardware` | object | no       | `{gpu_type, gpu_count}` — GPU request for Kueue quota scheduling |
+| `forge`    | object | yes      | `{project, preset, args[]}` — passed through to Tekton Task      |
+| `secrets`  | list   | no       | Secret names to mount in the runner pod                          |
+| `priority` | string | no       | Kueue `WorkloadPriorityClass` name                               |
 
+
+At least one of `cluster` or `hardware` must be provided. Both can be specified together to request specific hardware on a specific cluster.
 
 Returns `JobStatusResponse`.
 
@@ -119,7 +121,7 @@ Looks up PipelineRun first, falls back to Kueue Workload. Returns `JobStatusResp
 
 ### POST /api/v1/job/{id}/complete — completion callback (204)
 
-Called by the Tekton `fournos-notify` finally-task (or externally) when a pipeline finishes. Deletes the Kueue Workload to release quota. Idempotent — safe to call repeatedly or for Mode A jobs (no-op).
+Called by the Tekton `fournos-notify` finally-task (or externally) when a pipeline finishes. Deletes the Kueue Workload to release quota. Idempotent — safe to call repeatedly.
 
 ### GET /api/v1/job/{id}/artifacts — artifacts (200)
 
@@ -129,15 +131,28 @@ Returns `ArtifactsResponse` with `id`, `artifacts[]`, `mlflow_url`. Currently a 
 
 Returns `{"status": "ok"}`.
 
-## 4. Scheduling modes
+## 4. Scheduling
 
-### Mode A: explicit cluster
+All jobs flow through Kueue — there is one scheduling path with different constraint levels:
 
-User specifies `cluster: "cluster-1"`. Fournos resolves the kubeconfig Secret (`{cluster}-kubeconfig`), verifies it exists, and immediately creates a Tekton PipelineRun. No Kueue involvement.
 
-### Mode B: hardware request
+| User specifies                               | Workload nodeSelector                          | Kueue behavior                                                          |
+| -------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------- |
+| `cluster: "cluster-1"`                       | `fournos.dev/cluster: cluster-1`               | Only the `cluster-1` flavor is eligible. Queues if the cluster is full. |
+| `hardware: {gpu_type: "A100", gpu_count: 2}` | *(none)*                                       | All flavors with enough A100 quota are eligible. Kueue picks first fit. |
+| Both                                         | `fournos.dev/cluster: cluster-1` + GPU request | Specific hardware on a specific cluster.                                |
 
-User specifies `hardware: {gpu_type: "A100", gpu_count: 2}`. Fournos creates a virtual Kueue Workload with the requested resources. A background coroutine polls for admission. On admission, Fournos reads the assigned flavor (= cluster name), resolves the kubeconfig Secret, and creates the PipelineRun. When the pipeline finishes, the `fournos-notify` finally-task calls `POST /api/v1/job/{id}/complete` to delete the Workload and release quota.
+
+Each ResourceFlavor has `spec.nodeLabels: { fournos.dev/cluster: <name> }`. When `cluster` is specified, Fournos sets a matching `nodeSelector` on the Workload's podSet template so Kueue constrains admission to that flavor.
+
+### Job lifecycle
+
+1. Fournos validates the request (checks kubeconfig Secret exists if `cluster` is specified)
+2. Creates a Kueue Workload with the appropriate resource requests and optional nodeSelector
+3. Returns `201 pending` to the caller
+4. A background coroutine polls for admission
+5. On admission, Fournos reads the assigned flavor (= cluster name), resolves the kubeconfig Secret, and creates the PipelineRun
+6. When the pipeline finishes, the `fournos-notify` finally-task calls `POST /api/v1/job/{id}/complete` to delete the Workload and release quota
 
 ```mermaid
 sequenceDiagram
@@ -146,7 +161,7 @@ sequenceDiagram
     participant Kueue
     participant Tekton
 
-    Client->>Fournos: POST /jobs (Mode B)
+    Client->>Fournos: POST /jobs
     Fournos->>Kueue: create Workload
     Fournos-->>Client: 201 pending
 
@@ -162,6 +177,13 @@ sequenceDiagram
 ```
 
 
+
+Benefits of the unified path:
+
+- Quota is always tracked, even for cluster-pinned jobs
+- If the requested cluster is full, the job queues instead of failing
+- Priority ordering applies consistently
+- One code path for scheduling (simpler)
 
 ## 5. Reconciler
 
@@ -228,7 +250,7 @@ The `pipeline` field in `JobSubmitRequest` selects which pipeline to use (defaul
 
 [manifests/kueue-config.yaml](manifests/kueue-config.yaml):
 
-- **ResourceFlavors**: one per cluster (abstract quota buckets mapped to cluster names)
+- **ResourceFlavors**: one per cluster, with `nodeLabels: { fournos.dev/cluster: <name> }` for cluster-pinned scheduling
 - **ClusterQueue** `fournos-queue`: per-cluster GPU quotas using virtual resource `fournos/gpu-{type}`
 - **LocalQueue** in `psap-automation` namespace
 - **WorkloadPriorityClasses** (v1beta2): `manual`, `nightly`, `presubmit`, `adhoc`
@@ -291,11 +313,11 @@ manifests/
   tekton/                  # Tasks, fournos-full Pipeline, fournos-run-only Pipeline
 dev/
   setup.sh                 # kind cluster setup (Tekton + Kueue + mock resources)
+  mock-kueue-config.yaml   # Dev Kueue config (mock clusters, quotas)
   mock-resources.yaml      # Mock Tasks, Pipelines, kubeconfig Secrets
 tests/
   conftest.py              # Fixtures (httpx client, helpers, cleanup)
-  test_api.py              # Health, Mode A, completion callback, artifacts
-  test_kueue_mode.py       # Mode B (Kueue scheduling), validation
+  test_api.py              # Health, scheduling, validation, completion, artifacts
   test_jobs_list.py        # List/filter jobs
   test_reconciler.py       # Reconciler: orphaned + stale Workload cleanup
 Dockerfile
@@ -308,7 +330,7 @@ README.md
 ## 13. Key design decisions
 
 - **Python HTTP service** (FastAPI), not a Go controller or CRD-based operator
-- **Two scheduling modes**: explicit cluster (bypass Kueue) and hardware request (through Kueue)
+- **Unified Kueue scheduling** — all jobs flow through Kueue for consistent quota tracking and priority ordering. Cluster-pinned jobs use `nodeSelector` to constrain admission to a single ResourceFlavor; hardware-request jobs leave all flavors eligible.
 - **Separation of concerns** — Fournos owns scheduling, bookkeeping, and parameter passing; FORGE owns all target-cluster operations (setup, execution, cleanup). Fournos never touches target clusters directly.
 - **FORGE is opaque** — Fournos never validates FORGE config, just passes parameters through to the Tekton Pipeline
 - **Tekton for execution, Kueue for scheduling** — virtual Workload pattern with `fournos/gpu-`* resources

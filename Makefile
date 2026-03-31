@@ -14,7 +14,7 @@ dev-setup:
 
 dev-run:
 	kubectl config use-context $(KIND_CONTEXT)
-	FOURNOS_RECONCILE_INTERVAL_SEC=$(FOURNOS_RECONCILE_INTERVAL_SEC) \
+	FOURNOS_ADMISSION_POLL_INTERVAL_SEC=1 FOURNOS_RECONCILE_INTERVAL_SEC=$(FOURNOS_RECONCILE_INTERVAL_SEC) \
 	  $(VENV_BIN)uvicorn fournos.app:app --reload --host 127.0.0.1 --port 8000 --log-config fournos/log-config.yaml
 
 dev-test:

@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 KUEUE_GROUP = "kueue.x-k8s.io"
 KUEUE_VERSION = "v1beta2"
 KUEUE_WORKLOAD_PLURAL = "workloads"
+KUEUE_RESOURCE_FLAVOR_PLURAL = "resourceflavors"
 
 
 class KueueClient:
@@ -28,12 +29,31 @@ class KueueClient:
         *,
         job_id: str,
         job_name: str,
-        gpu_type: str,
-        gpu_count: int,
+        gpu_type: str | None = None,
+        gpu_count: int = 0,
+        cluster: str | None = None,
         priority: str | None = None,
     ) -> dict:
         workload_name = f"fournos-{job_id}"
-        gpu_resource = self._gpu_resource_name(gpu_type)
+
+        resource_requests: dict[str, str] = {"cpu": "1"}
+        if gpu_type and gpu_count:
+            gpu_resource = self._gpu_resource_name(gpu_type)
+            resource_requests[gpu_resource] = str(gpu_count)
+
+        pod_spec: dict = {
+            "containers": [
+                {
+                    "name": "placeholder",
+                    "image": "registry.k8s.io/pause:3.9",
+                    "resources": {"requests": resource_requests},
+                }
+            ],
+            "restartPolicy": "Never",
+        }
+
+        if cluster:
+            pod_spec["nodeSelector"] = {"fournos.dev/cluster": cluster}
 
         body: dict = {
             "apiVersion": f"{KUEUE_GROUP}/{KUEUE_VERSION}",
@@ -56,23 +76,7 @@ class KueueClient:
                     {
                         "name": "launcher",
                         "count": 1,
-                        "template": {
-                            "spec": {
-                                "containers": [
-                                    {
-                                        "name": "placeholder",
-                                        "image": "registry.k8s.io/pause:3.9",
-                                        "resources": {
-                                            "requests": {
-                                                gpu_resource: str(gpu_count),
-                                                "cpu": "1",
-                                            }
-                                        },
-                                    }
-                                ],
-                                "restartPolicy": "Never",
-                            }
-                        },
+                        "template": {"spec": pod_spec},
                     }
                 ],
             },
@@ -117,6 +121,15 @@ class KueueClient:
             label_selector=f"{LABEL_MANAGED_BY}=fournos",
         )
         return result.get("items", [])
+
+    def list_flavors(self) -> set[str]:
+        """Return the set of ResourceFlavor names known to Kueue."""
+        result = self._k8s.list_cluster_custom_object(
+            group=KUEUE_GROUP,
+            version=KUEUE_VERSION,
+            plural=KUEUE_RESOURCE_FLAVOR_PLURAL,
+        )
+        return {item["metadata"]["name"] for item in result.get("items", [])}
 
     @staticmethod
     def is_admitted(workload: dict) -> bool:

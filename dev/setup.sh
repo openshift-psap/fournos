@@ -66,7 +66,7 @@ done
 # ---------------------------------------------------------------
 echo ""
 echo "Applying Fournos manifests..."
-kubectl apply -f manifests/kueue-config.yaml
+kubectl apply -f dev/mock-kueue-config.yaml
 kubectl apply -f manifests/rbac.yaml
 kubectl apply -f manifests/tekton/
 

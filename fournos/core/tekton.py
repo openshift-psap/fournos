@@ -31,7 +31,6 @@ class TektonClient:
         gpu_count: int,
         secrets: list[str],
         cluster: str,
-        mode: str,
     ) -> dict:
         pipeline_run_name = f"fournos-{job_id}"
         body = {
@@ -47,7 +46,6 @@ class TektonClient:
                 "annotations": {
                     "fournos.dev/job-name": job_name,
                     "fournos.dev/cluster": cluster,
-                    "fournos.dev/mode": mode,
                 },
             },
             "spec": {
