@@ -39,6 +39,7 @@ ci-run:
 	echo "Waiting for Fournos to be ready..."; \
 	for i in $$(seq 1 30); do \
 	  curl -sf http://localhost:8000/healthz > /dev/null 2>&1 && echo "Fournos is up" && break; \
+	  if [ $$i -eq 30 ]; then echo "Fournos failed to start"; kill $$(cat fournos.pid); exit 1; fi; \
 	  sleep 1; \
 	done
 
