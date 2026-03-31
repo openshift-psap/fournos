@@ -22,16 +22,16 @@ class JobSubmitRequest(BaseModel):
     name: str
     pipeline: str = Field(default="fournos-full")
     cluster: str | None = Field(
-        default=None, description="Explicit cluster name (Mode A, bypasses Kueue)"
+        default=None,
+        description="Pin job to a specific cluster (Kueue nodeSelector constraint)",
     )
     hardware: HardwareRequest | None = Field(
-        default=None, description="Hardware request (Mode B, scheduled via Kueue)"
+        default=None,
+        description="GPU/hardware request for Kueue quota scheduling",
     )
     forge: ForgeConfig
     secrets: list[str] = Field(default_factory=list)
-    priority: str | None = Field(
-        default=None, description="WorkloadPriorityClass name (Mode B only)"
-    )
+    priority: str | None = Field(default=None, description="WorkloadPriorityClass name")
 
 
 class JobStatus(str, enum.Enum):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import time
@@ -117,3 +118,51 @@ def complete_job(client: httpx.Client, job_id: str) -> None:
     """Call the completion callback for *job_id*."""
     resp = client.post(f"/api/v1/job/{job_id}/complete")
     assert resp.status_code == 204
+
+
+def get_k8s_resource(kind: str, job_id: str) -> dict:
+    """Fetch a Fournos-managed K8s resource as a dict."""
+    result = subprocess.run(
+        [
+            "kubectl",
+            "get",
+            kind,
+            f"fournos-{job_id}",
+            "-n",
+            NAMESPACE,
+            "-o",
+            "json",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(result.stdout)
+
+
+def get_workload_flavor(job_id: str) -> str | None:
+    """Return the ResourceFlavor Kueue assigned to the Workload."""
+    wl = get_k8s_resource("workload", job_id)
+    assignments = wl.get("status", {}).get("admission", {}).get("podSetAssignments", [])
+    if not assignments:
+        return None
+    flavors = assignments[0].get("flavors", {})
+    return next(iter(flavors.values()), None) if flavors else None
+
+
+def get_workload_node_selector(job_id: str) -> dict:
+    """Return the nodeSelector from the Workload's podSet template."""
+    wl = get_k8s_resource("workload", job_id)
+    pod_sets = wl.get("spec", {}).get("podSets", [])
+    if not pod_sets:
+        return {}
+    return pod_sets[0].get("template", {}).get("spec", {}).get("nodeSelector", {})
+
+
+def get_pipelinerun_param(job_id: str, param_name: str) -> str | None:
+    """Return a named param value from the PipelineRun."""
+    pr = get_k8s_resource("pipelinerun", job_id)
+    for p in pr.get("spec", {}).get("params", []):
+        if p["name"] == param_name:
+            return p["value"]
+    return None
