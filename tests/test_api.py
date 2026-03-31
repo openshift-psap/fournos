@@ -59,12 +59,13 @@ def test_cluster_pinned(client: httpx.Client):
             get_pipelinerun_param(job_id, "kubeconfig-secret") == "cluster-2-kubeconfig"
         )
 
-        poll_job_status(
+        status = poll_job_status(
             client,
             job_id,
             terminal={"succeeded", "failed"},
             timeout=60,
         )
+        assert status == "succeeded"
     finally:
         complete_job(client, job_id)
 
@@ -84,12 +85,13 @@ def test_hardware_request(client: httpx.Client):
     try:
         assert data["status"] == "pending"
 
-        poll_job_status(
+        status = poll_job_status(
             client,
             job_id,
             terminal={"succeeded", "failed"},
             timeout=60,
         )
+        assert status == "succeeded"
     finally:
         complete_job(client, job_id)
 
@@ -123,12 +125,13 @@ def test_cluster_and_hardware(client: httpx.Client):
             get_pipelinerun_param(job_id, "kubeconfig-secret") == "cluster-4-kubeconfig"
         )
 
-        poll_job_status(
+        status = poll_job_status(
             client,
             job_id,
             terminal={"succeeded", "failed"},
             timeout=60,
         )
+        assert status == "succeeded"
     finally:
         complete_job(client, job_id)
 
@@ -148,12 +151,13 @@ def test_run_only_pipeline(client: httpx.Client):
     try:
         assert data["status"] == "pending"
 
-        poll_job_status(
+        status = poll_job_status(
             client,
             job_id,
             terminal={"succeeded", "failed"},
             timeout=60,
         )
+        assert status == "succeeded"
     finally:
         complete_job(client, job_id)
 
@@ -296,7 +300,10 @@ def test_artifacts(client: httpx.Client):
     )
     job_id = data["id"]
     try:
-        poll_job_status(client, job_id, timeout=30)
+        status = poll_job_status(
+            client, job_id, terminal={"succeeded", "failed"}, timeout=60
+        )
+        assert status == "succeeded"
 
         resp = client.get(f"/api/v1/job/{job_id}/artifacts")
         assert resp.status_code == 200
