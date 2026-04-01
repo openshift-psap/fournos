@@ -1,9 +1,9 @@
-FROM python:3.12-slim
+FROM registry.redhat.io/ubi10/python-312-minimal:10.1
 
-WORKDIR /app
+WORKDIR /opt/app-root/src
 
 # Layer 1 – dependencies only (cached unless pyproject.toml changes)
-COPY pyproject.toml README.md ./
+COPY pyproject.toml ./
 RUN mkdir -p fournos && touch fournos/__init__.py \
     && pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir . \
@@ -12,8 +12,5 @@ RUN mkdir -p fournos && touch fournos/__init__.py \
 # Layer 2 – application source (rebuilt on every code change)
 COPY fournos/ fournos/
 RUN pip install --no-cache-dir --no-deps .
-
-RUN useradd --no-create-home --shell /bin/false appuser
-USER appuser
 
 ENTRYPOINT ["kopf", "run", "-m", "fournos.operator", "--liveness=http://0.0.0.0:8080/healthz"]
