@@ -11,6 +11,16 @@ Jobs are submitted as `FournosJob` custom resources. The operator watches
 for new CRs, creates Kueue Workloads for quota management, waits for
 admission, then launches the corresponding Tekton PipelineRun.
 
+## Cluster dependencies
+
+The following operators must be installed in the cluster before deploying Fournos:
+
+- Red Hat OpenShift Pipelines (`1.21`)
+- Red Hat build of Kueue (`1.3`)
+- Builds for Red Hat OpenShift Operator (`1.7`)
+- Red Hat OpenShift GitOps (`1.20`)
+  - only for the GitOps deployment of Fournos
+
 ## Quick start
 
 ```bash
