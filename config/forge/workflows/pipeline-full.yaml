@@ -1,0 +1,133 @@
+# Full three-step pipeline: pre_cleanup -> prepare → test → post-cleanup.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: forge-full
+spec:
+  params:
+    - name: job-name
+      type: string
+    - name: forge-project
+      type: string
+    - name: forge-preset
+      type: string
+    - name: forge-config-overrides
+      type: string
+      default: "{}"
+    - name: env
+      type: string
+      default: "{}"
+    - name: kubeconfig-secret
+      type: string
+    - name: gpu-count
+      type: string
+    - name: secrets
+      type: array
+      default: []
+
+  tasks:
+    - name: pre-cleanup
+      taskRef:
+        name: forge-step
+      params:
+        # -- common params -- #
+        - name: forge-project
+          value: "$(params.forge-project)"
+        - name: forge-preset
+          value: "$(params.forge-preset)"
+        - name: forge-config-overrides
+          value: "$(params.forge-config-overrides)"
+        - name: env
+          value: "$(params.env)"
+        - name: kubeconfig-secret
+          value: "$(params.kubeconfig-secret)"
+        - name: gpu-count
+          value: "$(params.gpu-count)"
+        - name: job-name
+          value: "$(params.job-name)"
+        - name: secrets
+          value:
+          - $(params.secrets[*])
+          # -- specific params -- #
+        - name: job-step
+          value: pre-cleanup
+
+    - name: prepare
+      taskRef:
+        name: forge-step
+      params:
+        # -- common params -- #
+        - name: forge-project
+          value: "$(params.forge-project)"
+        - name: forge-preset
+          value: "$(params.forge-preset)"
+        - name: forge-config-overrides
+          value: "$(params.forge-config-overrides)"
+        - name: env
+          value: "$(params.env)"
+        - name: kubeconfig-secret
+          value: "$(params.kubeconfig-secret)"
+        - name: gpu-count
+          value: "$(params.gpu-count)"
+        - name: job-name
+          value: "$(params.job-name)"
+        - name: secrets
+          value:
+          - $(params.secrets[*])
+          # -- specific params -- #
+        - name: job-step
+          value: prepare
+
+    - name: test
+      runAfter: [prepare]
+      taskRef:
+        name: forge-step
+      params:
+        # -- common params -- #
+        - name: forge-project
+          value: "$(params.forge-project)"
+        - name: forge-preset
+          value: "$(params.forge-preset)"
+        - name: forge-config-overrides
+          value: "$(params.forge-config-overrides)"
+        - name: env
+          value: "$(params.env)"
+        - name: kubeconfig-secret
+          value: "$(params.kubeconfig-secret)"
+        - name: gpu-count
+          value: "$(params.gpu-count)"
+        - name: job-name
+          value: "$(params.job-name)"
+        - name: secrets
+          value:
+          - $(params.secrets[*])
+        # -- specific params -- #
+        - name: job-step
+          value: test
+
+  finally:
+    - name: post-cleanup
+      taskRef:
+        name: forge-step
+      params:
+        # -- common params -- #
+        - name: forge-project
+          value: "$(params.forge-project)"
+        - name: forge-preset
+          value: "$(params.forge-preset)"
+        - name: forge-config-overrides
+          value: "$(params.forge-config-overrides)"
+        - name: env
+          value: "$(params.env)"
+        - name: kubeconfig-secret
+          value: "$(params.kubeconfig-secret)"
+        - name: gpu-count
+          value: "$(params.gpu-count)"
+        - name: job-name
+          value: "$(params.job-name)"
+        - name: secrets
+          value:
+          - $(params.secrets[*])
+        # -- specific params -- #
+        - name: job-step
+          value: pre-cleanup # there's currently no post-cleanup step

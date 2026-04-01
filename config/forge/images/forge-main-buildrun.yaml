@@ -1,0 +1,11 @@
+apiVersion: shipwright.io/v1beta1
+kind: BuildRun
+metadata:
+  generateName: forge-main-run-
+  labels:
+    app: forge
+    component: image-build
+    build: forge-main-build
+spec:
+  build:
+    name: forge-main-build
