@@ -65,9 +65,11 @@ spec:
                   properties:
                     gpuType:
                       type: string
+                      pattern: "^[a-z0-9]+$"
                       description: >-
                         Short GPU model name (e.g. "a100", "h200").
                         The operator prepends the resource prefix automatically.
+                        Must be lowercase alphanumeric — no slashes or vendor prefixes.
                     gpuCount:
                       type: integer
                       minimum: 1

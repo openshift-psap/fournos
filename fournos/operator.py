@@ -78,6 +78,23 @@ def on_create(spec, name, namespace, status, patch, **_):
             patch.status["message"] = f"Cluster '{cluster}' not found"
             return
 
+    if hardware and hardware.get("gpuType"):
+        gpu_type = hardware["gpuType"]
+        try:
+            known_gpu_types = _kueue.list_gpu_types()
+        except client.exceptions.ApiException as exc:
+            patch.status["phase"] = "Failed"
+            patch.status["message"] = f"Failed to list GPU types: {exc.reason}"
+            logger.error("Job %s: list_gpu_types failed: %s", name, exc.reason)
+            return
+        if known_gpu_types and gpu_type not in known_gpu_types:
+            patch.status["phase"] = "Failed"
+            patch.status["message"] = (
+                f"GPU type '{gpu_type}' not available. "
+                f"Valid types: {', '.join(sorted(known_gpu_types))}"
+            )
+            return
+
     try:
         _kueue.create_workload(
             name=name,

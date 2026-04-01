@@ -13,6 +13,7 @@ KUEUE_GROUP = "kueue.x-k8s.io"
 KUEUE_VERSION = "v1beta2"
 KUEUE_WORKLOAD_PLURAL = "workloads"
 KUEUE_RESOURCE_FLAVOR_PLURAL = "resourceflavors"
+KUEUE_CLUSTER_QUEUE_PLURAL = "clusterqueues"
 
 
 class KueueClient:
@@ -125,6 +126,22 @@ class KueueClient:
             plural=KUEUE_RESOURCE_FLAVOR_PLURAL,
         )
         return {item["metadata"]["name"] for item in result.get("items", [])}
+
+    def list_gpu_types(self) -> set[str]:
+        """Return the set of GPU type short names that have quota in any ClusterQueue."""
+        result = self._k8s.list_cluster_custom_object(
+            group=KUEUE_GROUP,
+            version=KUEUE_VERSION,
+            plural=KUEUE_CLUSTER_QUEUE_PLURAL,
+        )
+        prefix = settings.gpu_resource_prefix
+        gpu_types: set[str] = set()
+        for cq in result.get("items", []):
+            for rg in cq.get("spec", {}).get("resourceGroups", []):
+                for resource in rg.get("coveredResources", []):
+                    if resource.startswith(prefix):
+                        gpu_types.add(resource[len(prefix) :])
+        return gpu_types
 
     @staticmethod
     def is_admitted(workload: dict) -> bool:
