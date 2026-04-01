@@ -99,6 +99,7 @@ Prerequisites: [Podman](https://podman.io/),
 
 ```bash
 make dev-setup    # creates a kind cluster, installs Tekton + Kueue + CRD, applies mock resources
+export FOURNOS_NAMESPACE=$(oc project -q)
 make dev-run      # starts the operator locally (connects to the kind cluster)
 ```
 
