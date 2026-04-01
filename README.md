@@ -116,13 +116,11 @@ make test                        # integration tests (operator must be running)
 
 ## Deployment
 
-Apply the Kubernetes manifests in order:
+Deploy the operator:
 
 ```bash
 kubectl apply -f manifests/crd.yaml
 kubectl apply -f manifests/rbac.yaml
-kubectl apply -f manifests/kueue-config.yaml
-kubectl apply -f manifests/tekton/
 kubectl apply -f manifests/deployment.yaml
 ```
 
@@ -133,9 +131,11 @@ Three things are needed to make a target cluster available to Fournos:
 1. **Create a kubeconfig Secret** so the operator can reach the cluster:
 
 ```bash
-oc create secret generic <cluster>-kubeconfig \
+FOURNOS_NAMESPACE=psap-automation
+CLUSTER_NAME=<name>
+oc create secret generic ${CLUSTER_NAME}-kubeconfig \
   --from-file=kubeconfig=/path/to/auth/kubeconfig \
-  -n psap-automation
+  -n $FOURNOS_NAMESPACE
 ```
 
 The secret name must match the `FOURNOS_KUBECONFIG_SECRET_PATTERN` (default
@@ -155,11 +155,12 @@ oc apply -f manifests/kueue-config.yaml
    match the new target, then:
 
 ```bash
-oc create -f dev/test-connectivity-job.yaml
-oc get fournosjobs -n psap-automation -w        # should reach Succeeded
+FOURNOS_NAMESPACE=psap-automation
+oc create -f dev/test-connectivity-job.yaml -n $FOURNOS_NAMESPACE
+oc get fournosjobs -n $FOURNOS_NAMESPACE -w        # should reach Succeeded
 ```
 
-This runs the `fournos-validate-only` pipeline, which only checks `kubectl
+This runs the `fournos-validate-only` pipeline, which only checks `oc
 cluster-info` against the target — no FORGE workload is launched. If the job
 reaches `Succeeded`, the kubeconfig secret and Kueue quota are correctly
 configured. If it fails, check the operator logs and the PipelineRun status for
