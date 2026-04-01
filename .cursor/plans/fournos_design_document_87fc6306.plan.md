@@ -85,20 +85,20 @@ Jobs are submitted as `FournosJob` custom resources ([manifests/crd.yaml](manife
 ### Spec
 
 
-| Field                        | Required     | Description                                           |
-| ---------------------------- | ------------ | ----------------------------------------------------- |
-| `spec.forge.project`         | yes          | FORGE project path                                    |
-| `spec.forge.preset`          | yes          | FORGE preset name                                     |
-| `spec.forge.configOverrides` | no           | Key-value overrides passed to the test framework      |
-| `spec.env`                   | no           | Environment variables for test identification         |
-| `spec.cluster`               |              | Pin to a specific cluster (Kueue ResourceFlavor)      |
-| `spec.hardware.gpuType`      |              | GPU model (e.g. `A100`, `H200`)                       |
-| `spec.hardware.gpuCount`     | with gpuType | Number of GPUs (minimum 1)                            |
-| `spec.owner`                 | no           | Team or individual that owns this job                 |
-| `spec.displayName`           | no           | Human-readable job name (defaults to `metadata.name`) |
-| `spec.pipeline`              | no           | Tekton Pipeline name (default: `fournos-full`)        |
-| `spec.priority`              | no           | Kueue WorkloadPriorityClass name                      |
-| `spec.secrets`               | no           | Additional Secret names for the pipeline              |
+| Field                        | Required     | Description                                                                                      |
+| ---------------------------- | ------------ | ------------------------------------------------------------------------------------------------ |
+| `spec.forge.project`         | yes          | FORGE project path                                                                               |
+| `spec.forge.preset`          | yes          | FORGE preset name                                                                                |
+| `spec.forge.configOverrides` | no           | Key-value overrides passed to the test framework                                                 |
+| `spec.env`                   | no           | Environment variables for test identification                                                    |
+| `spec.cluster`               |              | Pin to a specific cluster (Kueue ResourceFlavor)                                                 |
+| `spec.hardware.gpuType`      |              | Short GPU model name (e.g. `a100`, `h200`). The operator adds the resource prefix automatically. |
+| `spec.hardware.gpuCount`     | with gpuType | Number of GPUs (minimum 1)                                                                       |
+| `spec.owner`                 | no           | Team or individual that owns this job                                                            |
+| `spec.displayName`           | no           | Human-readable job name (defaults to `metadata.name`)                                            |
+| `spec.pipeline`              | no           | Tekton Pipeline name (default: `fournos-full`)                                                   |
+| `spec.priority`              | no           | Kueue WorkloadPriorityClass name                                                                 |
+| `spec.secrets`               | no           | Additional Secret names for the pipeline                                                         |
 
 
  At least one of `spec.cluster` or `spec.hardware` must be provided. Both can be set together to pin a hardware request to a specific cluster.
@@ -153,7 +153,7 @@ All jobs flow through Kueue — there is one scheduling path with different cons
 | User specifies                             | Workload nodeSelector                          | Kueue behavior                                                          |
 | ------------------------------------------ | ---------------------------------------------- | ----------------------------------------------------------------------- |
 | `cluster: "cluster-1"`                     | `fournos.dev/cluster: cluster-1`               | Only the `cluster-1` flavor is eligible. Queues if the cluster is full. |
-| `hardware: {gpuType: "A100", gpuCount: 2}` | *(none)*                                       | All flavors with enough A100 quota are eligible. Kueue picks first fit. |
+| `hardware: {gpuType: "a100", gpuCount: 2}` | *(none)*                                       | All flavors with enough A100 quota are eligible. Kueue picks first fit. |
 | Both                                       | `fournos.dev/cluster: cluster-1` + GPU request | Specific hardware on a specific cluster.                                |
 
 

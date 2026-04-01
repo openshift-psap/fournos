@@ -65,6 +65,9 @@ spec:
                   properties:
                     gpuType:
                       type: string
+                      description: >-
+                        Short GPU model name (e.g. "a100", "h200").
+                        The operator prepends the resource prefix automatically.
                     gpuCount:
                       type: integer
                       minimum: 1

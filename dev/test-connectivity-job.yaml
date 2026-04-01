@@ -1,0 +1,16 @@
+apiVersion: fournos.dev/v1
+kind: FournosJob
+metadata:
+  generateName: test-connectivity-job-
+  namespace: psap-automation
+spec:
+  owner: perf-team
+  displayName: test-connectivity-job
+  pipeline: fournos-validate-only
+  cluster: cluster-1
+  hardware:
+    gpuType: a100
+    gpuCount: 1
+  forge:
+    project: none
+    preset: none
