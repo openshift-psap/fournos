@@ -29,14 +29,13 @@ and `displayName` for a human-readable label:
 apiVersion: fournos.dev/v1
 kind: FournosJob
 metadata:
-  generateName: nightly-llama3-
-  namespace: psap-automation
+  generateName: sample-run-benchamark-
 spec:
   owner: perf-team
-  displayName: nightly-llama3-benchmark
+  displayName: sample-run-benchmark
   cluster: cluster-1
   forge:
-    project: testproj/llmd
+    project: llmd
     preset: cks
   env:
     OCPCI_SUITE: regression
@@ -44,9 +43,10 @@ spec:
 ```
 
 ```bash
-kubectl create -f job.yaml                               # returns the generated name, e.g. nightly-llama3-x7k2m
-kubectl get fournosjobs -n psap-automation  -w           # watch status transitions
-kubectl delete fournosjob -n psap-automation  <name>     # cleanup
+FOURNOS_NAMESPACE=psap-automation
+oc create -f sample/job.yaml -n $FOURNOS_NAMESPACE     # returns the generated name, e.g. sample-run-benchmark--x7k2m
+oc get FournosJobs -n $FOURNOS_NAMESPACE -w            # watch status transitions
+oc delete FournosJob -n $FOURNOS_NAMESPACE <name>      # cleanup
 ```
 
 ### Spec fields
@@ -116,12 +116,19 @@ make test                        # integration tests (operator must be running)
 
 ## Deployment
 
+Prepare the namespace
+```bash
+FOURNOS_NAMESPACE=psap-automation
+oc create ns $FOURNOS_NAMESPACE
+oc label ns/$FOURNOS_NAMESPACE fournos.dev/queue-access=true
+```
+
 Deploy the operator:
 
 ```bash
-kubectl apply -f manifests/crd.yaml
-kubectl apply -f manifests/rbac.yaml
-kubectl apply -f manifests/deployment.yaml
+oc apply -n $FOURNOS_NAMESPACE -f manifests/crd.yaml
+oc apply -n $FOURNOS_NAMESPACE -f manifests/rbac.yaml
+oc apply -n $FOURNOS_NAMESPACE -f manifests/deployment.yaml
 ```
 
 ### Onboarding a new cluster

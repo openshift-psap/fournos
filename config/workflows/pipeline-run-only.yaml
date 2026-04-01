@@ -4,7 +4,6 @@ apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
   name: fournos-run-only
-  namespace: psap-automation
 spec:
   params:
     - name: job-name
