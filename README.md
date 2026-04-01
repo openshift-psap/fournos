@@ -34,6 +34,7 @@ spec:
   owner: perf-team
   displayName: sample-run-benchmark
   cluster: cluster-1
+  pipeline: forge-full
   forge:
     project: llmd
     preset: cks
@@ -44,7 +45,7 @@ spec:
 
 ```bash
 FOURNOS_NAMESPACE=psap-automation
-oc create -f sample/job.yaml -n $FOURNOS_NAMESPACE     # returns the generated name, e.g. sample-run-benchmark--x7k2m
+oc create -f config/forge/samples/job-full.yaml -n $FOURNOS_NAMESPACE     # returns the generated name, e.g. forge-full-sample-x7k2m
 oc get FournosJobs -n $FOURNOS_NAMESPACE -w            # watch status transitions
 oc delete FournosJob -n $FOURNOS_NAMESPACE <name>      # cleanup
 ```
@@ -127,7 +128,7 @@ Deploy the operator:
 
 ```bash
 oc apply -n $FOURNOS_NAMESPACE -f manifests/crd.yaml
-oc apply -n $FOURNOS_NAMESPACE -f manifests/rbac.yaml
+cat manifests/rbac.yaml | NAMESPACE=$FOURNOS_NAMESPACE envsubst | oc apply -f- -n $FOURNOS_NAMESPACE
 oc apply -n $FOURNOS_NAMESPACE -f manifests/deployment.yaml
 ```
 
@@ -172,6 +173,15 @@ cluster-info` against the target — no FORGE workload is launched. If the job
 reaches `Succeeded`, the kubeconfig secret and Kueue quota are correctly
 configured. If it fails, check the operator logs and the PipelineRun status for
 details.
+
+### Deploying the FORGE workflow configuration
+
+Deploy the cluster configuration (Builds + Tekton):
+
+```bash
+oc apply -n $FOURNOS_NAMESPACE -f config/forge/images
+oc apply -n $FOURNOS_NAMESPACE -f config/forge/workflows
+
 
 ## Configuration
 
