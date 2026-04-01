@@ -1,0 +1,66 @@
+# Full three-step pipeline: prepare → run → cleanup (finally).
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: fournos-full
+spec:
+  params:
+    - name: job-name
+      type: string
+    - name: forge-project
+      type: string
+    - name: forge-preset
+      type: string
+    - name: forge-config-overrides
+      type: string
+      default: "{}"
+    - name: env
+      type: string
+      default: "{}"
+    - name: kubeconfig-secret
+      type: string
+    - name: gpu-count
+      type: string
+    - name: secrets
+      type: array
+      default: []
+  tasks:
+    - name: prepare
+      taskRef:
+        name: fournos-prepare
+      params:
+        - name: kubeconfig-secret
+          value: "$(params.kubeconfig-secret)"
+        - name: job-name
+          value: "$(params.job-name)"
+    - name: run
+      runAfter: [prepare]
+      taskRef:
+        name: fournos-run
+      params:
+        - name: forge-project
+          value: "$(params.forge-project)"
+        - name: forge-preset
+          value: "$(params.forge-preset)"
+        - name: forge-config-overrides
+          value: "$(params.forge-config-overrides)"
+        - name: env
+          value: "$(params.env)"
+        - name: kubeconfig-secret
+          value: "$(params.kubeconfig-secret)"
+        - name: gpu-count
+          value: "$(params.gpu-count)"
+        - name: job-name
+          value: "$(params.job-name)"
+        - name: secrets
+          value:
+            - $(params.secrets[*])
+  finally:
+    - name: cleanup
+      taskRef:
+        name: fournos-cleanup
+      params:
+        - name: kubeconfig-secret
+          value: "$(params.kubeconfig-secret)"
+        - name: job-name
+          value: "$(params.job-name)"

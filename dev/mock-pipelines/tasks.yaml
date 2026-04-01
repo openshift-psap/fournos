@@ -5,7 +5,6 @@ apiVersion: tekton.dev/v1
 kind: Task
 metadata:
   name: fournos-prepare
-  namespace: psap-automation
 spec:
   params:
     - name: kubeconfig-secret
@@ -26,7 +25,6 @@ apiVersion: tekton.dev/v1
 kind: Task
 metadata:
   name: fournos-run
-  namespace: psap-automation
 spec:
   params:
     - name: forge-project
@@ -64,7 +62,6 @@ apiVersion: tekton.dev/v1
 kind: Task
 metadata:
   name: fournos-cleanup
-  namespace: psap-automation
 spec:
   params:
     - name: kubeconfig-secret
@@ -85,7 +82,6 @@ apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
   name: fournos-run-only
-  namespace: psap-automation
 spec:
   params:
     - name: job-name
@@ -138,7 +134,6 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: cluster-1-kubeconfig
-  namespace: psap-automation
 type: Opaque
 stringData:
   kubeconfig: "mock"
@@ -148,7 +143,6 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: cluster-2-kubeconfig
-  namespace: psap-automation
 type: Opaque
 stringData:
   kubeconfig: "mock"
@@ -158,7 +152,6 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: cluster-3-kubeconfig
-  namespace: psap-automation
 type: Opaque
 stringData:
   kubeconfig: "mock"
@@ -168,7 +161,6 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: cluster-4-kubeconfig
-  namespace: psap-automation
 type: Opaque
 stringData:
   kubeconfig: "mock"

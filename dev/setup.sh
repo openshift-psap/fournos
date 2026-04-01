@@ -61,29 +61,35 @@ do
   sleep 2
 done
 
+#----------------------
+# Prepare the namespace
+# ---------------------
+
+FOURNOS_NAMESPACE=psap-automation
+kubectl create ns "$FOURNOS_NAMESPACE" --dry-run -oyaml | kubectl apply -f-
+kubectl label ns/$FOURNOS_NAMESPACE fournos.dev/queue-access=true
+
 # ---------------------------------------------------------------
 # 4. Apply FournosJob CRD
 # ---------------------------------------------------------------
 echo ""
 echo "Applying FournosJob CRD..."
-kubectl apply -f manifests/crd.yaml
+kubectl apply -f manifests/crd.yaml -n $FOURNOS_NAMESPACE
 
 # ---------------------------------------------------------------
 # 5. Apply Fournos Kubernetes manifests
 # ---------------------------------------------------------------
 echo ""
 echo "Applying Fournos manifests..."
-kubectl apply -f dev/mock-kueue-config.yaml
-kubectl apply -f manifests/rbac.yaml
-kubectl apply -f manifests/tekton/
+cat manifests/rbac.yaml | NAMESPACE=$FOURNOS_NAMESPACE envsubst | kubectl apply -f- -n $FOURNOS_NAMESPACE
 
 # ---------------------------------------------------------------
-# 6. Apply mock resources (overrides real Tasks, adds fake secrets)
+# 6. Apply mock resources (overrides real Tasks, adds fake secrets, kueues ...)
 # ---------------------------------------------------------------
 echo ""
 echo "Applying mock resources..."
-kubectl apply -f dev/mock-resources.yaml
-
+kubectl apply -f dev/mock-kueue-config.yaml -n $FOURNOS_NAMESPACE
+kubectl apply -f dev/mock-pipelines -n $FOURNOS_NAMESPACE
 # ---------------------------------------------------------------
 # Done
 # ---------------------------------------------------------------
