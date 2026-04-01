@@ -3,7 +3,7 @@ name: Fournos Implementation
 overview: "Fournos Kubernetes operator: FournosJob CRD, kopf operator, Kueue/Tekton core logic, K8s manifests, local dev environment, and e2e test suite."
 todos:
   - id: 1-project-scaffold
-    content: "Project scaffolding: pyproject.toml, Dockerfile, README.md, .gitignore, .dockerignore, Makefile, pre-commit config"
+    content: "Project scaffolding: pyproject.toml, Containerfile, README.md, .gitignore, .dockerignore, Makefile, pre-commit config"
     status: complete
   - id: 2-crd
     content: "FournosJob CRD: spec (forge, cluster, hardware, pipeline, priority, secrets) and status (phase, cluster, pipelineRun, dashboardURL, message)"
@@ -29,8 +29,8 @@ todos:
   - id: 9-rbac-manifests
     content: "manifests/rbac.yaml: ClusterRole + ClusterRoleBinding for Kueue resources; Role + RoleBinding for FournosJob, PipelineRun, Secret access"
     status: complete
-  - id: 10-dockerfile
-    content: "Dockerfile: Python base, install deps, copy source, kopf entrypoint with liveness probe"
+  - id: 10-containerfile
+    content: "Containerfile: Python base, install deps, copy source, kopf entrypoint with liveness probe"
     status: complete
   - id: 11-deployment-manifests
     content: "manifests/deployment.yaml: Deployment in psap-automation namespace with liveness probe"
@@ -284,7 +284,7 @@ Namespace-scoped tenant on a shared OpenShift management cluster:
 - [manifests/crd.yaml](manifests/crd.yaml) — FournosJob CustomResourceDefinition
 - [manifests/rbac.yaml](manifests/rbac.yaml) — ClusterRole + ClusterRoleBinding for Kueue cluster resources; Role + RoleBinding for FournosJob, PipelineRun, Secret access
 - [manifests/deployment.yaml](manifests/deployment.yaml) — Deployment in `psap-automation` with liveness probe
-- [Dockerfile](Dockerfile) — Python base image, pip install, `kopf run` entrypoint with liveness endpoint
+- [Containerfile](Containerfile) — Python base image, pip install, `kopf run` entrypoint with liveness endpoint
 
 ```bash
 kubectl apply -f manifests/crd.yaml
@@ -338,7 +338,7 @@ tests/
   test_validation.py       # Missing target, unknown cluster
   test_lifecycle.py        # Workload cleanup, delete cleanup, list, filter by phase
   test_resource_gc.py      # Stale Workload/PipelineRun garbage collection
-Dockerfile
+Containerfile
 Makefile                   # dev-setup, dev-run, test, dev-teardown, ci-setup, ci-run, ci-stop, lint, format
 pyproject.toml
 .pre-commit-config.yaml    # ruff lint + format hooks
