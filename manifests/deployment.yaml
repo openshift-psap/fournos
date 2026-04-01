@@ -19,6 +19,7 @@ spec:
       containers:
         - name: fournos
           image: quay.io/rh_perfscale/fournos:latest
+          args: ["--namespace=$(FOURNOS_NAMESPACE)"]
           env:
             - name: FOURNOS_NAMESPACE
               valueFrom:
