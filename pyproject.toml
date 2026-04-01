@@ -4,24 +4,24 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fournos"
-version = "0.1.0"
-description = "Benchmark job scheduler — Tekton + Kueue"
+version = "0.2.0"
+description = "Benchmark job operator — Kubernetes CRD + Kueue + Tekton"
 requires-python = ">=3.11"
 dependencies = [
-    "fastapi>=0.115",
-    "uvicorn[standard]>=0.34",
-    "pydantic>=2.10",
-    "pydantic-settings>=2.7",
+    "kopf>=1.37",
     "kubernetes>=31.0",
+    "pydantic-settings>=2.7",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
-    "httpx>=0.28",
     "ruff>=0.9",
     "pre-commit>=4.0",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: tests that take longer than 30s (e.g. full lifecycle)",
+]

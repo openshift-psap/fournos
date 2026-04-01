@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from kubernetes import client
 
-from fournos.core.constants import LABEL_JOB_ID, LABEL_MANAGED_BY
+from fournos.core.constants import LABEL_JOB_NAME, LABEL_MANAGED_BY
 from fournos.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -27,14 +26,13 @@ class KueueClient:
     def create_workload(
         self,
         *,
-        job_id: str,
-        job_name: str,
+        name: str,
         gpu_type: str | None = None,
         gpu_count: int = 0,
         cluster: str | None = None,
         priority: str | None = None,
     ) -> dict:
-        workload_name = f"fournos-{job_id}"
+        workload_name = f"fournos-{name}"
 
         resource_requests: dict[str, str] = {"cpu": "1"}
         if gpu_type and gpu_count:
@@ -64,10 +62,7 @@ class KueueClient:
                 "labels": {
                     "kueue.x-k8s.io/queue-name": settings.kueue_local_queue_name,
                     LABEL_MANAGED_BY: "fournos",
-                    LABEL_JOB_ID: job_id,
-                },
-                "annotations": {
-                    "fournos.dev/job-name": job_name,
+                    LABEL_JOB_NAME: name,
                 },
             },
             "spec": {
@@ -92,21 +87,21 @@ class KueueClient:
             plural=KUEUE_WORKLOAD_PLURAL,
             body=body,
         )
-        logger.info("Created Kueue Workload %s for job %s", workload_name, job_id)
+        logger.info("Created Kueue Workload %s for job %s", workload_name, name)
         return result
 
-    def get_workload(self, job_id: str) -> dict:
+    def get_workload(self, name: str) -> dict:
         return self._k8s.get_namespaced_custom_object(
             group=KUEUE_GROUP,
             version=KUEUE_VERSION,
             namespace=settings.namespace,
             plural=KUEUE_WORKLOAD_PLURAL,
-            name=f"fournos-{job_id}",
+            name=f"fournos-{name}",
         )
 
-    def get_workload_or_none(self, job_id: str) -> dict | None:
+    def get_workload_or_none(self, name: str) -> dict | None:
         try:
-            return self.get_workload(job_id)
+            return self.get_workload(name)
         except client.exceptions.ApiException as exc:
             if exc.status == 404:
                 return None
@@ -151,27 +146,9 @@ class KueueClient:
             return next(iter(flavors.values()))
         return None
 
-    def annotate_workload_error(self, job_id: str, error: str) -> None:
-        """Set an error annotation on the Workload so the API can surface it."""
-        workload_name = f"fournos-{job_id}"
-        patch = {"metadata": {"annotations": {"fournos.dev/error": error}}}
-        try:
-            self._k8s.patch_namespaced_custom_object(
-                group=KUEUE_GROUP,
-                version=KUEUE_VERSION,
-                namespace=settings.namespace,
-                plural=KUEUE_WORKLOAD_PLURAL,
-                name=workload_name,
-                body=patch,
-            )
-            logger.info("Annotated Workload %s with error", workload_name)
-        except client.exceptions.ApiException as exc:
-            if exc.status != 404:
-                raise
-
-    def delete_workload(self, job_id: str) -> None:
+    def delete_workload(self, name: str) -> None:
         """Delete the virtual Workload to release Kueue quota."""
-        workload_name = f"fournos-{job_id}"
+        workload_name = f"fournos-{name}"
         try:
             self._k8s.delete_namespaced_custom_object(
                 group=KUEUE_GROUP,
@@ -184,34 +161,3 @@ class KueueClient:
         except client.exceptions.ApiException as exc:
             if exc.status != 404:
                 raise
-
-    async def poll_admission(self, job_id: str) -> str | None:
-        """Block until the Workload is admitted; return the assigned flavor (cluster).
-
-        Returns ``None`` if the Workload is deleted before admission (e.g. by
-        manual cleanup, or test teardown).
-        """
-        deadline = asyncio.get_event_loop().time() + settings.admission_poll_timeout_sec
-        while True:
-            workload = await asyncio.to_thread(self.get_workload_or_none, job_id)
-            if workload is None:
-                logger.info(
-                    "Workload fournos-%s disappeared, stopping admission poll",
-                    job_id,
-                )
-                return None
-            if self.is_admitted(workload):
-                flavor = self.get_assigned_flavor(workload)
-                if flavor:
-                    logger.info(
-                        "Workload fournos-%s admitted to flavor %s", job_id, flavor
-                    )
-                    return flavor
-            if asyncio.get_event_loop().time() >= deadline:
-                break
-            await asyncio.sleep(settings.admission_poll_interval_sec)
-
-        raise TimeoutError(
-            f"Workload fournos-{job_id} not admitted within "
-            f"{settings.admission_poll_timeout_sec}s"
-        )

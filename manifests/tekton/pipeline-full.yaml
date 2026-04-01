@@ -6,17 +6,18 @@ metadata:
   namespace: psap-automation
 spec:
   params:
-    - name: job-id
-      type: string
     - name: job-name
       type: string
     - name: forge-project
       type: string
     - name: forge-preset
       type: string
-    - name: forge-args
-      type: array
-      default: []
+    - name: forge-config-overrides
+      type: string
+      default: "{}"
+    - name: env
+      type: string
+      default: "{}"
     - name: kubeconfig-secret
       type: string
     - name: gpu-count
@@ -42,9 +43,10 @@ spec:
           value: "$(params.forge-project)"
         - name: forge-preset
           value: "$(params.forge-preset)"
-        - name: forge-args
-          value:
-            - "$(params.forge-args[*])"
+        - name: forge-config-overrides
+          value: "$(params.forge-config-overrides)"
+        - name: env
+          value: "$(params.env)"
         - name: kubeconfig-secret
           value: "$(params.kubeconfig-secret)"
         - name: gpu-count
@@ -53,7 +55,7 @@ spec:
           value: "$(params.job-name)"
         - name: secrets
           value:
-            - "$(params.secrets[*])"
+            - $(params.secrets[*])
   finally:
     - name: cleanup
       taskRef:
@@ -63,9 +65,3 @@ spec:
           value: "$(params.kubeconfig-secret)"
         - name: job-name
           value: "$(params.job-name)"
-    - name: notify-fournos
-      taskRef:
-        name: fournos-notify
-      params:
-        - name: job-id
-          value: "$(params.job-id)"

@@ -4,12 +4,15 @@ import json
 import os
 import subprocess
 import time
+from typing import Any
 
-import httpx
 import pytest
+from kubernetes import client, config
 
-FOURNOS_URL = os.environ.get("FOURNOS_URL", "http://localhost:8000")
-NAMESPACE = "psap-automation"
+NAMESPACE = os.environ.get("FOURNOS_NAMESPACE", "psap-automation")
+GROUP = "fournos.dev"
+VERSION = "v1"
+PLURAL = "fournosjobs"
 
 
 def _kubectl_delete_all(resource: str) -> None:
@@ -29,110 +32,146 @@ def _kubectl_delete_all(resource: str) -> None:
     )
 
 
+@pytest.fixture(scope="session")
+def k8s():
+    """Return a CustomObjectsApi client configured for the current context."""
+    try:
+        config.load_incluster_config()
+    except config.ConfigException:
+        config.load_kube_config()
+    return client.CustomObjectsApi()
+
+
 @pytest.fixture(autouse=True)
-def _clean_before_test():
-    """Wipe Fournos resources before every test for a deterministic state."""
-    _kubectl_delete_all("pipelineruns")
-    _kubectl_delete_all("workloads")
+def _clean_before_test(k8s):
+    """Wipe all FournosJobs (and their child resources) for a deterministic state."""
+    jobs = k8s.list_namespaced_custom_object(GROUP, VERSION, NAMESPACE, PLURAL)
+    for job in jobs.get("items", []):
+        name = job["metadata"]["name"]
+        try:
+            k8s.delete_namespaced_custom_object(
+                GROUP,
+                VERSION,
+                NAMESPACE,
+                PLURAL,
+                name,
+                grace_period_seconds=0,
+            )
+        except client.exceptions.ApiException as exc:
+            if exc.status != 404:
+                raise
+
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        remaining = k8s.list_namespaced_custom_object(GROUP, VERSION, NAMESPACE, PLURAL)
+        if not remaining.get("items"):
+            break
+        time.sleep(1)
+
+    _kubectl_delete_all("pipelineruns.tekton.dev")
+    _kubectl_delete_all("workloads.kueue.x-k8s.io")
 
 
-@pytest.fixture(scope="session")
-def base_url() -> str:
-    return FOURNOS_URL
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="session")
-def client(base_url: str):
-    with httpx.Client(base_url=base_url, timeout=30) as c:
-        yield c
+def create_job(k8s, name: str, spec: dict) -> dict:
+    """Create a FournosJob CR and return the API response."""
+    body = {
+        "apiVersion": f"{GROUP}/{VERSION}",
+        "kind": "FournosJob",
+        "metadata": {"name": name, "namespace": NAMESPACE},
+        "spec": spec,
+    }
+    return k8s.create_namespaced_custom_object(
+        GROUP,
+        VERSION,
+        NAMESPACE,
+        PLURAL,
+        body,
+    )
 
 
-def submit_job(client: httpx.Client, payload: dict) -> dict:
-    """POST /api/v1/jobs, assert 201, return the response body."""
-    resp = client.post("/api/v1/jobs", json=payload)
-    assert resp.status_code == 201, f"Expected 201, got {resp.status_code}: {resp.text}"
-    return resp.json()
+def get_job(k8s, name: str) -> dict:
+    return k8s.get_namespaced_custom_object(GROUP, VERSION, NAMESPACE, PLURAL, name)
 
 
-def poll_job_status(
-    client: httpx.Client,
-    job_id: str,
+def get_job_phase(k8s, name: str) -> str:
+    job = get_job(k8s, name)
+    return job.get("status", {}).get("phase", "")
+
+
+def poll_phase(
+    k8s,
+    name: str,
     *,
-    terminal: set[str] = frozenset({"running", "succeeded", "failed"}),
+    terminal: set[str],
     interval: float = 3.0,
     timeout: float = 60.0,
     raise_on_timeout: bool = True,
 ) -> str:
-    """Poll GET /api/v1/job/{id} until the status reaches one of *terminal* states.
+    """Poll the FournosJob until its phase reaches one of *terminal* states.
 
-    By default, raises ``AssertionError`` if the timeout expires before a
-    terminal status is reached.  Pass ``raise_on_timeout=False`` to return
-    the last observed status instead (useful for negative tests).
+    Raises ``AssertionError`` on timeout unless ``raise_on_timeout=False``,
+    in which case the last observed phase is returned.
     """
     deadline = time.monotonic() + timeout
-    status = None
+    phase = ""
     while True:
-        resp = client.get(f"/api/v1/job/{job_id}")
-        assert resp.status_code == 200
-        status = resp.json()["status"]
-        if status in terminal:
-            return status
+        phase = get_job_phase(k8s, name)
+        if phase in terminal:
+            return phase
         if time.monotonic() >= deadline:
             break
         time.sleep(interval)
     if raise_on_timeout:
         raise AssertionError(
-            f"Job {job_id} did not reach {terminal} within {timeout}s "
-            f"(last status: {status})"
+            f"Job {name} did not reach {terminal} within {timeout}s "
+            f"(last phase: {phase})"
         )
-    return status
+    return phase
 
 
-def workload_exists(job_id: str) -> bool:
-    """Check whether a Kueue Workload for *job_id* exists via kubectl."""
+def workload_exists(name: str) -> bool:
+    """Check whether the Kueue Workload ``fournos-{name}`` exists."""
     result = subprocess.run(
-        ["kubectl", "get", "workload", f"fournos-{job_id}", "-n", "psap-automation"],
+        ["kubectl", "get", "workload", f"fournos-{name}", "-n", NAMESPACE],
         capture_output=True,
     )
     return result.returncode == 0
 
 
-def delete_pipelinerun(job_id: str) -> None:
-    """Delete a PipelineRun for *job_id* via kubectl."""
-    subprocess.run(
-        [
-            "kubectl",
-            "delete",
-            "pipelinerun",
-            f"fournos-{job_id}",
-            "-n",
-            "psap-automation",
-            "--ignore-not-found",
-        ],
-        check=True,
+def pipelinerun_exists(name: str) -> bool:
+    """Check whether the Tekton PipelineRun ``fournos-{name}`` exists."""
+    result = subprocess.run(
+        ["kubectl", "get", "pipelinerun", f"fournos-{name}", "-n", NAMESPACE],
         capture_output=True,
     )
+    return result.returncode == 0
 
 
-def complete_job(client: httpx.Client, job_id: str) -> None:
-    """Call the completion callback for *job_id*."""
-    resp = client.post(f"/api/v1/job/{job_id}/complete")
-    assert resp.status_code == 204
+def poll_resource_gone(
+    check_fn,
+    name: str,
+    *,
+    interval: float = 2.0,
+    timeout: float = 30.0,
+) -> None:
+    """Poll until ``check_fn(name)`` returns False (resource deleted)."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not check_fn(name):
+            return
+        time.sleep(interval)
+    raise AssertionError(f"Resource for {name} still exists after {timeout}s")
 
 
-def get_k8s_resource(kind: str, job_id: str) -> dict:
-    """Fetch a Fournos-managed K8s resource as a dict."""
+def get_k8s_resource(kind: str, name: str) -> dict:
+    """Fetch a namespaced K8s resource as a dict via kubectl."""
     result = subprocess.run(
-        [
-            "kubectl",
-            "get",
-            kind,
-            f"fournos-{job_id}",
-            "-n",
-            NAMESPACE,
-            "-o",
-            "json",
-        ],
+        ["kubectl", "get", kind, name, "-n", NAMESPACE, "-o", "json"],
         check=True,
         capture_output=True,
         text=True,
@@ -140,9 +179,18 @@ def get_k8s_resource(kind: str, job_id: str) -> dict:
     return json.loads(result.stdout)
 
 
-def get_workload_flavor(job_id: str) -> str | None:
+def get_workload_node_selector(name: str) -> dict:
+    """Return the nodeSelector from the Workload's podSet template."""
+    wl = get_k8s_resource("workload", f"fournos-{name}")
+    pod_sets = wl.get("spec", {}).get("podSets", [])
+    if not pod_sets:
+        return {}
+    return pod_sets[0].get("template", {}).get("spec", {}).get("nodeSelector", {})
+
+
+def get_workload_flavor(name: str) -> str | None:
     """Return the ResourceFlavor Kueue assigned to the Workload."""
-    wl = get_k8s_resource("workload", job_id)
+    wl = get_k8s_resource("workload", f"fournos-{name}")
     assignments = wl.get("status", {}).get("admission", {}).get("podSetAssignments", [])
     if not assignments:
         return None
@@ -150,19 +198,90 @@ def get_workload_flavor(job_id: str) -> str | None:
     return next(iter(flavors.values()), None) if flavors else None
 
 
-def get_workload_node_selector(job_id: str) -> dict:
-    """Return the nodeSelector from the Workload's podSet template."""
-    wl = get_k8s_resource("workload", job_id)
-    pod_sets = wl.get("spec", {}).get("podSets", [])
-    if not pod_sets:
-        return {}
-    return pod_sets[0].get("template", {}).get("spec", {}).get("nodeSelector", {})
-
-
-def get_pipelinerun_param(job_id: str, param_name: str) -> str | None:
-    """Return a named param value from the PipelineRun."""
-    pr = get_k8s_resource("pipelinerun", job_id)
+def get_pipelinerun_param(name: str, param_name: str) -> Any:
+    """Return a named param value from the PipelineRun spec."""
+    pr = get_k8s_resource("pipelinerun", f"fournos-{name}")
     for p in pr.get("spec", {}).get("params", []):
         if p["name"] == param_name:
             return p["value"]
     return None
+
+
+def create_stale_workload(k8s, name: str) -> None:
+    """Create a fournos-labeled Workload with no corresponding FournosJob."""
+    body = {
+        "apiVersion": "kueue.x-k8s.io/v1beta2",
+        "kind": "Workload",
+        "metadata": {
+            "name": f"fournos-{name}",
+            "namespace": NAMESPACE,
+            "labels": {
+                "app.kubernetes.io/managed-by": "fournos",
+                "fournos.dev/job-name": name,
+                "kueue.x-k8s.io/queue-name": "fournos-queue",
+            },
+        },
+        "spec": {
+            "queueName": "fournos-queue",
+            "podSets": [
+                {
+                    "name": "launcher",
+                    "count": 1,
+                    "template": {
+                        "spec": {
+                            "containers": [
+                                {
+                                    "name": "placeholder",
+                                    "image": "registry.k8s.io/pause:3.9",
+                                    "resources": {"requests": {"cpu": "1"}},
+                                }
+                            ],
+                            "restartPolicy": "Never",
+                        },
+                    },
+                }
+            ],
+        },
+    }
+    k8s.create_namespaced_custom_object(
+        "kueue.x-k8s.io",
+        "v1beta2",
+        NAMESPACE,
+        "workloads",
+        body,
+    )
+
+
+def create_stale_pipelinerun(k8s, name: str) -> None:
+    """Create a fournos-labeled PipelineRun with no corresponding FournosJob."""
+    body = {
+        "apiVersion": "tekton.dev/v1",
+        "kind": "PipelineRun",
+        "metadata": {
+            "name": f"fournos-{name}",
+            "namespace": NAMESPACE,
+            "labels": {
+                "app.kubernetes.io/managed-by": "fournos",
+                "fournos.dev/job-name": name,
+            },
+        },
+        "spec": {
+            "pipelineRef": {"name": "fournos-run-only"},
+            "params": [
+                {"name": "job-name", "value": name},
+                {"name": "forge-project", "value": "test/stale"},
+                {"name": "forge-preset", "value": "cks"},
+                {"name": "forge-config-overrides", "value": "{}"},
+                {"name": "env", "value": "{}"},
+                {"name": "kubeconfig-secret", "value": "cluster-1-kubeconfig"},
+                {"name": "gpu-count", "value": "0"},
+            ],
+        },
+    }
+    k8s.create_namespaced_custom_object(
+        "tekton.dev",
+        "v1",
+        NAMESPACE,
+        "pipelineruns",
+        body,
+    )

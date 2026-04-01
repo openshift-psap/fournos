@@ -11,3 +11,5 @@ build/
 .env
 .env.*
 secrets/
+fournos.log
+fournos.pid
