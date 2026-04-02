@@ -54,7 +54,7 @@ spec:
 ```
 
 ```bash
-FOURNOS_NAMESPACE=psap-automation
+FOURNOS_NAMESPACE=fournos-$USER-dev
 oc create -f config/forge/samples/job-full.yaml -n $FOURNOS_NAMESPACE     # returns the generated name, e.g. forge-full-sample-x7k2m
 oc get FournosJobs -n $FOURNOS_NAMESPACE -w            # watch status transitions
 oc delete FournosJob -n $FOURNOS_NAMESPACE <name>      # cleanup
@@ -130,7 +130,7 @@ make test                        # integration tests (operator must be running)
 
 Prepare the namespace
 ```bash
-FOURNOS_NAMESPACE=psap-automation
+FOURNOS_NAMESPACE=fournos-$USER-dev
 oc create ns $FOURNOS_NAMESPACE
 oc label ns/$FOURNOS_NAMESPACE fournos.dev/queue-access=true
 ```
@@ -150,7 +150,7 @@ Three things are needed to make a target cluster available to Fournos:
 1. **Create a kubeconfig Secret** so the operator can reach the cluster:
 
 ```bash
-FOURNOS_NAMESPACE=psap-automation
+FOURNOS_NAMESPACE=fournos-$USER-dev
 CLUSTER_NAME=<name>
 oc create secret generic ${CLUSTER_NAME}-kubeconfig \
   --from-file=kubeconfig=/path/to/auth/kubeconfig \
@@ -174,7 +174,7 @@ oc apply -f manifests/kueue-config.yaml
    match the new target, then:
 
 ```bash
-FOURNOS_NAMESPACE=psap-automation
+FOURNOS_NAMESPACE=fournos-$USER-dev
 oc create -f dev/test-connectivity-job.yaml -n $FOURNOS_NAMESPACE
 oc get fournosjobs -n $FOURNOS_NAMESPACE -w        # should reach Succeeded
 ```
@@ -200,7 +200,7 @@ All settings are read from environment variables with the `FOURNOS_` prefix:
 
 | Variable | Default | Description |
 |---|---|---|
-| `FOURNOS_NAMESPACE` | `psap-automation` | Kubernetes namespace |
+| `FOURNOS_NAMESPACE` | `fournos-$USER-dev` | Kubernetes namespace |
 | `FOURNOS_TEKTON_DASHBOARD_URL` | | Tekton Dashboard base URL |
 | `FOURNOS_KUBECONFIG_SECRET_PATTERN` | `{cluster}-kubeconfig` | Pattern for resolving cluster names to Secret names |
 | `FOURNOS_KUEUE_LOCAL_QUEUE_NAME` | `fournos-queue` | Kueue LocalQueue name |
