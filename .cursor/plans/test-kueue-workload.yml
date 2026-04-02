@@ -16,7 +16,7 @@
 #   kubectl apply -f test-kueue-workload.yml
 #
 # Check flavor assignments:
-#   kubectl get workload -n psap-automation \
+#   kubectl get workload  \
 #     -o custom-columns='NAME:.metadata.name,FLAVOR:.status.admission.podSetAssignments[0].flavors'
 #
 # Check quota usage:
@@ -24,13 +24,12 @@
 #     -o jsonpath='{.status.flavorsUsage}' | jq .
 #
 # Clean up:
-#   kubectl delete workload test-a100-2gpu test-h200-2gpu test-mixed-gpu -n psap-automation
+#   kubectl delete workload test-a100-2gpu test-h200-2gpu test-mixed-gpu
 
 apiVersion: kueue.x-k8s.io/v1beta2
 kind: Workload
 metadata:
   name: test-a100-2gpu
-  namespace: psap-automation
   labels:
     kueue.x-k8s.io/queue-name: fournos-queue
 spec:
@@ -54,7 +53,6 @@ apiVersion: kueue.x-k8s.io/v1beta2
 kind: Workload
 metadata:
   name: test-h200-2gpu
-  namespace: psap-automation
   labels:
     kueue.x-k8s.io/queue-name: fournos-queue
 spec:
@@ -82,7 +80,6 @@ apiVersion: kueue.x-k8s.io/v1beta2
 kind: Workload
 metadata:
   name: test-mixed-gpu
-  namespace: psap-automation
   labels:
     kueue.x-k8s.io/queue-name: fournos-queue
 spec:
