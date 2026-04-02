@@ -46,7 +46,7 @@ spec:
 
         cat > fournos_config.yaml <<EOF
         preset: "$(params.forge-preset)"
-        gpu-count "$(params.gpu-count)"
+        gpu-count: "$(params.gpu-count)"
         job-name: "$(params.job-name)"
         EOF
         echo "--- FOURNOS configuration:"
