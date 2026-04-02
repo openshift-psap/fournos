@@ -98,6 +98,7 @@ Prerequisites: [Podman](https://podman.io/),
 [kind](https://kind.sigs.k8s.io/), and `kubectl`.
 
 ```bash
+oc new-project fournos-$USER-dev
 make dev-setup    # creates a kind cluster, installs Tekton + Kueue + CRD, applies mock resources
 export FOURNOS_NAMESPACE=$(oc project -q)
 make dev-run      # starts the operator locally (connects to the kind cluster)
@@ -169,13 +170,14 @@ The secret name must match the `FOURNOS_KUBECONFIG_SECRET_PATTERN` (default
 oc apply -f manifests/kueue-config.yaml
 ```
 
-3. **Verify connectivity** by submitting a lightweight validate-only job. Edit
-   `cluster` (and optionally `hardware`) in `dev/test-connectivity-job.yaml` to
+3. **Verify connectivity** by submitting a lightweight validate-only
+   job. Edit `cluster` (and optionally `hardware`) in
+   `config/fournos-validation/samples/test-connectivity-job.yaml` to
    match the new target, then:
 
 ```bash
 FOURNOS_NAMESPACE=fournos-$USER-dev
-oc create -f dev/test-connectivity-job.yaml -n $FOURNOS_NAMESPACE
+oc create -f config/fournos-validation/samples/test-connectivity-job.yaml -n $FOURNOS_NAMESPACE
 oc get fournosjobs -n $FOURNOS_NAMESPACE -w        # should reach Succeeded
 ```
 

@@ -2,7 +2,6 @@ apiVersion: tekton.dev/v1
 kind: Task
 metadata:
   name: fournos-validate
-  namespace: psap-automation
 spec:
   params:
     - name: kubeconfig-secret
