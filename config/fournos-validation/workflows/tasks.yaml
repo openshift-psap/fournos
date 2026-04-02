@@ -2,7 +2,6 @@ apiVersion: tekton.dev/v1
 kind: Task
 metadata:
   name: fournos-validate
-  namespace: psap-automation
 spec:
   params:
     - name: kubeconfig-secret
@@ -38,7 +37,6 @@ apiVersion: tekton.dev/v1
 kind: Task
 metadata:
   name: fournos-prepare
-  namespace: psap-automation
 spec:
   params:
     - name: kubeconfig-secret
@@ -71,7 +69,6 @@ apiVersion: tekton.dev/v1
 kind: Task
 metadata:
   name: fournos-run
-  namespace: psap-automation
 spec:
   params:
     - name: forge-project
@@ -122,7 +119,6 @@ apiVersion: tekton.dev/v1
 kind: Task
 metadata:
   name: fournos-cleanup
-  namespace: psap-automation
 spec:
   params:
     - name: kubeconfig-secret

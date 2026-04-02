@@ -1,0 +1,15 @@
+apiVersion: fournos.dev/v1
+kind: FournosJob
+metadata:
+  generateName: forge-sample-
+spec:
+  owner: perf-team
+  displayName: forge-sample
+  cluster: cluster-1
+  pipeline: forge-test-only
+  forge:
+    project: llm_d
+    preset: cks
+  env:
+    OCPCI_SUITE: regression
+    OCPCI_VARIANT: nightly

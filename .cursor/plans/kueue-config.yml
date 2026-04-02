@@ -89,16 +89,6 @@ spec:
             - name: "cpu"
               nominalQuota: 32
 
-
----
-# =============================================================================
-# Namespace -- must exist before the LocalQueue can be created
-# =============================================================================
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: psap-automation
-
 ---
 # =============================================================================
 # LocalQueue -- static, one-time setup
@@ -109,7 +99,6 @@ apiVersion: kueue.x-k8s.io/v1beta2
 kind: LocalQueue
 metadata:
   name: fournos-queue
-  namespace: psap-automation
 spec:
   clusterQueue: fournos-queue
 

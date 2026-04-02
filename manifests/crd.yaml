@@ -11,6 +11,8 @@ spec:
     singular: fournosjob
     shortNames:
       - fj
+      - fjob
+      - fjobs
   scope: Namespaced
   versions:
     - name: v1

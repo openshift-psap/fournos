@@ -38,7 +38,6 @@ deploy: install
 ##@ Testing
 
 test:
-	kubectl config use-context $(KIND_CONTEXT)
 	$(VENV_BIN)pytest -v tests/
 
 ##@ Local Development
@@ -49,8 +48,7 @@ dev-setup:
 	 bash dev/setup.sh
 
 dev-run:
-	kubectl config use-context $(KIND_CONTEXT)
-	FOURNOS_GC_INTERVAL_SEC=5 $(VENV_BIN)kopf run -m fournos.operator
+	FOURNOS_GC_INTERVAL_SEC=5 $(VENV_BIN)kopf run -m fournos.operator --namespace $(FOURNOS_NAMESPACE)
 
 dev-teardown:
 	KIND_EXPERIMENTAL_PROVIDER=$(KIND_EXPERIMENTAL_PROVIDER) kind delete cluster --name $(KIND_CLUSTER_NAME)
@@ -63,7 +61,6 @@ ci-setup:
 	 bash dev/setup.sh
 
 ci-run:
-	kubectl config use-context $(KIND_CONTEXT)
 	FOURNOS_GC_INTERVAL_SEC=5 \
 	  $(VENV_BIN)kopf run -m fournos.operator \
 	  --liveness=http://0.0.0.0:8080/healthz > fournos.log 2>&1 & \

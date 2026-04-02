@@ -1,0 +1,39 @@
+# Single-step pipeline: validate only (used for smoke testing the connectivity to the target clusters).
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: fournos-validate-only
+spec:
+  params:
+    - name: job-name
+      type: string
+    - name: forge-project
+      type: string
+    - name: forge-preset
+      type: string
+      default: ""
+    - name: forge-config-overrides
+      type: string
+      default: "{}"
+    - name: env
+      type: string
+      default: "{}"
+    - name: kubeconfig-secret
+      type: string
+    - name: gpu-count
+      type: string
+    - name: secrets
+      type: array
+      default: []
+  tasks:
+    - name: validate
+      taskRef:
+        name: fournos-validate
+      params:
+        - name: kubeconfig-secret
+          value: "$(params.kubeconfig-secret)"
+        - name: job-name
+          value: "$(params.job-name)"
+        - name: secrets
+          value:
+            - $(params.secrets[*])

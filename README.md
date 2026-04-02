@@ -11,6 +11,16 @@ Jobs are submitted as `FournosJob` custom resources. The operator watches
 for new CRs, creates Kueue Workloads for quota management, waits for
 admission, then launches the corresponding Tekton PipelineRun.
 
+## Cluster dependencies
+
+The following operators must be installed in the cluster before deploying Fournos:
+
+- Red Hat OpenShift Pipelines (`1.21`)
+- Red Hat build of Kueue (`1.3`)
+- Builds for Red Hat OpenShift Operator (`1.7`)
+- Red Hat OpenShift GitOps (`1.20`)
+  - only for the GitOps deployment of Fournos
+
 ## Quick start
 
 ```bash
@@ -29,14 +39,14 @@ and `displayName` for a human-readable label:
 apiVersion: fournos.dev/v1
 kind: FournosJob
 metadata:
-  generateName: nightly-llama3-
-  namespace: psap-automation
+  generateName: sample-run-benchamark-
 spec:
   owner: perf-team
-  displayName: nightly-llama3-benchmark
+  displayName: sample-run-benchmark
   cluster: cluster-1
+  pipeline: forge-full
   forge:
-    project: testproj/llmd
+    project: llmd
     preset: cks
   env:
     OCPCI_SUITE: regression
@@ -44,9 +54,10 @@ spec:
 ```
 
 ```bash
-kubectl create -f job.yaml                               # returns the generated name, e.g. nightly-llama3-x7k2m
-kubectl get fournosjobs -n psap-automation  -w           # watch status transitions
-kubectl delete fournosjob -n psap-automation  <name>     # cleanup
+FOURNOS_NAMESPACE=fournos-$USER-dev
+oc create -f config/forge/samples/job-full.yaml -n $FOURNOS_NAMESPACE     # returns the generated name, e.g. forge-full-sample-x7k2m
+oc get FournosJobs -n $FOURNOS_NAMESPACE -w            # watch status transitions
+oc delete FournosJob -n $FOURNOS_NAMESPACE <name>      # cleanup
 ```
 
 ### Spec fields
@@ -87,7 +98,9 @@ Prerequisites: [Podman](https://podman.io/),
 [kind](https://kind.sigs.k8s.io/), and `kubectl`.
 
 ```bash
+oc new-project fournos-$USER-dev
 make dev-setup    # creates a kind cluster, installs Tekton + Kueue + CRD, applies mock resources
+export FOURNOS_NAMESPACE=$(oc project -q)
 make dev-run      # starts the operator locally (connects to the kind cluster)
 ```
 
@@ -116,14 +129,19 @@ make test                        # integration tests (operator must be running)
 
 ## Deployment
 
-Apply the Kubernetes manifests in order:
+Prepare the namespace
+```bash
+FOURNOS_NAMESPACE=fournos-$USER-dev
+oc create ns $FOURNOS_NAMESPACE
+oc label ns/$FOURNOS_NAMESPACE fournos.dev/queue-access=true
+```
+
+Deploy the operator:
 
 ```bash
-kubectl apply -f manifests/crd.yaml
-kubectl apply -f manifests/rbac.yaml
-kubectl apply -f manifests/kueue-config.yaml
-kubectl apply -f manifests/tekton/
-kubectl apply -f manifests/deployment.yaml
+oc apply -n $FOURNOS_NAMESPACE -f manifests/crd.yaml
+cat manifests/rbac.yaml | NAMESPACE=$FOURNOS_NAMESPACE envsubst | oc apply -f- -n $FOURNOS_NAMESPACE
+oc apply -n $FOURNOS_NAMESPACE -f manifests/deployment.yaml
 ```
 
 ### Onboarding a new cluster
@@ -133,9 +151,11 @@ Three things are needed to make a target cluster available to Fournos:
 1. **Create a kubeconfig Secret** so the operator can reach the cluster:
 
 ```bash
-oc create secret generic <cluster>-kubeconfig \
+FOURNOS_NAMESPACE=fournos-$USER-dev
+CLUSTER_NAME=<name>
+oc create secret generic ${CLUSTER_NAME}-kubeconfig \
   --from-file=kubeconfig=/path/to/auth/kubeconfig \
-  -n psap-automation
+  -n $FOURNOS_NAMESPACE
 ```
 
 The secret name must match the `FOURNOS_KUBECONFIG_SECRET_PATTERN` (default
@@ -150,20 +170,31 @@ The secret name must match the `FOURNOS_KUBECONFIG_SECRET_PATTERN` (default
 oc apply -f manifests/kueue-config.yaml
 ```
 
-3. **Verify connectivity** by submitting a lightweight validate-only job. Edit
-   `cluster` (and optionally `hardware`) in `dev/test-connectivity-job.yaml` to
+3. **Verify connectivity** by submitting a lightweight validate-only
+   job. Edit `cluster` (and optionally `hardware`) in
+   `config/fournos-validation/samples/test-connectivity-job.yaml` to
    match the new target, then:
 
 ```bash
-oc create -f dev/test-connectivity-job.yaml
-oc get fournosjobs -n psap-automation -w        # should reach Succeeded
+FOURNOS_NAMESPACE=fournos-$USER-dev
+oc create -f config/fournos-validation/samples/test-connectivity-job.yaml -n $FOURNOS_NAMESPACE
+oc get fournosjobs -n $FOURNOS_NAMESPACE -w        # should reach Succeeded
 ```
 
-This runs the `fournos-validate-only` pipeline, which only checks `kubectl
+This runs the `fournos-validate-only` pipeline, which only checks `oc
 cluster-info` against the target — no FORGE workload is launched. If the job
 reaches `Succeeded`, the kubeconfig secret and Kueue quota are correctly
 configured. If it fails, check the operator logs and the PipelineRun status for
 details.
+
+### Deploying the FORGE workflow configuration
+
+Deploy the cluster configuration (Builds + Tekton):
+
+```bash
+oc apply -n $FOURNOS_NAMESPACE -f config/forge/images
+oc apply -n $FOURNOS_NAMESPACE -f config/forge/workflows
+
 
 ## Configuration
 
@@ -171,7 +202,7 @@ All settings are read from environment variables with the `FOURNOS_` prefix:
 
 | Variable | Default | Description |
 |---|---|---|
-| `FOURNOS_NAMESPACE` | `psap-automation` | Kubernetes namespace |
+| `FOURNOS_NAMESPACE` | `fournos-$USER-dev` | Kubernetes namespace |
 | `FOURNOS_TEKTON_DASHBOARD_URL` | | Tekton Dashboard base URL |
 | `FOURNOS_KUBECONFIG_SECRET_PATTERN` | `{cluster}-kubeconfig` | Pattern for resolving cluster names to Secret names |
 | `FOURNOS_KUEUE_LOCAL_QUEUE_NAME` | `fournos-queue` | Kueue LocalQueue name |
