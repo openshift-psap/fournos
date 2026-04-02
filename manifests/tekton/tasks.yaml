@@ -1,6 +1,42 @@
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
+  name: fournos-validate
+  namespace: psap-automation
+spec:
+  params:
+    - name: kubeconfig-secret
+      type: string
+    - name: job-name
+      type: string
+    - name: secrets
+      type: array
+      default: []
+  steps:
+    - name: check-connectivity
+      image: bitnami/kubectl:latest
+      env:
+        - name: KUBECONFIG
+          value: /workspace/kubeconfig/kubeconfig
+      volumeMounts:
+        - name: kubeconfig
+          mountPath: /workspace/kubeconfig
+          readOnly: true
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        echo "Validating connectivity to target cluster…"
+        kubectl cluster-info
+        echo "Target cluster is reachable."
+  volumes:
+    - name: kubeconfig
+      secret:
+        secretName: $(params.kubeconfig-secret)
+
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
   name: fournos-prepare
   namespace: psap-automation
 spec:

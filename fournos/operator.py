@@ -78,6 +78,23 @@ def on_create(spec, name, namespace, status, patch, **_):
             patch.status["message"] = f"Cluster '{cluster}' not found"
             return
 
+    if hardware and hardware.get("gpuType"):
+        gpu_type = hardware["gpuType"]
+        try:
+            known_gpu_types = _kueue.list_gpu_types()
+        except client.exceptions.ApiException as exc:
+            patch.status["phase"] = "Failed"
+            patch.status["message"] = f"Failed to list GPU types: {exc.reason}"
+            logger.error("Job %s: list_gpu_types failed: %s", name, exc.reason)
+            return
+        if known_gpu_types and gpu_type not in known_gpu_types:
+            patch.status["phase"] = "Failed"
+            patch.status["message"] = (
+                f"GPU type '{gpu_type}' not available. "
+                f"Valid types: {', '.join(sorted(known_gpu_types))}"
+            )
+            return
+
     try:
         _kueue.create_workload(
             name=name,
@@ -125,6 +142,7 @@ def reconcile(spec, name, namespace, status, patch, **_):
 def _reconcile_pending(name, patch):
     wl = _kueue.get_workload_or_none(name)
     if wl is None:
+        logger.info("Job %s: Workload not yet visible", name)
         return
 
     if KueueClient.is_admitted(wl):
@@ -138,6 +156,8 @@ def _reconcile_pending(name, patch):
         patch.status["phase"] = "Admitted"
         patch.status["cluster"] = cluster
         logger.info("Job %s: Workload admitted, cluster=%s", name, cluster)
+    else:
+        logger.info("Job %s: Workload pending admission", name)
 
 
 def _reconcile_admitted(spec, name, namespace, status, patch):
@@ -165,13 +185,22 @@ def _reconcile_admitted(spec, name, namespace, status, patch):
                 secrets=spec.get("secrets", []),
                 cluster=cluster,
             )
-            logger.info("Job %s: created PipelineRun on cluster %s", name, cluster)
+            logger.info(
+                "Job %s: created PipelineRun for target cluster %s", name, cluster
+            )
         except client.exceptions.ApiException as exc:
             if exc.status != 409:
                 patch.status["phase"] = "Failed"
                 patch.status["message"] = f"Failed to create PipelineRun: {exc.reason}"
                 _kueue.delete_workload(name)
+                logger.error(
+                    "Job %s: PipelineRun creation failed (HTTP %s): %s",
+                    name,
+                    exc.status,
+                    exc.reason,
+                )
                 return
+            logger.info("Job %s: PipelineRun already exists (409), proceeding", name)
 
     patch.status["phase"] = "Running"
     patch.status["pipelineRun"] = f"fournos-{name}"
@@ -188,9 +217,13 @@ def _reconcile_running(name, patch):
         patch.status["phase"] = "Failed"
         patch.status["message"] = "PipelineRun not found"
         _kueue.delete_workload(name)
+        logger.error("Job %s: PipelineRun fournos-%s not found", name, name)
         return
 
     pr_status, pr_message = TektonClient.extract_status(pr)
+    logger.info(
+        "Job %s: PipelineRun status=%s, message=%s", name, pr_status, pr_message
+    )
     if pr_status == "succeeded":
         patch.status["phase"] = "Succeeded"
         _kueue.delete_workload(name)
@@ -199,7 +232,7 @@ def _reconcile_running(name, patch):
         patch.status["phase"] = "Failed"
         patch.status["message"] = pr_message or "PipelineRun failed"
         _kueue.delete_workload(name)
-        logger.info("Job %s: failed: %s", name, pr_message)
+        logger.warning("Job %s: PipelineRun failed: %s", name, pr_message)
 
 
 # ---------------------------------------------------------------------------

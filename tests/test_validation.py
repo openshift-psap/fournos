@@ -59,6 +59,31 @@ def test_unknown_cluster(k8s):
     assert "not found" in job["status"]["message"].lower()
 
 
+def test_unknown_gpu_type(k8s):
+    """Requesting a GPU type with no quota in any ClusterQueue → immediate Failed."""
+    create_job(
+        k8s,
+        "test-bad-gpu",
+        {
+            "hardware": {"gpuType": "acbd1234", "gpuCount": 2},
+            "forge": {"project": "testproj/llmd", "preset": "cks"},
+        },
+    )
+
+    phase = poll_phase(
+        k8s,
+        "test-bad-gpu",
+        terminal={"Failed"},
+        timeout=15,
+    )
+    assert phase == "Failed"
+
+    job = get_job(k8s, "test-bad-gpu")
+    msg = job["status"]["message"]
+    assert "acbd1234" in msg.lower()
+    assert "not available" in msg.lower()
+
+
 def test_admitted_without_flavor(k8s):
     """Workload admitted but no flavor in podSetAssignments → Failed."""
     create_job(

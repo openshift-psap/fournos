@@ -58,7 +58,7 @@ kubectl delete fournosjob -n psap-automation  <name>     # cleanup
 | `spec.forge.configOverrides` | no | Key-value overrides passed to the test framework |
 | `spec.env` | no | Environment variables for test identification (e.g. OCPCI suite/variant) |
 | `spec.cluster` | \* | Pin to a specific cluster (Kueue ResourceFlavor) |
-| `spec.hardware.gpuType` | \* | GPU model (e.g. `A100`, `H200`) |
+| `spec.hardware.gpuType` | \* | Short GPU model name — e.g. `a100`, `h200`. The operator prepends the `FOURNOS_GPU_RESOURCE_PREFIX` (default `fournos/gpu-`) automatically, so do **not** include the full resource path. |
 | `spec.hardware.gpuCount` | with gpuType | Number of GPUs (minimum 1) |
 | `spec.owner` | no | Team or individual that owns this job |
 | `spec.displayName` | no | Human-readable job name (defaults to `metadata.name`) |
@@ -125,6 +125,45 @@ kubectl apply -f manifests/kueue-config.yaml
 kubectl apply -f manifests/tekton/
 kubectl apply -f manifests/deployment.yaml
 ```
+
+### Onboarding a new cluster
+
+Three things are needed to make a target cluster available to Fournos:
+
+1. **Create a kubeconfig Secret** so the operator can reach the cluster:
+
+```bash
+oc create secret generic <cluster>-kubeconfig \
+  --from-file=kubeconfig=/path/to/auth/kubeconfig \
+  -n psap-automation
+```
+
+The secret name must match the `FOURNOS_KUBECONFIG_SECRET_PATTERN` (default
+`{cluster}-kubeconfig`).
+
+2. **Add a ResourceFlavor and quota** in `manifests/kueue-config.yaml`. Add a
+   new `ResourceFlavor` with a matching `fournos.dev/cluster` nodeLabel, and
+   list it under the `fournos-queue` ClusterQueue with the appropriate GPU/CPU
+   quotas. Then apply:
+
+```bash
+oc apply -f manifests/kueue-config.yaml
+```
+
+3. **Verify connectivity** by submitting a lightweight validate-only job. Edit
+   `cluster` (and optionally `hardware`) in `dev/test-connectivity-job.yaml` to
+   match the new target, then:
+
+```bash
+oc create -f dev/test-connectivity-job.yaml
+oc get fournosjobs -n psap-automation -w        # should reach Succeeded
+```
+
+This runs the `fournos-validate-only` pipeline, which only checks `kubectl
+cluster-info` against the target — no FORGE workload is launched. If the job
+reaches `Succeeded`, the kubeconfig secret and Kueue quota are correctly
+configured. If it fails, check the operator logs and the PipelineRun status for
+details.
 
 ## Configuration
 

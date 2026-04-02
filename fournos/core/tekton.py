@@ -124,7 +124,12 @@ class TektonClient:
         """Map PipelineRun conditions to (status, message).
 
         Status is one of: running, succeeded, failed.
+
+        A PipelineRun is only considered terminal once
+        status.completionTime is set by the Tekton controller.
         """
+        completed = pr.get("status", {}).get("completionTime") is not None
+
         conditions = pr.get("status", {}).get("conditions", [])
         if not conditions:
             return "running", ""
@@ -135,6 +140,6 @@ class TektonClient:
 
         if cond_status == "True":
             return "succeeded", message
-        if cond_status == "False":
+        if cond_status == "False" and completed:
             return "failed", message
         return "running", message
