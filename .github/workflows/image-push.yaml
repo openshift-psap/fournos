@@ -10,13 +10,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Log in to Red Hat Registry
-        uses: redhat-actions/podman-login@v1
-        with:
-          registry: registry.redhat.io
-          username: ${{ secrets.RH_USER }}
-          password: ${{ secrets.RH_PASSWORD }}
-
       - name: Build Fournos Image
         id: build
         uses: redhat-actions/buildah-build@v2
