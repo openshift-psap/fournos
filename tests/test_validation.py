@@ -7,6 +7,7 @@ from tests.conftest import (
     NAMESPACE,
     create_job,
     get_job,
+    job_status_summary,
     poll_phase,
     poll_resource_gone,
     workload_exists,
@@ -29,11 +30,13 @@ def test_neither_cluster_nor_hardware(k8s):
         terminal={"Failed"},
         timeout=15,
     )
-    assert phase == "Failed"
+    assert phase == "Failed", job_status_summary(k8s, "test-no-target")
 
     job = get_job(k8s, "test-no-target")
     msg = job["status"]["message"].lower()
-    assert "cluster" in msg or "hardware" in msg
+    assert "cluster" in msg or "hardware" in msg, (
+        f"Failure message should mention 'cluster' or 'hardware', got: {msg!r}"
+    )
 
 
 def test_unknown_cluster(k8s):
@@ -53,10 +56,13 @@ def test_unknown_cluster(k8s):
         terminal={"Failed"},
         timeout=15,
     )
-    assert phase == "Failed"
+    assert phase == "Failed", job_status_summary(k8s, "test-unknown")
 
     job = get_job(k8s, "test-unknown")
-    assert "not found" in job["status"]["message"].lower()
+    msg = job["status"]["message"].lower()
+    assert "not found" in msg, (
+        f"Failure message should mention 'not found', got: {msg!r}"
+    )
 
 
 def test_unknown_gpu_type(k8s):
@@ -76,12 +82,16 @@ def test_unknown_gpu_type(k8s):
         terminal={"Failed"},
         timeout=15,
     )
-    assert phase == "Failed"
+    assert phase == "Failed", job_status_summary(k8s, "test-bad-gpu")
 
     job = get_job(k8s, "test-bad-gpu")
     msg = job["status"]["message"]
-    assert "acbd1234" in msg.lower()
-    assert "not available" in msg.lower()
+    assert "acbd1234" in msg.lower(), (
+        f"Failure message should mention the GPU type 'acbd1234', got: {msg!r}"
+    )
+    assert "not available" in msg.lower(), (
+        f"Failure message should say 'not available', got: {msg!r}"
+    )
 
 
 def test_admitted_without_flavor(k8s):
@@ -135,8 +145,24 @@ def test_admitted_without_flavor(k8s):
         terminal={"Failed"},
         timeout=30,
     )
-    assert phase == "Failed"
+    assert phase == "Failed", job_status_summary(k8s, "test-no-flavor")
 
     job = get_job(k8s, "test-no-flavor")
-    assert "no flavor" in job["status"]["message"].lower()
+    msg = job["status"]["message"].lower()
+    assert "no flavor" in msg, (
+        f"Failure message should mention 'no flavor', got: {msg!r}"
+    )
+
+    conditions = {c["type"]: c for c in job["status"].get("conditions", [])}
+    assert "WorkloadAdmitted" in conditions, (
+        f"Missing WorkloadAdmitted condition; got types: {list(conditions)}"
+    )
+    assert conditions["WorkloadAdmitted"]["status"] == "False", (
+        f"WorkloadAdmitted should be False; got {conditions['WorkloadAdmitted']}"
+    )
+    assert conditions["WorkloadAdmitted"]["reason"] == "NoFlavorAssigned", (
+        f"WorkloadAdmitted reason should be NoFlavorAssigned; "
+        f"got {conditions['WorkloadAdmitted'].get('reason')!r}"
+    )
+
     poll_resource_gone(workload_exists, "test-no-flavor")

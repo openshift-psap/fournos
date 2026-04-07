@@ -3,6 +3,7 @@ Kueue Workloads + Tekton PipelineRuns."""
 
 from __future__ import annotations
 
+import datetime
 import logging
 import threading
 import time
@@ -21,6 +22,45 @@ logger = logging.getLogger(__name__)
 _kueue: KueueClient
 _tekton: TektonClient
 _registry: ClusterRegistry
+
+COND_WORKLOAD_ADMITTED = "WorkloadAdmitted"
+COND_PIPELINE_RUN_READY = "PipelineRunReady"
+
+
+def _utcnow() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _set_condition(
+    patch,
+    existing_conditions: list[dict],
+    type_: str,
+    cond_status: str,
+    reason: str,
+    message: str,
+) -> None:
+    """Upsert a condition by type, preserving lastTransitionTime when status is unchanged."""
+    now = _utcnow()
+    old = next((c for c in existing_conditions if c.get("type") == type_), None)
+
+    if old and old.get("status") == cond_status:
+        transition_time = old.get("lastTransitionTime", now)
+    else:
+        transition_time = now
+
+    new_cond: dict = {
+        "type": type_,
+        "status": cond_status,
+        "lastTransitionTime": transition_time,
+    }
+    if reason:
+        new_cond["reason"] = reason
+    if message:
+        new_cond["message"] = message
+
+    result = [c for c in existing_conditions if c.get("type") != type_]
+    result.append(new_cond)
+    patch.status["conditions"] = result
 
 
 @kopf.on.startup()
@@ -113,6 +153,16 @@ def on_create(spec, name, namespace, status, patch, **_):
             return
 
     patch.status["phase"] = "Pending"
+    patch.status["message"] = "Workload created, waiting for Kueue admission"
+    patch.status["conditions"] = [
+        {
+            "type": COND_WORKLOAD_ADMITTED,
+            "status": "False",
+            "reason": "Pending",
+            "message": "Workload created, waiting for Kueue admission",
+            "lastTransitionTime": _utcnow(),
+        }
+    ]
     logger.info("Job %s: created Workload, phase=Pending", name)
 
 
@@ -132,36 +182,72 @@ def reconcile(spec, name, namespace, status, patch, **_):
     phase = status.get("phase", "")
 
     if phase == "Pending":
-        _reconcile_pending(name, patch)
+        _reconcile_pending(name, status, patch)
     elif phase == "Admitted":
         _reconcile_admitted(spec, name, namespace, status, patch)
     elif phase == "Running":
-        _reconcile_running(name, patch)
+        _reconcile_running(name, status, patch)
 
 
-def _reconcile_pending(name, patch):
+def _reconcile_pending(name, status, patch):
     wl = _kueue.get_workload_or_none(name)
     if wl is None:
         logger.info("Job %s: Workload not yet visible", name)
         return
+
+    conditions = list(status.get("conditions") or [])
 
     if KueueClient.is_admitted(wl):
         cluster = KueueClient.get_assigned_flavor(wl)
         if not cluster:
             patch.status["phase"] = "Failed"
             patch.status["message"] = "Workload admitted but no flavor assigned"
+            _set_condition(
+                patch,
+                conditions,
+                COND_WORKLOAD_ADMITTED,
+                "False",
+                "NoFlavorAssigned",
+                "Workload was admitted but no ResourceFlavor was assigned",
+            )
             _kueue.delete_workload(name)
             logger.error("Job %s: admitted without assigned flavor", name)
             return
         patch.status["phase"] = "Admitted"
         patch.status["cluster"] = cluster
+        patch.status["message"] = f"Workload admitted, assigned to cluster {cluster}"
+        _set_condition(
+            patch,
+            conditions,
+            COND_WORKLOAD_ADMITTED,
+            "True",
+            "Admitted",
+            f"Assigned to cluster {cluster}",
+        )
         logger.info("Job %s: Workload admitted, cluster=%s", name, cluster)
     else:
+        wl_reason, wl_message = KueueClient.get_pending_message(wl)
+        new_msg = (
+            f"Waiting for admission: {wl_message}"
+            if wl_message
+            else "Waiting for Kueue admission"
+        )
+        if status.get("message") != new_msg:
+            patch.status["message"] = new_msg
+            _set_condition(
+                patch,
+                conditions,
+                COND_WORKLOAD_ADMITTED,
+                "False",
+                wl_reason or "Pending",
+                wl_message or "Workload is queued for Kueue admission",
+            )
         logger.info("Job %s: Workload pending admission", name)
 
 
 def _reconcile_admitted(spec, name, namespace, status, patch):
     pr = _tekton.get_pipeline_run_or_none(name)
+    conditions = list(status.get("conditions") or [])
 
     if pr is None:
         cluster = status.get("cluster", "")
@@ -192,6 +278,14 @@ def _reconcile_admitted(spec, name, namespace, status, patch):
             if exc.status != 409:
                 patch.status["phase"] = "Failed"
                 patch.status["message"] = f"Failed to create PipelineRun: {exc.reason}"
+                _set_condition(
+                    patch,
+                    conditions,
+                    COND_PIPELINE_RUN_READY,
+                    "False",
+                    "CreateFailed",
+                    f"Failed to create PipelineRun: {exc.reason}",
+                )
                 _kueue.delete_workload(name)
                 logger.error(
                     "Job %s: PipelineRun creation failed (HTTP %s): %s",
@@ -204,6 +298,15 @@ def _reconcile_admitted(spec, name, namespace, status, patch):
 
     patch.status["phase"] = "Running"
     patch.status["pipelineRun"] = f"fournos-{name}"
+    patch.status["message"] = "PipelineRun created, waiting for execution"
+    _set_condition(
+        patch,
+        conditions,
+        COND_PIPELINE_RUN_READY,
+        "Unknown",
+        "Started",
+        "PipelineRun has been created",
+    )
     if settings.tekton_dashboard_url:
         base = settings.tekton_dashboard_url.rstrip("/")
         patch.status["dashboardURL"] = (
@@ -211,11 +314,21 @@ def _reconcile_admitted(spec, name, namespace, status, patch):
         )
 
 
-def _reconcile_running(name, patch):
+def _reconcile_running(name, status, patch):
     pr = _tekton.get_pipeline_run_or_none(name)
+    conditions = list(status.get("conditions") or [])
+
     if pr is None:
         patch.status["phase"] = "Failed"
         patch.status["message"] = "PipelineRun not found"
+        _set_condition(
+            patch,
+            conditions,
+            COND_PIPELINE_RUN_READY,
+            "False",
+            "NotFound",
+            f"PipelineRun fournos-{name} not found",
+        )
         _kueue.delete_workload(name)
         logger.error("Job %s: PipelineRun fournos-%s not found", name, name)
         return
@@ -226,13 +339,44 @@ def _reconcile_running(name, patch):
     )
     if pr_status == "succeeded":
         patch.status["phase"] = "Succeeded"
+        patch.status["message"] = "Pipeline completed successfully"
+        _set_condition(
+            patch,
+            conditions,
+            COND_PIPELINE_RUN_READY,
+            "True",
+            "Succeeded",
+            pr_message or "Pipeline completed successfully",
+        )
         _kueue.delete_workload(name)
         logger.info("Job %s: succeeded", name)
     elif pr_status == "failed":
         patch.status["phase"] = "Failed"
         patch.status["message"] = pr_message or "PipelineRun failed"
+        _set_condition(
+            patch,
+            conditions,
+            COND_PIPELINE_RUN_READY,
+            "False",
+            "Failed",
+            pr_message or "PipelineRun failed",
+        )
         _kueue.delete_workload(name)
         logger.warning("Job %s: PipelineRun failed: %s", name, pr_message)
+    else:
+        new_msg = (
+            f"Pipeline running: {pr_message}" if pr_message else "Pipeline running"
+        )
+        if status.get("message") != new_msg:
+            patch.status["message"] = new_msg
+            _set_condition(
+                patch,
+                conditions,
+                COND_PIPELINE_RUN_READY,
+                "Unknown",
+                "Running",
+                pr_message or "PipelineRun is executing",
+            )
 
 
 # ---------------------------------------------------------------------------

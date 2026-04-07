@@ -34,6 +34,9 @@ spec:
         - name: Cluster
           type: string
           jsonPath: .status.cluster
+        - name: Message
+          type: string
+          jsonPath: .status.message
         - name: Age
           type: date
           jsonPath: .metadata.creationTimestamp

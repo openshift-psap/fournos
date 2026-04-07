@@ -127,11 +127,40 @@ def poll_phase(
             break
         time.sleep(interval)
     if raise_on_timeout:
+        job = get_job(k8s, name)
+        status = job.get("status", {})
+        detail = f"phase={phase or '<unset>'}"
+        if status.get("message"):
+            detail += f", message={status['message']!r}"
+        for c in status.get("conditions", []):
+            cond_str = f"{c['type']}={c['status']}"
+            if c.get("reason"):
+                cond_str += f" ({c['reason']})"
+            if c.get("message"):
+                cond_str += f": {c['message']}"
+            detail += f"\n    {cond_str}"
         raise AssertionError(
-            f"Job {name} did not reach {terminal} within {timeout}s "
-            f"(last phase: {phase})"
+            f"Job {name} did not reach {terminal} within {timeout}s.\n"
+            f"  Current status: {detail}"
         )
     return phase
+
+
+def job_status_summary(k8s, name: str) -> str:
+    """Return a one-line status summary for use in assertion messages."""
+    job = get_job(k8s, name)
+    st = job.get("status", {})
+    parts = [f"phase={st.get('phase', '<unset>')!r}"]
+    if st.get("message"):
+        parts.append(f"message={st['message']!r}")
+    if st.get("cluster"):
+        parts.append(f"cluster={st['cluster']!r}")
+    for c in st.get("conditions", []):
+        cond_str = f"{c['type']}={c['status']}"
+        if c.get("reason"):
+            cond_str += f"/{c['reason']}"
+        parts.append(cond_str)
+    return f"Job {name}: {', '.join(parts)}"
 
 
 def workload_exists(name: str) -> bool:
@@ -165,7 +194,9 @@ def poll_resource_gone(
         if not check_fn(name):
             return
         time.sleep(interval)
-    raise AssertionError(f"Resource for {name} still exists after {timeout}s")
+    raise AssertionError(
+        f"{check_fn.__name__}({name!r}): resource still exists after {timeout}s"
+    )
 
 
 def get_k8s_resource(kind: str, name: str) -> dict:

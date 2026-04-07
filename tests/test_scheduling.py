@@ -9,6 +9,7 @@ from tests.conftest import (
     get_pipelinerun_param,
     get_workload_flavor,
     get_workload_node_selector,
+    job_status_summary,
     poll_phase,
     workload_exists,
 )
@@ -34,13 +35,15 @@ def test_cluster_pinned(k8s):
         timeout=30,
     )
 
-    assert get_workload_node_selector("test-cluster") == {
-        "fournos.dev/cluster": "cluster-2",
-    }
-    assert get_workload_flavor("test-cluster") == "cluster-2"
-    assert (
-        get_pipelinerun_param("test-cluster", "kubeconfig-secret")
-        == "cluster-2-kubeconfig"
+    ns = get_workload_node_selector("test-cluster")
+    assert ns == {"fournos.dev/cluster": "cluster-2"}, (
+        f"Workload nodeSelector should pin to cluster-2, got {ns}"
+    )
+    flavor = get_workload_flavor("test-cluster")
+    assert flavor == "cluster-2", f"Workload flavor should be cluster-2, got {flavor!r}"
+    secret = get_pipelinerun_param("test-cluster", "kubeconfig-secret")
+    assert secret == "cluster-2-kubeconfig", (
+        f"PipelineRun kubeconfig-secret should be cluster-2-kubeconfig, got {secret!r}"
     )
 
     phase = poll_phase(
@@ -49,10 +52,12 @@ def test_cluster_pinned(k8s):
         terminal={"Succeeded", "Failed"},
         timeout=60,
     )
-    assert phase == "Succeeded"
+    assert phase == "Succeeded", job_status_summary(k8s, "test-cluster")
 
     job = get_job(k8s, "test-cluster")
-    assert job["status"]["cluster"] == "cluster-2"
+    assert job["status"]["cluster"] == "cluster-2", (
+        f"Expected cluster cluster-2, got {job['status'].get('cluster')!r}"
+    )
 
 
 def test_hardware_request(k8s):
@@ -73,10 +78,13 @@ def test_hardware_request(k8s):
         terminal={"Succeeded", "Failed"},
         timeout=60,
     )
-    assert phase == "Succeeded"
+    assert phase == "Succeeded", job_status_summary(k8s, "test-hardware")
 
     job = get_job(k8s, "test-hardware")
-    assert job["status"].get("cluster") in ("cluster-1", "cluster-2")
+    cluster = job["status"].get("cluster")
+    assert cluster in ("cluster-1", "cluster-2"), (
+        f"Expected cluster-1 or cluster-2, got {cluster!r}"
+    )
 
 
 def test_cluster_and_hardware(k8s):
@@ -99,13 +107,15 @@ def test_cluster_and_hardware(k8s):
         timeout=30,
     )
 
-    assert get_workload_node_selector("test-cluster-hw") == {
-        "fournos.dev/cluster": "cluster-4",
-    }
-    assert get_workload_flavor("test-cluster-hw") == "cluster-4"
-    assert (
-        get_pipelinerun_param("test-cluster-hw", "kubeconfig-secret")
-        == "cluster-4-kubeconfig"
+    ns = get_workload_node_selector("test-cluster-hw")
+    assert ns == {"fournos.dev/cluster": "cluster-4"}, (
+        f"Workload nodeSelector should pin to cluster-4, got {ns}"
+    )
+    flavor = get_workload_flavor("test-cluster-hw")
+    assert flavor == "cluster-4", f"Workload flavor should be cluster-4, got {flavor!r}"
+    secret = get_pipelinerun_param("test-cluster-hw", "kubeconfig-secret")
+    assert secret == "cluster-4-kubeconfig", (
+        f"PipelineRun kubeconfig-secret should be cluster-4-kubeconfig, got {secret!r}"
     )
 
     phase = poll_phase(
@@ -114,10 +124,12 @@ def test_cluster_and_hardware(k8s):
         terminal={"Succeeded", "Failed"},
         timeout=60,
     )
-    assert phase == "Succeeded"
+    assert phase == "Succeeded", job_status_summary(k8s, "test-cluster-hw")
 
     job = get_job(k8s, "test-cluster-hw")
-    assert job["status"]["cluster"] == "cluster-4"
+    assert job["status"]["cluster"] == "cluster-4", (
+        f"Expected cluster cluster-4, got {job['status'].get('cluster')!r}"
+    )
 
 
 def test_alternative_pipeline_selection(k8s):
@@ -138,14 +150,17 @@ def test_alternative_pipeline_selection(k8s):
         terminal={"Succeeded", "Failed"},
         timeout=60,
     )
-    assert phase == "Succeeded"
+    assert phase == "Succeeded", job_status_summary(k8s, "test-run-only")
 
     pr = get_k8s_resource("pipelinerun", "fournos-test-run-only")
-    assert pr["spec"]["pipelineRef"]["name"] == "fournos-run-only"
+    pipeline_ref = pr["spec"]["pipelineRef"]["name"]
+    assert pipeline_ref == "fournos-run-only", (
+        f"PipelineRun should reference fournos-run-only, got {pipeline_ref!r}"
+    )
 
 
 def test_inadmissible_stays_pending(k8s):
-    """Hardware request exceeding all cluster quotas stays Pending."""
+    """Hardware request exceeding all cluster quotas stays Pending with admission detail."""
     create_job(
         k8s,
         "test-inadmissible",
@@ -163,8 +178,28 @@ def test_inadmissible_stays_pending(k8s):
         timeout=15,
         raise_on_timeout=False,
     )
-    assert phase == "Pending"
-    assert workload_exists("test-inadmissible")
+    assert phase == "Pending", f"Inadmissible job should stay Pending, got {phase!r}"
+    assert workload_exists("test-inadmissible"), (
+        "Workload fournos-test-inadmissible should still exist"
+    )
+
+    job = get_job(k8s, "test-inadmissible")
+    assert job["status"].get("message"), (
+        "Pending job should have a status message explaining the admission state"
+    )
+
+    conditions = job["status"].get("conditions", [])
+    wl_cond = next(
+        (c for c in conditions if c["type"] == "WorkloadAdmitted"),
+        None,
+    )
+    assert wl_cond is not None, (
+        f"Pending job should have a WorkloadAdmitted condition; got types: "
+        f"{[c['type'] for c in conditions]}"
+    )
+    assert wl_cond["status"] == "False", (
+        f"WorkloadAdmitted should be False for inadmissible job; got {wl_cond}"
+    )
 
 
 def test_cluster_without_required_gpu_stays_pending(k8s):
@@ -187,7 +222,9 @@ def test_cluster_without_required_gpu_stays_pending(k8s):
         timeout=15,
         raise_on_timeout=False,
     )
-    assert phase == "Pending"
+    assert phase == "Pending", (
+        f"Job requesting A100s on cluster-3 should stay Pending, got {phase!r}"
+    )
 
 
 def test_optional_spec_fields(k8s):
@@ -212,7 +249,9 @@ def test_optional_spec_fields(k8s):
     )
 
     job = get_job(k8s, "test-opts")
-    assert job["spec"]["owner"] == "perf-team"
+    assert job["spec"]["owner"] == "perf-team", (
+        f"Owner should be perf-team, got {job['spec'].get('owner')!r}"
+    )
 
     poll_phase(
         k8s,
@@ -221,9 +260,17 @@ def test_optional_spec_fields(k8s):
         timeout=30,
     )
 
-    assert get_pipelinerun_param("test-opts", "job-name") == "nightly-llama3-benchmark"
-    assert (
-        json.loads(get_pipelinerun_param("test-opts", "forge-config-overrides"))
-        == overrides
+    job_name_param = get_pipelinerun_param("test-opts", "job-name")
+    assert job_name_param == "nightly-llama3-benchmark", (
+        f"PipelineRun job-name param should be the displayName, got {job_name_param!r}"
     )
-    assert json.loads(get_pipelinerun_param("test-opts", "env")) == env
+
+    config_overrides = json.loads(
+        get_pipelinerun_param("test-opts", "forge-config-overrides")
+    )
+    assert config_overrides == overrides, (
+        f"forge-config-overrides mismatch: {config_overrides}"
+    )
+
+    env_param = json.loads(get_pipelinerun_param("test-opts", "env"))
+    assert env_param == env, f"env param mismatch: {env_param}"
