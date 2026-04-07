@@ -152,6 +152,15 @@ class KueueClient:
         )
 
     @staticmethod
+    def get_pending_message(workload: dict) -> tuple[str, str]:
+        """Return (reason, message) from the most relevant Workload condition."""
+        conditions = workload.get("status", {}).get("conditions", [])
+        for c in reversed(conditions):
+            if c.get("message"):
+                return c.get("reason", ""), c.get("message", "")
+        return "", ""
+
+    @staticmethod
     def get_assigned_flavor(workload: dict) -> str | None:
         """Extract the assigned ResourceFlavor (= cluster name) from an admitted Workload."""
         admission = workload.get("status", {}).get("admission", {})

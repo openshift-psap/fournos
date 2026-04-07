@@ -8,6 +8,8 @@ from tests.conftest import (
     PLURAL,
     VERSION,
     create_job,
+    get_job,
+    job_status_summary,
     pipelinerun_exists,
     poll_phase,
     poll_resource_gone,
@@ -32,7 +34,23 @@ def test_workload_cleaned_after_completion(k8s):
         terminal={"Succeeded", "Failed"},
         timeout=60,
     )
-    assert phase == "Succeeded"
+    assert phase == "Succeeded", job_status_summary(k8s, "test-wl-cleanup")
+
+    job = get_job(k8s, "test-wl-cleanup")
+    conditions = {c["type"]: c for c in job["status"].get("conditions", [])}
+    assert "WorkloadAdmitted" in conditions, (
+        f"Missing WorkloadAdmitted condition; got {list(conditions)}"
+    )
+    assert conditions["WorkloadAdmitted"]["status"] == "True", (
+        f"WorkloadAdmitted should be True; got {conditions['WorkloadAdmitted']}"
+    )
+    assert "PipelineRunReady" in conditions, (
+        f"Missing PipelineRunReady condition; got {list(conditions)}"
+    )
+    assert conditions["PipelineRunReady"]["status"] == "True", (
+        f"PipelineRunReady should be True; got {conditions['PipelineRunReady']}"
+    )
+    assert job["status"].get("message"), "Succeeded job should have a status message"
 
     poll_resource_gone(workload_exists, "test-wl-cleanup")
 
@@ -54,7 +72,9 @@ def test_delete_cleans_up_resources(k8s):
         terminal={"Running", "Succeeded", "Failed"},
         timeout=30,
     )
-    assert pipelinerun_exists("test-delete")
+    assert pipelinerun_exists("test-delete"), (
+        "PipelineRun fournos-test-delete should exist before job deletion"
+    )
 
     k8s.delete_namespaced_custom_object(
         GROUP,
@@ -89,9 +109,11 @@ def test_list_multiple_jobs(k8s):
 
     jobs = k8s.list_namespaced_custom_object(GROUP, VERSION, NAMESPACE, PLURAL)
     names = {j["metadata"]["name"] for j in jobs["items"]}
-    assert "test-list-a" in names
-    assert "test-list-b" in names
-    assert len(jobs["items"]) == 2
+    assert "test-list-a" in names, f"test-list-a not found in {names}"
+    assert "test-list-b" in names, f"test-list-b not found in {names}"
+    assert len(jobs["items"]) == 2, (
+        f"Expected exactly 2 jobs, found {len(jobs['items'])}: {names}"
+    )
 
 
 def test_filter_jobs_by_phase(k8s):
@@ -126,5 +148,9 @@ def test_filter_jobs_by_phase(k8s):
         j["metadata"]["name"]: j.get("status", {}).get("phase", "")
         for j in jobs["items"]
     }
-    assert phases["test-filter-stuck"] == "Pending"
-    assert phases["test-filter-ok"] in ("Admitted", "Running", "Succeeded")
+    assert phases["test-filter-stuck"] == "Pending", (
+        f"Stuck job should remain Pending, got {phases['test-filter-stuck']!r}"
+    )
+    assert phases["test-filter-ok"] in ("Admitted", "Running", "Succeeded"), (
+        f"OK job should have progressed past Pending, got {phases['test-filter-ok']!r}"
+    )
