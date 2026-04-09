@@ -52,7 +52,7 @@ spec:
         cat forge_config.env
         echo "---"
 
-        set +a; source forge_config.env; set +a;
+        set -a; source forge_config.env; set +a;
 
         exec bin/run_ci "$(params.forge-project)" ci "$FOURNOS_STEP"
 
