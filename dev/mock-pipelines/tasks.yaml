@@ -29,9 +29,7 @@ spec:
   params:
     - name: forge-project
       type: string
-    - name: forge-args
-      type: array
-    - name: forge-config-overrides
+    - name: forge-config
       type: string
     - name: env
       type: string
@@ -46,12 +44,13 @@ spec:
   steps:
     - name: run-forge
       image: busybox:1.36
-      args: ["$(params.forge-args[*])"]
       script: |
         #!/bin/sh
-        echo "[mock-run] forge run $(params.forge-project) $@"
-        echo "[mock-run] config-overrides=$(params.forge-config-overrides)"
-        echo "[mock-run] env=$(params.env)"
+        echo "[mock-run] forge-project=$(params.forge-project)"
+        echo "[mock-run] forge-config:"
+        echo "$(params.forge-config)" | sed 's/^/  /'
+        echo "[mock-run] env:"
+        echo "$(params.env)" | sed 's/^/  /'
         echo "[mock-run] gpu-count=$(params.gpu-count)"
         echo "[mock-run] job=$(params.job-name)"
         echo "[mock-run] simulating workload (3s)..."
@@ -89,11 +88,8 @@ spec:
       type: string
     - name: forge-project
       type: string
-    - name: forge-args
-      type: array
-    - name: forge-config-overrides
+    - name: forge-config
       type: string
-      default: ""
     - name: env
       type: string
       default: ""
@@ -111,10 +107,8 @@ spec:
       params:
         - name: forge-project
           value: "$(params.forge-project)"
-        - name: forge-args
-          value: "$(params.forge-args[*])"
-        - name: forge-config-overrides
-          value: "$(params.forge-config-overrides)"
+        - name: forge-config
+          value: "$(params.forge-config)"
         - name: env
           value: "$(params.env)"
         - name: kubeconfig-secret
@@ -124,7 +118,7 @@ spec:
         - name: job-name
           value: "$(params.job-name)"
         - name: secret-refs
-          value: "$(params.secret-refs[*])"
+          value: ["$(params.secret-refs[*])"]
 
 ---
 # Mock kubeconfig Secrets — one per cluster defined in kueue-config.

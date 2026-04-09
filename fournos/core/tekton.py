@@ -27,8 +27,7 @@ class TektonClient:
         display_name: str,
         pipeline: str,
         forge_project: str,
-        forge_args: list[str],
-        forge_config_overrides: dict,
+        forge_config: dict,
         env: dict,
         kubeconfig_secret: str,
         gpu_count: int,
@@ -55,14 +54,14 @@ class TektonClient:
                 "params": [
                     {"name": "job-name", "value": display_name},
                     {"name": "forge-project", "value": forge_project},
-                    {"name": "forge-args", "value": forge_args},
                     {
-                        "name": "forge-config-overrides",
-                        "value": yaml.dump(
-                            forge_config_overrides, default_flow_style=False
-                        ),
+                        "name": "forge-config",
+                        "value": yaml.dump(forge_config, default_flow_style=False),
                     },
-                    {"name": "env", "value": yaml.dump(env, default_flow_style=False)},
+                    {
+                        "name": "env",
+                        "value": "".join(f"{k}={v}\n" for k, v in env.items()),
+                    },
                     {"name": "kubeconfig-secret", "value": kubeconfig_secret},
                     {"name": "gpu-count", "value": str(gpu_count)},
                     {"name": "secret-refs", "value": secret_refs},

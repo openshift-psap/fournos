@@ -6,9 +6,7 @@ spec:
   params:
     - name: forge-project
       type: string
-    - name: forge-args
-      type: array
-    - name: forge-config-overrides
+    - name: forge-config
       type: string
     - name: env
       type: string
@@ -28,8 +26,8 @@ spec:
       env:
       - name: KUBECONFIG
         value: /workspace/kubeconfig/kubeconfig
-      - name: FORGE_CONFIG_OVERRIDES
-        value: "$(params.forge-config-overrides)"
+      - name: FORGE_CONFIG
+        value: "$(params.forge-config)"
       - name: FOURNOS_ENV
         value: "$(params.env)"
       - name: FOURNOS_STEP
@@ -38,24 +36,25 @@ spec:
         - name: kubeconfig
           mountPath: /workspace/kubeconfig
           readOnly: true
-      args: ["$(params.forge-args[*])"]
       script: |
         #!/usr/bin/env bash
 
         set -euo pipefail
         set -x
 
-        cat > fournos_config.yaml <<EOF
-        args: $@
-        gpu-count: "$(params.gpu-count)"
-        job-name: "$(params.job-name)"
-        EOF
-        echo "--- FOURNOS configuration:"
-        cat fournos_config.yaml
+        cat > forge_config.yaml <<< "$FORGE_CONFIG"
+        echo "--- forge_config.yaml:"
+        cat forge_config.yaml
         echo "---"
 
-        # will be changed to /app/forge when the rename PR is merged
-        exec /app/topsail/bin/run_ci "$(params.forge-project)" ci "$FOURNOS_STEP"
+        cat > forge_config.env <<< "$FOURNOS_ENV"
+        echo "--- forge_config.env:"
+        cat forge_config.env
+        echo "---"
+
+        set +a; source forge_config.env; set +a;
+
+        exec bin/run_ci "$(params.forge-project)" ci "$FOURNOS_STEP"
 
   volumes:
     - name: kubeconfig

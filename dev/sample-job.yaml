@@ -8,7 +8,7 @@ spec:
   displayName: sample-benchmark
   cluster: cluster-1
   forge:
-    project: testproj/llmd
+    project: llm-d
     args:
       - cks
       - something-else

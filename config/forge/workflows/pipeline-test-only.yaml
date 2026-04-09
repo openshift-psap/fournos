@@ -10,11 +10,8 @@ spec:
       type: string
     - name: forge-project
       type: string
-    - name: forge-args
-      type: array
-    - name: forge-config-overrides
+    - name: forge-config
       type: string
-      default: ""
     - name: env
       type: string
       default: ""
@@ -32,11 +29,8 @@ spec:
       params:
         - name: forge-project
           value: "$(params.forge-project)"
-        - name: forge-args
-          value:
-          - $(params.forge-args[*])
-        - name: forge-config-overrides
-          value: "$(params.forge-config-overrides)"
+        - name: forge-config
+          value: "$(params.forge-config)"
         - name: env
           value: "$(params.env)"
         - name: kubeconfig-secret

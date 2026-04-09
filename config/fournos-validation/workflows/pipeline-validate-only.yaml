@@ -9,10 +9,7 @@ spec:
       type: string
     - name: forge-project
       type: string
-    - name: forge-args
-      type: array
-      default: []
-    - name: forge-config-overrides
+    - name: forge-config
       type: string
       default: ""
     - name: env
