@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import json
 import logging
+
+import yaml
 
 from kubernetes import client
 
@@ -26,12 +27,12 @@ class TektonClient:
         display_name: str,
         pipeline: str,
         forge_project: str,
-        forge_preset: str,
+        forge_args: list[str],
         forge_config_overrides: dict,
         env: dict,
         kubeconfig_secret: str,
         gpu_count: int,
-        secrets: list[str],
+        secret_refs: list[str],
         cluster: str,
     ) -> dict:
         pipeline_run_name = f"fournos-{name}"
@@ -54,15 +55,17 @@ class TektonClient:
                 "params": [
                     {"name": "job-name", "value": display_name},
                     {"name": "forge-project", "value": forge_project},
-                    {"name": "forge-preset", "value": forge_preset},
+                    {"name": "forge-args", "value": forge_args},
                     {
                         "name": "forge-config-overrides",
-                        "value": json.dumps(forge_config_overrides),
+                        "value": yaml.dump(
+                            forge_config_overrides, default_flow_style=False
+                        ),
                     },
-                    {"name": "env", "value": json.dumps(env)},
+                    {"name": "env", "value": yaml.dump(env, default_flow_style=False)},
                     {"name": "kubeconfig-secret", "value": kubeconfig_secret},
                     {"name": "gpu-count", "value": str(gpu_count)},
-                    {"name": "secrets", "value": secrets},
+                    {"name": "secret-refs", "value": secret_refs},
                 ],
             },
         }

@@ -8,7 +8,7 @@ spec:
       type: string
     - name: job-name
       type: string
-    - name: secrets
+    - name: secret-refs
       type: array
       default: []
   steps:
@@ -73,8 +73,8 @@ spec:
   params:
     - name: forge-project
       type: string
-    - name: forge-preset
-      type: string
+    - name: forge-args
+      type: array
     - name: forge-config-overrides
       type: string
     - name: env
@@ -85,7 +85,7 @@ spec:
       type: string
     - name: job-name
       type: string
-    - name: secrets
+    - name: secret-refs
       type: array
   steps:
     - name: run-forge
@@ -101,12 +101,13 @@ spec:
         - name: kubeconfig
           mountPath: /workspace/kubeconfig
           readOnly: true
+      args: ["$(params.forge-args[*])"]
       script: |
         #!/usr/bin/env bash
         set -euo pipefail
         echo "Launching FORGE on target cluster…"
         forge run "$(params.forge-project)" \
-          --preset "$(params.forge-preset)" \
+          "$@" \
           --gpu-count "$(params.gpu-count)" \
           --job-name "$(params.job-name)"
   volumes:

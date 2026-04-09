@@ -20,7 +20,7 @@ def test_neither_cluster_nor_hardware(k8s):
         k8s,
         "test-no-target",
         {
-            "forge": {"project": "testproj/llmd", "preset": "cks"},
+            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },
     )
 
@@ -46,7 +46,7 @@ def test_unknown_cluster(k8s):
         "test-unknown",
         {
             "cluster": "no-such-cluster",
-            "forge": {"project": "testproj/llmd", "preset": "cks"},
+            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },
     )
 
@@ -72,7 +72,7 @@ def test_unknown_gpu_type(k8s):
         "test-bad-gpu",
         {
             "hardware": {"gpuType": "acbd1234", "gpuCount": 2},
-            "forge": {"project": "testproj/llmd", "preset": "cks"},
+            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },
     )
 
@@ -101,7 +101,7 @@ def test_admitted_without_flavor(k8s):
         "test-no-flavor",
         {
             "hardware": {"gpuType": "a100", "gpuCount": 999},
-            "forge": {"project": "testproj/llmd", "preset": "cks"},
+            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },
     )
 

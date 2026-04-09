@@ -263,12 +263,12 @@ def _reconcile_admitted(spec, name, namespace, status, patch):
                 display_name=display_name,
                 pipeline=spec.get("pipeline", "fournos-full"),
                 forge_project=spec["forge"]["project"],
-                forge_preset=spec["forge"]["preset"],
+                forge_args=spec["forge"]["args"],
                 forge_config_overrides=spec["forge"].get("configOverrides", {}),
                 env=spec.get("env", {}),
                 kubeconfig_secret=secret,
                 gpu_count=gpu_count,
-                secrets=spec.get("secrets", []),
+                secret_refs=spec.get("secretRefs", []),
                 cluster=cluster,
             )
             logger.info(

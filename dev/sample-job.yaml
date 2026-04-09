@@ -9,7 +9,15 @@ spec:
   cluster: cluster-1
   forge:
     project: testproj/llmd
-    preset: cks
+    args:
+      - cks
+      - something-else
+    configOverrides:
+      vllm:
+        version: 0.15.1
+      logging:
+        enabled: true
+        level: debug
   env:
     OCPCI_SUITE: regression
     OCPCI_VARIANT: nightly

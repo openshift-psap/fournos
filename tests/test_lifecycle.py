@@ -24,7 +24,7 @@ def test_workload_cleaned_after_completion(k8s):
         "test-wl-cleanup",
         {
             "cluster": "cluster-1",
-            "forge": {"project": "testproj/llmd", "preset": "cks"},
+            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },
     )
 
@@ -62,7 +62,7 @@ def test_delete_cleans_up_resources(k8s):
         "test-delete",
         {
             "cluster": "cluster-1",
-            "forge": {"project": "testproj/llmd", "preset": "cks"},
+            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },
     )
 
@@ -95,7 +95,7 @@ def test_list_multiple_jobs(k8s):
         "test-list-a",
         {
             "cluster": "cluster-1",
-            "forge": {"project": "testproj/llmd", "preset": "cks"},
+            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },
     )
     create_job(
@@ -103,7 +103,7 @@ def test_list_multiple_jobs(k8s):
         "test-list-b",
         {
             "cluster": "cluster-2",
-            "forge": {"project": "testproj/llmd", "preset": "cks"},
+            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },
     )
 
@@ -123,7 +123,7 @@ def test_filter_jobs_by_phase(k8s):
         "test-filter-ok",
         {
             "cluster": "cluster-1",
-            "forge": {"project": "testproj/llmd", "preset": "cks"},
+            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },
     )
     create_job(
@@ -131,7 +131,7 @@ def test_filter_jobs_by_phase(k8s):
         "test-filter-stuck",
         {
             "hardware": {"gpuType": "a100", "gpuCount": 100},
-            "forge": {"project": "testproj/llmd", "preset": "cks"},
+            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },
     )
 

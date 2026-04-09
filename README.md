@@ -47,7 +47,8 @@ spec:
   pipeline: forge-full
   forge:
     project: llmd
-    preset: cks
+    args:
+      - cks
   env:
     OCPCI_SUITE: regression
     OCPCI_VARIANT: nightly
@@ -65,8 +66,8 @@ oc delete FournosJob -n $FOURNOS_NAMESPACE <name>      # cleanup
 | Field | Required | Description |
 |---|---|---|
 | `spec.forge.project` | yes | FORGE project path |
-| `spec.forge.preset` | yes | FORGE preset name |
-| `spec.forge.configOverrides` | no | Key-value overrides passed to the test framework |
+| `spec.forge.args` | yes | List of arguments passed to FORGE |
+| `spec.forge.configOverrides` | no | Arbitrary YAML overrides passed to the test framework |
 | `spec.env` | no | Environment variables for test identification (e.g. OCPCI suite/variant) |
 | `spec.cluster` | \* | Pin to a specific cluster (Kueue ResourceFlavor) |
 | `spec.hardware.gpuType` | \* | Short GPU model name — e.g. `a100`, `h200`. The operator prepends the `FOURNOS_GPU_RESOURCE_PREFIX` (default `fournos/gpu-`) automatically, so do **not** include the full resource path. |
@@ -75,7 +76,7 @@ oc delete FournosJob -n $FOURNOS_NAMESPACE <name>      # cleanup
 | `spec.displayName` | no | Human-readable job name (defaults to `metadata.name`) |
 | `spec.pipeline` | no | Tekton Pipeline name (default: `fournos-full`) |
 | `spec.priority` | no | Kueue WorkloadPriorityClass name |
-| `spec.secrets` | no | Additional Secret names for the pipeline |
+| `spec.secretRefs` | no | Names of Kubernetes Secrets to mount into the pipeline (references, not values) |
 
 \* At least one of `spec.cluster` or `spec.hardware` must be provided. Both can be
 set together to pin a hardware request to a specific cluster.

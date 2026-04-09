@@ -6,8 +6,8 @@ spec:
   params:
     - name: forge-project
       type: string
-    - name: forge-preset
-      type: string
+    - name: forge-args
+      type: array
     - name: forge-config-overrides
       type: string
     - name: env
@@ -20,7 +20,7 @@ spec:
       type: string
     - name: job-step
       type: string
-    - name: secrets
+    - name: secret-refs
       type: array
   steps:
     - name: forge
@@ -38,6 +38,7 @@ spec:
         - name: kubeconfig
           mountPath: /workspace/kubeconfig
           readOnly: true
+      args: ["$(params.forge-args[*])"]
       script: |
         #!/usr/bin/env bash
 
@@ -45,7 +46,7 @@ spec:
         set -x
 
         cat > fournos_config.yaml <<EOF
-        preset: "$(params.forge-preset)"
+        args: $@
         gpu-count: "$(params.gpu-count)"
         job-name: "$(params.job-name)"
         EOF

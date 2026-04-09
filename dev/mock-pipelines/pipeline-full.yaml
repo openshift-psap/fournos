@@ -9,19 +9,19 @@ spec:
       type: string
     - name: forge-project
       type: string
-    - name: forge-preset
-      type: string
+    - name: forge-args
+      type: array
     - name: forge-config-overrides
       type: string
-      default: "{}"
+      default: ""
     - name: env
       type: string
-      default: "{}"
+      default: ""
     - name: kubeconfig-secret
       type: string
     - name: gpu-count
       type: string
-    - name: secrets
+    - name: secret-refs
       type: array
       default: []
   tasks:
@@ -40,8 +40,9 @@ spec:
       params:
         - name: forge-project
           value: "$(params.forge-project)"
-        - name: forge-preset
-          value: "$(params.forge-preset)"
+        - name: forge-args
+          value:
+            - $(params.forge-args[*])
         - name: forge-config-overrides
           value: "$(params.forge-config-overrides)"
         - name: env
@@ -52,9 +53,9 @@ spec:
           value: "$(params.gpu-count)"
         - name: job-name
           value: "$(params.job-name)"
-        - name: secrets
+        - name: secret-refs
           value:
-            - $(params.secrets[*])
+            - $(params.secret-refs[*])
   finally:
     - name: cleanup
       taskRef:

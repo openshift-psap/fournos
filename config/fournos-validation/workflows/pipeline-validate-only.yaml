@@ -9,20 +9,20 @@ spec:
       type: string
     - name: forge-project
       type: string
-    - name: forge-preset
-      type: string
-      default: ""
+    - name: forge-args
+      type: array
+      default: []
     - name: forge-config-overrides
       type: string
-      default: "{}"
+      default: ""
     - name: env
       type: string
-      default: "{}"
+      default: ""
     - name: kubeconfig-secret
       type: string
     - name: gpu-count
       type: string
-    - name: secrets
+    - name: secret-refs
       type: array
       default: []
   tasks:
@@ -34,6 +34,6 @@ spec:
           value: "$(params.kubeconfig-secret)"
         - name: job-name
           value: "$(params.job-name)"
-        - name: secrets
+        - name: secret-refs
           value:
-            - $(params.secrets[*])
+            - $(params.secret-refs[*])
