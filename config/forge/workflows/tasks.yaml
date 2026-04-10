@@ -44,18 +44,19 @@ spec:
         set -o nounset
         set -o errtrace
 
-        cat > forge_config.yaml <<< "$FORGE_CONFIG"
-        echo "--- forge_config.yaml:"
-        cat forge_config.yaml
-        echo "---"
+        export ARTIFACT_DIR=/tmp/artifacts
+        mkdir -p "${ARTIFACT_DIR}"
 
-        cat > forge_config.env <<< "$FOURNOS_ENV"
-        echo "--- forge_config.env:"
-        cat forge_config.env
-        echo "---"
+        cat > $ARTIFACT_DIR/forge_config.yaml <<< "$FORGE_CONFIG"
 
-        if grep -q '^PULL_PULL_SHA=' forge_config.env; then
-          PULL_PULL_SHA=$(cat forge_config.env | grep '^PULL_PULL_SHA=' | cut -d'=' -f2)
+        cat > $ARTIFACT_DIR/forge_config.env <<< "$FOURNOS_ENV"
+
+        if grep -q '^PULL_BASE_SHA=' $ARTIFACT_DIR/forge_config.env; then
+          export PULL_BASE_SHA=$(cat $ARTIFACT_DIR/forge_config.env | grep '^PULL_BASE_SHA=' | cut -d'=' -f2)
+        fi
+
+        if grep -q '^PULL_PULL_SHA=' $ARTIFACT_DIR/forge_config.env; then
+          export PULL_PULL_SHA=$(cat $ARTIFACT_DIR/forge_config.env | grep '^PULL_PULL_SHA=' | cut -d'=' -f2)
         fi
 
         if [[ "${PULL_PULL_SHA:-}" ]]; then
@@ -69,9 +70,6 @@ spec:
         fi
 
         git show --quiet
-
-        export ARTIFACT_DIR=/tmp/artifacts
-        mkdir -p "${ARTIFACT_DIR}"
 
         export FOURNOS_CI=true
 
