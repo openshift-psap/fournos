@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import shlex
 
 import yaml
@@ -15,6 +16,8 @@ logger = logging.getLogger(__name__)
 TEKTON_GROUP = "tekton.dev"
 TEKTON_VERSION = "v1"
 TEKTON_PIPELINE_RUN_PLURAL = "pipelineruns"
+
+_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 class TektonClient:
@@ -61,9 +64,7 @@ class TektonClient:
                     },
                     {
                         "name": "env",
-                        "value": "".join(
-                            f"{k}={shlex.quote(v)}\n" for k, v in env.items()
-                        ),
+                        "value": self._serialize_env(env),
                     },
                     {"name": "kubeconfig-secret", "value": kubeconfig_secret},
                     {"name": "gpu-count", "value": str(gpu_count)},
@@ -80,6 +81,21 @@ class TektonClient:
         )
         logger.info("Created PipelineRun %s for job %s", pipeline_run_name, name)
         return result
+
+    @staticmethod
+    def _serialize_env(env: dict) -> str:
+        """Serialize env dict as ``KEY=quoted_value`` lines for ``source``.
+
+        Keys are validated as shell identifiers so they cannot inject
+        shell syntax.  Values are wrapped with :func:`shlex.quote` so
+        ``source`` treats them as literals (no expansion or substitution).
+        """
+        lines: list[str] = []
+        for key, value in env.items():
+            if not _ENV_KEY_RE.match(key):
+                raise ValueError(f"Invalid environment variable name: {key!r}")
+            lines.append(f"{key}={shlex.quote(str(value))}\n")
+        return "".join(lines)
 
     def get_pipeline_run(self, name: str) -> dict:
         return self._k8s.get_namespaced_custom_object(
