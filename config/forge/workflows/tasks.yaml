@@ -53,13 +53,15 @@ spec:
         echo "---"
 
         set -a; source forge_config.env; set +a;
-if [[ "${PULL_PULL_SHA:-}" ]]; then
-    git -C "$FORGE_HOME" fetch --quiet origin "$PULL_PULL_SHA"
-    git -C "$FORGE_HOME" reset --hard FETCH_HEAD
-else
-    echo "No PULL_PULL_SHA, using the image commit"
-    git show --quiet
-fi
+        
+        if [[ "${PULL_PULL_SHA:-}" ]]; then
+          git -C "$FORGE_HOME" fetch --quiet origin "$PULL_PULL_SHA"
+          git -C "$FORGE_HOME" reset --hard FETCH_HEAD
+        else
+          echo "No PULL_PULL_SHA, using the image commit"
+          git show --quiet
+        fi
+
         exec bin/run_ci "$(params.forge-project)" ci "$FOURNOS_STEP"
 
   volumes:
