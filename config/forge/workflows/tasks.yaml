@@ -39,8 +39,10 @@ spec:
       script: |
         #!/usr/bin/env bash
 
-        set -euo pipefail
-        set -x
+        set -o pipefail
+        set -o errexit
+        set -o nounset
+        set -o errtrace
 
         cat > forge_config.yaml <<< "$FORGE_CONFIG"
         echo "--- forge_config.yaml:"
