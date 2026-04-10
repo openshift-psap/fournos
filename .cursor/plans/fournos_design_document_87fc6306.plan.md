@@ -9,7 +9,7 @@ todos:
     content: "FournosJob CRD: spec (forge, cluster, hardware, pipeline, priority, secretRefs, env) and status (phase, cluster, pipelineRun, dashboardURL, message)"
     status: complete
   - id: 3-operator
-    content: "kopf operator: startup handler, on_create/on_resume handler (validate, create Workload), timer handler (state machine: Pending→Admitted→Running→terminal), on_delete handler (cleanup)"
+    content: "kopf operator: startup handler, on_create/on_resume handler (validate, create Workload), timer handler (state machine: Pending→Admitted→Running→terminal), ownerReferences for cascade deletion"
     status: complete
   - id: 4-core-clusters
     content: "core/clusters.py: ClusterRegistry — resolve kubeconfig Secrets, check cluster existence"
@@ -194,11 +194,12 @@ sequenceDiagram
 
 
 
-1. **on_create**: Operator validates the spec (cluster exists, at least one of cluster/hardware), creates a Kueue Workload, sets `phase=Pending`
+1. **on_create**: Operator validates the spec (cluster exists, at least one of cluster/hardware), creates a Kueue Workload with `ownerReferences` pointing at the FournosJob, sets `phase=Pending`
 2. **timer (Pending)**: Polls the Workload for Kueue admission. On admission, reads the assigned flavor (= cluster name), sets `phase=Admitted`
-3. **timer (Admitted)**: Resolves the kubeconfig Secret, creates the Tekton PipelineRun, sets `phase=Running`
+3. **timer (Admitted)**: Resolves the kubeconfig Secret, creates the Tekton PipelineRun with `ownerReferences` pointing at the FournosJob, sets `phase=Running`
 4. **timer (Running)**: Polls the PipelineRun for completion. On success/failure, deletes the Workload and sets `phase=Succeeded` or `phase=Failed`
-5. **on_delete**: Cleans up associated Workload and PipelineRun
+
+Deleting a FournosJob triggers Kubernetes cascade deletion of its owned Workload and PipelineRun via `ownerReferences` — no explicit cleanup handler is needed.
 
 Benefits of the unified path:
 
@@ -215,9 +216,8 @@ The operator is implemented in `fournos/operator.py` using [kopf](https://kopf.d
 | Handler                               | Trigger                                             | Responsibility                                                               |
 | ------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------- |
 | `@kopf.on.startup`                    | Process start                                       | Load kubeconfig, initialise clients, start resource GC thread                |
-| `@kopf.on.create` / `@kopf.on.resume` | New or existing CR                                  | Validate spec, create Workload, set `phase=Pending`                          |
-| `@kopf.timer(interval=5.0)`           | Every 5s while phase ∈ {Pending, Admitted, Running} | Drive the state machine: poll admission, create PipelineRun, poll completion |
-| `@kopf.on.delete`                     | CR deletion                                         | Delete associated Workload and PipelineRun                                   |
+| `@kopf.on.create` / `@kopf.on.resume` | New or existing CR                                  | Validate spec, create Workload (with ownerRef), set `phase=Pending`          |
+| `@kopf.timer(interval=5.0)`           | Every 5s while phase ∈ {Pending, Admitted, Running} | Drive the state machine: poll admission, create PipelineRun (with ownerRef), poll completion |
 
 
 The timer's `when` guard ensures it stops firing once the job reaches a terminal phase (`Succeeded` or `Failed`), so completed jobs have zero ongoing overhead.
@@ -226,7 +226,7 @@ Validation failures (unknown cluster, missing cluster/hardware) result in immedi
 
 ### Resource GC
 
-A background daemon thread runs a garbage collection loop at a configurable interval (`FOURNOS_GC_INTERVAL_SEC`, default 300s). It lists all fournos-managed Workloads and PipelineRuns (by label `app.kubernetes.io/managed-by=fournos`), reads the `fournos.dev/job-name` label on each, and deletes any whose parent `FournosJob` CR no longer exists. This handles edge cases where the operator's `on_delete` handler fails or a CR is force-deleted.
+A background daemon thread runs a garbage collection loop at a configurable interval (`FOURNOS_GC_INTERVAL_SEC`, default 300s). It lists all fournos-managed Workloads and PipelineRuns (by label `app.kubernetes.io/managed-by=fournos`), reads the `fournos.dev/job-name` label on each, and deletes any whose parent `FournosJob` CR no longer exists. This serves as a safety net for resources that somehow lost their `ownerReferences` (e.g. created before ownership was added, or manually recreated).
 
 ## 6. Persistence
 
@@ -326,7 +326,7 @@ All settings via environment variables with `FOURNOS_` prefix ([fournos/settings
 
 ```
 fournos/
-  operator.py              # kopf operator (startup, create/resume, timer, delete handlers)
+  operator.py              # kopf operator (startup, create/resume, timer handlers)
   settings.py              # Pydantic Settings (env vars)
   core/
     constants.py           # Shared label keys
@@ -367,6 +367,7 @@ README.md
 - **Stateless operator** — all job state lives in Kubernetes resources (FournosJob CRs, PipelineRuns, Workloads), not in memory. Crash-safe via `on_resume`.
 - **Timer-based reconciliation** — the operator polls Workload admission and PipelineRun completion via a kopf timer (5s interval), eliminating the need for callback tasks or watch streams on third-party resources
 - **Operator cleans up on completion** — Kueue Workloads are deleted when the PipelineRun reaches a terminal state, releasing quota without relying on external callbacks
+- **ownerReferences for cascade deletion** — Workloads and PipelineRuns carry `ownerReferences` pointing at their FournosJob, so Kubernetes automatically cascade-deletes them when the job is removed
 - **Multiple pipelines** — `fournos-full` (prepare → run → cleanup) and `fournos-run-only` (run only), selectable per job
 - **Target clusters need nothing installed** — FORGE runs on the hub cluster inside Tekton Task pods and communicates with targets via remote `oc`/`kubectl` commands through kubeconfig Secrets
 

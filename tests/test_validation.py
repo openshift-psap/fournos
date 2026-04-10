@@ -125,7 +125,7 @@ def test_admitted_without_flavor(k8s):
             "kubectl",
             "patch",
             "workload",
-            "fournos-test-no-flavor",
+            "test-no-flavor",
             "-n",
             NAMESPACE,
             "--type",

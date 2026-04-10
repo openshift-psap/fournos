@@ -32,9 +32,8 @@ class KueueClient:
         gpu_count: int = 0,
         cluster: str | None = None,
         priority: str | None = None,
+        owner_ref: dict | None = None,
     ) -> dict:
-        workload_name = f"fournos-{name}"
-
         resource_requests: dict[str, str] = {"cpu": "1"}
         if gpu_type and gpu_count:
             gpu_resource = self._gpu_resource_name(gpu_type)
@@ -54,18 +53,22 @@ class KueueClient:
         if cluster:
             pod_spec["nodeSelector"] = {"fournos.dev/cluster": cluster}
 
+        metadata: dict = {
+            "name": name,
+            "namespace": settings.namespace,
+            "labels": {
+                "kueue.x-k8s.io/queue-name": settings.kueue_local_queue_name,
+                LABEL_MANAGED_BY: "fournos",
+                LABEL_JOB_NAME: name,
+            },
+        }
+        if owner_ref:
+            metadata["ownerReferences"] = [owner_ref]
+
         body: dict = {
             "apiVersion": f"{KUEUE_GROUP}/{KUEUE_VERSION}",
             "kind": "Workload",
-            "metadata": {
-                "name": workload_name,
-                "namespace": settings.namespace,
-                "labels": {
-                    "kueue.x-k8s.io/queue-name": settings.kueue_local_queue_name,
-                    LABEL_MANAGED_BY: "fournos",
-                    LABEL_JOB_NAME: name,
-                },
-            },
+            "metadata": metadata,
             "spec": {
                 "queueName": settings.kueue_local_queue_name,
                 "podSets": [
@@ -88,7 +91,7 @@ class KueueClient:
             plural=KUEUE_WORKLOAD_PLURAL,
             body=body,
         )
-        logger.info("Created Kueue Workload %s for job %s", workload_name, name)
+        logger.info("Created Kueue Workload %s", name)
         return result
 
     def get_workload(self, name: str) -> dict:
@@ -97,7 +100,7 @@ class KueueClient:
             version=KUEUE_VERSION,
             namespace=settings.namespace,
             plural=KUEUE_WORKLOAD_PLURAL,
-            name=f"fournos-{name}",
+            name=name,
         )
 
     def get_workload_or_none(self, name: str) -> dict | None:
@@ -174,16 +177,15 @@ class KueueClient:
 
     def delete_workload(self, name: str) -> None:
         """Delete the virtual Workload to release Kueue quota."""
-        workload_name = f"fournos-{name}"
         try:
             self._k8s.delete_namespaced_custom_object(
                 group=KUEUE_GROUP,
                 version=KUEUE_VERSION,
                 namespace=settings.namespace,
                 plural=KUEUE_WORKLOAD_PLURAL,
-                name=workload_name,
+                name=name,
             )
-            logger.info("Deleted Kueue Workload %s", workload_name)
+            logger.info("Deleted Kueue Workload %s", name)
         except client.exceptions.ApiException as exc:
             if exc.status != 404:
                 raise

@@ -166,18 +166,18 @@ def job_status_summary(k8s, name: str) -> str:
 
 
 def workload_exists(name: str) -> bool:
-    """Check whether the Kueue Workload ``fournos-{name}`` exists."""
+    """Check whether the Kueue Workload *name* exists."""
     result = subprocess.run(
-        ["kubectl", "get", "workload", f"fournos-{name}", "-n", NAMESPACE],
+        ["kubectl", "get", "workload", name, "-n", NAMESPACE],
         capture_output=True,
     )
     return result.returncode == 0
 
 
 def pipelinerun_exists(name: str) -> bool:
-    """Check whether the Tekton PipelineRun ``fournos-{name}`` exists."""
+    """Check whether the Tekton PipelineRun *name* exists."""
     result = subprocess.run(
-        ["kubectl", "get", "pipelinerun", f"fournos-{name}", "-n", NAMESPACE],
+        ["kubectl", "get", "pipelinerun", name, "-n", NAMESPACE],
         capture_output=True,
     )
     return result.returncode == 0
@@ -214,7 +214,7 @@ def get_k8s_resource(kind: str, name: str) -> dict:
 
 def get_workload_node_selector(name: str) -> dict:
     """Return the nodeSelector from the Workload's podSet template."""
-    wl = get_k8s_resource("workload", f"fournos-{name}")
+    wl = get_k8s_resource("workload", name)
     pod_sets = wl.get("spec", {}).get("podSets", [])
     if not pod_sets:
         return {}
@@ -223,7 +223,7 @@ def get_workload_node_selector(name: str) -> dict:
 
 def get_workload_flavor(name: str) -> str | None:
     """Return the ResourceFlavor Kueue assigned to the Workload."""
-    wl = get_k8s_resource("workload", f"fournos-{name}")
+    wl = get_k8s_resource("workload", name)
     assignments = wl.get("status", {}).get("admission", {}).get("podSetAssignments", [])
     if not assignments:
         return None
@@ -233,7 +233,7 @@ def get_workload_flavor(name: str) -> str | None:
 
 def get_pipelinerun_param(name: str, param_name: str) -> Any:
     """Return a named param value from the PipelineRun spec."""
-    pr = get_k8s_resource("pipelinerun", f"fournos-{name}")
+    pr = get_k8s_resource("pipelinerun", name)
     for p in pr.get("spec", {}).get("params", []):
         if p["name"] == param_name:
             return p["value"]
@@ -246,7 +246,7 @@ def create_stale_workload(k8s, name: str) -> None:
         "apiVersion": "kueue.x-k8s.io/v1beta2",
         "kind": "Workload",
         "metadata": {
-            "name": f"fournos-{name}",
+            "name": name,
             "namespace": NAMESPACE,
             "labels": {
                 "app.kubernetes.io/managed-by": "fournos",
@@ -291,7 +291,7 @@ def create_stale_pipelinerun(k8s, name: str) -> None:
         "apiVersion": "tekton.dev/v1",
         "kind": "PipelineRun",
         "metadata": {
-            "name": f"fournos-{name}",
+            "name": name,
             "namespace": NAMESPACE,
             "labels": {
                 "app.kubernetes.io/managed-by": "fournos",
