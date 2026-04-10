@@ -73,7 +73,7 @@ def test_delete_cleans_up_resources(k8s):
         timeout=30,
     )
     assert pipelinerun_exists("test-delete"), (
-        "PipelineRun fournos-test-delete should exist before job deletion"
+        "PipelineRun test-delete should exist before job deletion"
     )
 
     k8s.delete_namespaced_custom_object(

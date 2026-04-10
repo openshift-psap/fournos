@@ -26,6 +26,21 @@ _registry: ClusterRegistry
 COND_WORKLOAD_ADMITTED = "WorkloadAdmitted"
 COND_PIPELINE_RUN_READY = "PipelineRunReady"
 
+CRD_GROUP = "fournos.dev"
+CRD_VERSION = "v1"
+
+
+def _owner_ref(body: dict) -> dict:
+    """Build a Kubernetes ownerReference pointing at the given FournosJob."""
+    return {
+        "apiVersion": f"{CRD_GROUP}/{CRD_VERSION}",
+        "kind": "FournosJob",
+        "name": body["metadata"]["name"],
+        "uid": body["metadata"]["uid"],
+        "controller": True,
+        "blockOwnerDeletion": True,
+    }
+
 
 def _utcnow() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -95,7 +110,7 @@ def startup(**_):
 
 @kopf.on.create("fournos.dev", "v1", "fournosjobs")
 @kopf.on.resume("fournos.dev", "v1", "fournosjobs")
-def on_create(spec, name, namespace, status, patch, **_):
+def on_create(spec, name, namespace, status, patch, body, **_):
     if status.get("phase"):
         return  # Already initialised (resume of existing CR)
 
@@ -144,6 +159,7 @@ def on_create(spec, name, namespace, status, patch, **_):
             gpu_count=hardware.get("gpuCount", 0) if hardware else 0,
             cluster=cluster,
             priority=spec.get("priority"),
+            owner_ref=_owner_ref(body),
         )
     except client.exceptions.ApiException as exc:
         if exc.status == 409:
@@ -180,13 +196,13 @@ def on_create(spec, name, namespace, status, patch, **_):
     interval=5.0,
     when=lambda status, **_: status.get("phase") in ("Pending", "Admitted", "Running"),
 )
-def reconcile(spec, name, namespace, status, patch, **_):
+def reconcile(spec, name, namespace, status, patch, body, **_):
     phase = status.get("phase", "")
 
     if phase == "Pending":
         _reconcile_pending(name, status, patch)
     elif phase == "Admitted":
-        _reconcile_admitted(spec, name, namespace, status, patch)
+        _reconcile_admitted(spec, name, namespace, status, patch, body)
     elif phase == "Running":
         _reconcile_running(name, status, patch)
 
@@ -247,7 +263,7 @@ def _reconcile_pending(name, status, patch):
         logger.info("Job %s: Workload pending admission", name)
 
 
-def _reconcile_admitted(spec, name, namespace, status, patch):
+def _reconcile_admitted(spec, name, namespace, status, patch, body):
     pr = _tekton.get_pipeline_run_or_none(name)
     conditions = list(status.get("conditions") or [])
 
@@ -271,6 +287,7 @@ def _reconcile_admitted(spec, name, namespace, status, patch):
                 gpu_count=gpu_count,
                 secret_refs=spec.get("secretRefs", []),
                 cluster=cluster,
+                owner_ref=_owner_ref(body),
             )
             logger.info(
                 "Job %s: created PipelineRun for target cluster %s", name, cluster
@@ -298,7 +315,7 @@ def _reconcile_admitted(spec, name, namespace, status, patch):
             logger.info("Job %s: PipelineRun already exists (409), proceeding", name)
 
     patch.status["phase"] = "Running"
-    patch.status["pipelineRun"] = f"fournos-{name}"
+    patch.status["pipelineRun"] = name
     patch.status["message"] = "PipelineRun created, waiting for execution"
     _set_condition(
         patch,
@@ -311,7 +328,7 @@ def _reconcile_admitted(spec, name, namespace, status, patch):
     if settings.tekton_dashboard_url:
         base = settings.tekton_dashboard_url.rstrip("/")
         patch.status["dashboardURL"] = (
-            f"{base}/#/namespaces/{namespace}/pipelineruns/fournos-{name}"
+            f"{base}/#/namespaces/{namespace}/pipelineruns/{name}"
         )
 
 
@@ -328,10 +345,10 @@ def _reconcile_running(name, status, patch):
             COND_PIPELINE_RUN_READY,
             "False",
             "NotFound",
-            f"PipelineRun fournos-{name} not found",
+            f"PipelineRun {name} not found",
         )
         _kueue.delete_workload(name)
-        logger.error("Job %s: PipelineRun fournos-%s not found", name, name)
+        logger.error("Job %s: PipelineRun %s not found", name, name)
         return
 
     pr_status, pr_message = TektonClient.extract_status(pr)
@@ -416,15 +433,3 @@ def _gc_stale_resources():
         if job_name and job_name not in job_names:
             logger.info("GC: deleting stale PipelineRun for job %s", job_name)
             _tekton.delete_pipeline_run(job_name)
-
-
-# ---------------------------------------------------------------------------
-# DELETE — clean up owned resources
-# ---------------------------------------------------------------------------
-
-
-@kopf.on.delete("fournos.dev", "v1", "fournosjobs")
-def on_delete(name, namespace, **_):
-    _kueue.delete_workload(name)
-    _tekton.delete_pipeline_run(name)
-    logger.info("Job %s: cleaned up Workload and PipelineRun", name)

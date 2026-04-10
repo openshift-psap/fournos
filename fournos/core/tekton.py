@@ -37,24 +37,34 @@ class TektonClient:
         gpu_count: int,
         secret_refs: list[str],
         cluster: str,
+        owner_ref: dict | None = None,
     ) -> dict:
-        pipeline_run_name = f"fournos-{name}"
+        labels = {
+            LABEL_MANAGED_BY: "fournos",
+            LABEL_JOB_NAME: name,
+        }
+        metadata: dict = {
+            "name": name,
+            "namespace": settings.namespace,
+            "labels": labels,
+            "annotations": {
+                "fournos.dev/cluster": cluster,
+            },
+        }
+        if owner_ref:
+            metadata["ownerReferences"] = [owner_ref]
+
         body = {
             "apiVersion": f"{TEKTON_GROUP}/{TEKTON_VERSION}",
             "kind": "PipelineRun",
-            "metadata": {
-                "name": pipeline_run_name,
-                "namespace": settings.namespace,
-                "labels": {
-                    LABEL_MANAGED_BY: "fournos",
-                    LABEL_JOB_NAME: name,
-                },
-                "annotations": {
-                    "fournos.dev/cluster": cluster,
-                },
-            },
+            "metadata": metadata,
             "spec": {
                 "pipelineRef": {"name": pipeline},
+                "taskRunTemplate": {
+                    "metadata": {
+                        "labels": labels,
+                    },
+                },
                 "params": [
                     {"name": "job-name", "value": display_name},
                     {"name": "forge-project", "value": forge_project},
@@ -79,7 +89,7 @@ class TektonClient:
             plural=TEKTON_PIPELINE_RUN_PLURAL,
             body=body,
         )
-        logger.info("Created PipelineRun %s for job %s", pipeline_run_name, name)
+        logger.info("Created PipelineRun %s", name)
         return result
 
     @staticmethod
@@ -103,7 +113,7 @@ class TektonClient:
             version=TEKTON_VERSION,
             namespace=settings.namespace,
             plural=TEKTON_PIPELINE_RUN_PLURAL,
-            name=f"fournos-{name}",
+            name=name,
         )
 
     def get_pipeline_run_or_none(self, name: str) -> dict | None:
@@ -126,16 +136,15 @@ class TektonClient:
 
     def delete_pipeline_run(self, name: str) -> None:
         """Delete the PipelineRun for *name*. Ignores 404."""
-        pipeline_run_name = f"fournos-{name}"
         try:
             self._k8s.delete_namespaced_custom_object(
                 group=TEKTON_GROUP,
                 version=TEKTON_VERSION,
                 namespace=settings.namespace,
                 plural=TEKTON_PIPELINE_RUN_PLURAL,
-                name=pipeline_run_name,
+                name=name,
             )
-            logger.info("Deleted PipelineRun %s", pipeline_run_name)
+            logger.info("Deleted PipelineRun %s", name)
         except client.exceptions.ApiException as exc:
             if exc.status != 404:
                 raise

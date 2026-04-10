@@ -228,11 +228,14 @@ FournosJob CR ──→ Operator ──→ Kueue Workload ──→ (admission) 
 The operator runs as a single-replica Deployment using
 [kopf](https://kopf.dev/). On each `FournosJob`, it:
 
-1. **Creates** a Kueue Workload with the requested GPU resources
+1. **Creates** a Kueue Workload with the requested GPU resources (owned by the FournosJob via `ownerReferences`)
 2. **Polls** (5 s timer) for Kueue admission and assigned cluster
-3. **Launches** a Tekton PipelineRun with FORGE parameters
+3. **Launches** a Tekton PipelineRun with FORGE parameters (owned by the FournosJob via `ownerReferences`)
 4. **Watches** the PipelineRun until completion
 5. **Deletes** the Workload to release Kueue quota
+
+Deleting a FournosJob automatically cascade-deletes its Workload and
+PipelineRun through Kubernetes owner references.
 
 Target clusters need nothing installed — FORGE runs on the hub cluster inside
 Tekton Task pods and communicates with targets via `oc`/`kubectl` through

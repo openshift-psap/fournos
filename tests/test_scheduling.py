@@ -152,7 +152,7 @@ def test_alternative_pipeline_selection(k8s):
     )
     assert phase == "Succeeded", job_status_summary(k8s, "test-run-only")
 
-    pr = get_k8s_resource("pipelinerun", "fournos-test-run-only")
+    pr = get_k8s_resource("pipelinerun", "test-run-only")
     pipeline_ref = pr["spec"]["pipelineRef"]["name"]
     assert pipeline_ref == "fournos-run-only", (
         f"PipelineRun should reference fournos-run-only, got {pipeline_ref!r}"
@@ -180,7 +180,7 @@ def test_inadmissible_stays_pending(k8s):
     )
     assert phase == "Pending", f"Inadmissible job should stay Pending, got {phase!r}"
     assert workload_exists("test-inadmissible"), (
-        "Workload fournos-test-inadmissible should still exist"
+        "Workload test-inadmissible should still exist"
     )
 
     job = get_job(k8s, "test-inadmissible")
