@@ -8,7 +8,7 @@ spec:
       type: string
     - name: job-name
       type: string
-    - name: secrets
+    - name: secret-refs
       type: array
       default: []
   steps:
@@ -27,120 +27,6 @@ spec:
         echo "Validating connectivity to target cluster…"
         kubectl cluster-info
         echo "Target cluster is reachable."
-  volumes:
-    - name: kubeconfig
-      secret:
-        secretName: $(params.kubeconfig-secret)
-
----
-apiVersion: tekton.dev/v1
-kind: Task
-metadata:
-  name: fournos-prepare
-spec:
-  params:
-    - name: kubeconfig-secret
-      type: string
-    - name: job-name
-      type: string
-  steps:
-    - name: validate
-      image: quay.io/psap/remote-job-launcher:latest
-      env:
-        - name: KUBECONFIG
-          value: /workspace/kubeconfig/kubeconfig
-      volumeMounts:
-        - name: kubeconfig
-          mountPath: /workspace/kubeconfig
-          readOnly: true
-      script: |
-        #!/usr/bin/env bash
-        set -euo pipefail
-        echo "Validating connectivity to target cluster…"
-        kubectl cluster-info
-        echo "Target cluster is reachable."
-  volumes:
-    - name: kubeconfig
-      secret:
-        secretName: $(params.kubeconfig-secret)
-
----
-apiVersion: tekton.dev/v1
-kind: Task
-metadata:
-  name: fournos-run
-spec:
-  params:
-    - name: forge-project
-      type: string
-    - name: forge-preset
-      type: string
-    - name: forge-config-overrides
-      type: string
-    - name: env
-      type: string
-    - name: kubeconfig-secret
-      type: string
-    - name: gpu-count
-      type: string
-    - name: job-name
-      type: string
-    - name: secrets
-      type: array
-  steps:
-    - name: run-forge
-      image: quay.io/psap/remote-job-launcher:latest
-      env:
-        - name: KUBECONFIG
-          value: /workspace/kubeconfig/kubeconfig
-        - name: FORGE_CONFIG_OVERRIDES
-          value: "$(params.forge-config-overrides)"
-        - name: FOURNOS_ENV
-          value: "$(params.env)"
-      volumeMounts:
-        - name: kubeconfig
-          mountPath: /workspace/kubeconfig
-          readOnly: true
-      script: |
-        #!/usr/bin/env bash
-        set -euo pipefail
-        echo "Launching FORGE on target cluster…"
-        forge run "$(params.forge-project)" \
-          --preset "$(params.forge-preset)" \
-          --gpu-count "$(params.gpu-count)" \
-          --job-name "$(params.job-name)"
-  volumes:
-    - name: kubeconfig
-      secret:
-        secretName: $(params.kubeconfig-secret)
-
----
-apiVersion: tekton.dev/v1
-kind: Task
-metadata:
-  name: fournos-cleanup
-spec:
-  params:
-    - name: kubeconfig-secret
-      type: string
-    - name: job-name
-      type: string
-  steps:
-    - name: cleanup
-      image: quay.io/psap/remote-job-launcher:latest
-      env:
-        - name: KUBECONFIG
-          value: /workspace/kubeconfig/kubeconfig
-      volumeMounts:
-        - name: kubeconfig
-          mountPath: /workspace/kubeconfig
-          readOnly: true
-      script: |
-        #!/usr/bin/env bash
-        set -euo pipefail
-        echo "Cleaning up resources on target cluster…"
-        kubectl delete job "$(params.job-name)" --ignore-not-found=true
-        echo "Cleanup complete."
   volumes:
     - name: kubeconfig
       secret:

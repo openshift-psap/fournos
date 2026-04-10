@@ -9,19 +9,16 @@ spec:
       type: string
     - name: forge-project
       type: string
-    - name: forge-preset
+    - name: forge-config
       type: string
-    - name: forge-config-overrides
-      type: string
-      default: "{}"
     - name: env
       type: string
-      default: "{}"
+      default: ""
     - name: kubeconfig-secret
       type: string
     - name: gpu-count
       type: string
-    - name: secrets
+    - name: secret-refs
       type: array
       default: []
 
@@ -33,10 +30,8 @@ spec:
         # -- common params -- #
         - name: forge-project
           value: "$(params.forge-project)"
-        - name: forge-preset
-          value: "$(params.forge-preset)"
-        - name: forge-config-overrides
-          value: "$(params.forge-config-overrides)"
+        - name: forge-config
+          value: "$(params.forge-config)"
         - name: env
           value: "$(params.env)"
         - name: kubeconfig-secret
@@ -45,9 +40,9 @@ spec:
           value: "$(params.gpu-count)"
         - name: job-name
           value: "$(params.job-name)"
-        - name: secrets
+        - name: secret-refs
           value:
-          - $(params.secrets[*])
+          - $(params.secret-refs[*])
           # -- specific params -- #
         - name: job-step
           value: pre-cleanup
@@ -59,10 +54,8 @@ spec:
         # -- common params -- #
         - name: forge-project
           value: "$(params.forge-project)"
-        - name: forge-preset
-          value: "$(params.forge-preset)"
-        - name: forge-config-overrides
-          value: "$(params.forge-config-overrides)"
+        - name: forge-config
+          value: "$(params.forge-config)"
         - name: env
           value: "$(params.env)"
         - name: kubeconfig-secret
@@ -71,9 +64,9 @@ spec:
           value: "$(params.gpu-count)"
         - name: job-name
           value: "$(params.job-name)"
-        - name: secrets
+        - name: secret-refs
           value:
-          - $(params.secrets[*])
+          - $(params.secret-refs[*])
           # -- specific params -- #
         - name: job-step
           value: prepare
@@ -86,10 +79,8 @@ spec:
         # -- common params -- #
         - name: forge-project
           value: "$(params.forge-project)"
-        - name: forge-preset
-          value: "$(params.forge-preset)"
-        - name: forge-config-overrides
-          value: "$(params.forge-config-overrides)"
+        - name: forge-config
+          value: "$(params.forge-config)"
         - name: env
           value: "$(params.env)"
         - name: kubeconfig-secret
@@ -98,9 +89,9 @@ spec:
           value: "$(params.gpu-count)"
         - name: job-name
           value: "$(params.job-name)"
-        - name: secrets
+        - name: secret-refs
           value:
-          - $(params.secrets[*])
+          - $(params.secret-refs[*])
         # -- specific params -- #
         - name: job-step
           value: test
@@ -113,10 +104,8 @@ spec:
         # -- common params -- #
         - name: forge-project
           value: "$(params.forge-project)"
-        - name: forge-preset
-          value: "$(params.forge-preset)"
-        - name: forge-config-overrides
-          value: "$(params.forge-config-overrides)"
+        - name: forge-config
+          value: "$(params.forge-config)"
         - name: env
           value: "$(params.env)"
         - name: kubeconfig-secret
@@ -125,9 +114,9 @@ spec:
           value: "$(params.gpu-count)"
         - name: job-name
           value: "$(params.job-name)"
-        - name: secrets
+        - name: secret-refs
           value:
-          - $(params.secrets[*])
+          - $(params.secret-refs[*])
         # -- specific params -- #
         - name: job-step
           value: pre-cleanup # there's currently no post-cleanup step

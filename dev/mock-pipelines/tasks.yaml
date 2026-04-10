@@ -29,9 +29,7 @@ spec:
   params:
     - name: forge-project
       type: string
-    - name: forge-preset
-      type: string
-    - name: forge-config-overrides
+    - name: forge-config
       type: string
     - name: env
       type: string
@@ -41,16 +39,18 @@ spec:
       type: string
     - name: job-name
       type: string
-    - name: secrets
+    - name: secret-refs
       type: array
   steps:
     - name: run-forge
       image: busybox:1.36
       script: |
         #!/bin/sh
-        echo "[mock-run] forge run $(params.forge-project) --preset $(params.forge-preset)"
-        echo "[mock-run] config-overrides=$(params.forge-config-overrides)"
-        echo "[mock-run] env=$(params.env)"
+        echo "[mock-run] forge-project=$(params.forge-project)"
+        echo "[mock-run] forge-config:"
+        echo "$(params.forge-config)" | sed 's/^/  /'
+        echo "[mock-run] env:"
+        echo "$(params.env)" | sed 's/^/  /'
         echo "[mock-run] gpu-count=$(params.gpu-count)"
         echo "[mock-run] job=$(params.job-name)"
         echo "[mock-run] simulating workload (3s)..."
@@ -88,19 +88,16 @@ spec:
       type: string
     - name: forge-project
       type: string
-    - name: forge-preset
+    - name: forge-config
       type: string
-    - name: forge-config-overrides
-      type: string
-      default: "{}"
     - name: env
       type: string
-      default: "{}"
+      default: ""
     - name: kubeconfig-secret
       type: string
     - name: gpu-count
       type: string
-    - name: secrets
+    - name: secret-refs
       type: array
       default: []
   tasks:
@@ -110,10 +107,8 @@ spec:
       params:
         - name: forge-project
           value: "$(params.forge-project)"
-        - name: forge-preset
-          value: "$(params.forge-preset)"
-        - name: forge-config-overrides
-          value: "$(params.forge-config-overrides)"
+        - name: forge-config
+          value: "$(params.forge-config)"
         - name: env
           value: "$(params.env)"
         - name: kubeconfig-secret
@@ -122,8 +117,8 @@ spec:
           value: "$(params.gpu-count)"
         - name: job-name
           value: "$(params.job-name)"
-        - name: secrets
-          value: "$(params.secrets[*])"
+        - name: secret-refs
+          value: ["$(params.secret-refs[*])"]
 
 ---
 # Mock kubeconfig Secrets — one per cluster defined in kueue-config.

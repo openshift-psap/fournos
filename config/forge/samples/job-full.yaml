@@ -9,7 +9,8 @@ spec:
   pipeline: forge-full
   forge:
     project: llm_d
-    preset: cks
+    args:
+      - cks
   env:
     OCPCI_SUITE: regression
     OCPCI_VARIANT: nightly

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import textwrap
 import time
 from typing import Any
 
@@ -301,9 +302,16 @@ def create_stale_pipelinerun(k8s, name: str) -> None:
             "params": [
                 {"name": "job-name", "value": name},
                 {"name": "forge-project", "value": "test/stale"},
-                {"name": "forge-preset", "value": "cks"},
-                {"name": "forge-config-overrides", "value": "{}"},
-                {"name": "env", "value": "{}"},
+                {
+                    "name": "forge-config",
+                    "value": textwrap.dedent("""\
+                        project: test/stale
+                        args:
+                        - cks
+                        - internal-test
+                    """),
+                },
+                {"name": "env", "value": ""},
                 {"name": "kubeconfig-secret", "value": "cluster-1-kubeconfig"},
                 {"name": "gpu-count", "value": "0"},
             ],

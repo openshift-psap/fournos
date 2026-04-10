@@ -1,6 +1,6 @@
 """Scheduling tests — cluster pinning, hardware requests, Kueue admission."""
 
-import json
+import yaml
 
 from tests.conftest import (
     create_job,
@@ -22,7 +22,7 @@ def test_cluster_pinned(k8s):
         "test-cluster",
         {
             "cluster": "cluster-2",
-            "forge": {"project": "testproj/llmd", "preset": "cks"},
+            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },
     )
 
@@ -67,7 +67,7 @@ def test_hardware_request(k8s):
         "test-hardware",
         {
             "hardware": {"gpuType": "a100", "gpuCount": 2},
-            "forge": {"project": "testproj/llmd", "preset": "llama3"},
+            "forge": {"project": "testproj/llmd", "args": ["llama3", "internal-test"]},
             "priority": "nightly",
         },
     )
@@ -95,7 +95,7 @@ def test_cluster_and_hardware(k8s):
         {
             "cluster": "cluster-4",
             "hardware": {"gpuType": "h200", "gpuCount": 2},
-            "forge": {"project": "testproj/llmd", "preset": "llama3"},
+            "forge": {"project": "testproj/llmd", "args": ["llama3", "internal-test"]},
         },
     )
 
@@ -140,7 +140,7 @@ def test_alternative_pipeline_selection(k8s):
         {
             "pipeline": "fournos-run-only",
             "cluster": "cluster-2",
-            "forge": {"project": "testproj/llmd", "preset": "cks"},
+            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },
     )
 
@@ -166,7 +166,7 @@ def test_inadmissible_stays_pending(k8s):
         "test-inadmissible",
         {
             "hardware": {"gpuType": "a100", "gpuCount": 100},
-            "forge": {"project": "testproj/llmd", "preset": "cks"},
+            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },
     )
 
@@ -210,7 +210,7 @@ def test_cluster_without_required_gpu_stays_pending(k8s):
         {
             "cluster": "cluster-3",
             "hardware": {"gpuType": "a100", "gpuCount": 2},
-            "forge": {"project": "testproj/llmd", "preset": "cks"},
+            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },
     )
 
@@ -228,8 +228,15 @@ def test_cluster_without_required_gpu_stays_pending(k8s):
 
 
 def test_optional_spec_fields(k8s):
-    """displayName, owner, configOverrides, and env are all forwarded correctly."""
-    overrides = {"batch_size": "64", "lr": "0.001"}
+    """displayName, owner, args, configOverrides, and env are all forwarded correctly."""
+    overrides = {
+        "config": {
+            "batch_size": 64,
+            "vllm": {"version": "0.15.1"},
+        },
+        "logging": {"enabled": True, "level": "debug"},
+        "tags": ["special", "demo"],
+    }
     env = {"OCPCI_SUITE": "regression", "OCPCI_VARIANT": "nightly"}
 
     create_job(
@@ -241,7 +248,7 @@ def test_optional_spec_fields(k8s):
             "cluster": "cluster-1",
             "forge": {
                 "project": "testproj/llmd",
-                "preset": "cks",
+                "args": ["cks", "internal-test"],
                 "configOverrides": overrides,
             },
             "env": env,
@@ -265,12 +272,17 @@ def test_optional_spec_fields(k8s):
         f"PipelineRun job-name param should be the displayName, got {job_name_param!r}"
     )
 
-    config_overrides = json.loads(
-        get_pipelinerun_param("test-opts", "forge-config-overrides")
+    forge_param = yaml.safe_load(get_pipelinerun_param("test-opts", "forge-config"))
+    assert forge_param["project"] == "testproj/llmd", (
+        f"forge.project mismatch: {forge_param.get('project')!r}"
     )
-    assert config_overrides == overrides, (
-        f"forge-config-overrides mismatch: {config_overrides}"
+    assert forge_param["args"] == ["cks", "internal-test"], (
+        f"forge.args mismatch: {forge_param.get('args')!r}"
+    )
+    assert forge_param.get("configOverrides") == overrides, (
+        f"forge.configOverrides mismatch: {forge_param.get('configOverrides')}"
     )
 
-    env_param = json.loads(get_pipelinerun_param("test-opts", "env"))
+    env_raw = get_pipelinerun_param("test-opts", "env")
+    env_param = dict(line.split("=", 1) for line in env_raw.strip().splitlines())
     assert env_param == env, f"env param mismatch: {env_param}"
