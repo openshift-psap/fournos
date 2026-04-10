@@ -165,13 +165,13 @@ oc create secret generic ${CLUSTER_NAME}-kubeconfig \
 The secret name must match the `FOURNOS_KUBECONFIG_SECRET_PATTERN` (default
 `{cluster}-kubeconfig`).
 
-2. **Add a ResourceFlavor and quota** in `manifests/kueue-config.yaml`. Add a
+2. **Add a ResourceFlavor and quota** in `config/kueue-config.yaml`. Add a
    new `ResourceFlavor` with a matching `fournos.dev/cluster` nodeLabel, and
    list it under the `fournos-queue` ClusterQueue with the appropriate GPU/CPU
    quotas. Then apply:
 
 ```bash
-oc apply -f manifests/kueue-config.yaml
+oc apply -f config/kueue-config.yaml
 ```
 
 3. **Verify connectivity** by submitting a lightweight validate-only
@@ -196,7 +196,12 @@ details.
 Deploy the cluster configuration (Builds + Tekton):
 
 ```bash
-oc apply -n $FOURNOS_NAMESPACE -f config/forge/images
+oc apply -n $FOURNOS_NAMESPACE -f config/forge/images/is_forge.yaml
+cat config/forge/images/build_forge-main.yaml \
+   | sed 's/psap-automation/'$FOURNOS_NAMESPACE'/g' \
+   | oc apply -n $FOURNOS_NAMESPACE
+oc create -n $FOURNOS_NAMESPACE  -f config/forge/images/buildrun_forge-main.yaml
+
 oc apply -n $FOURNOS_NAMESPACE -f config/forge/workflows
 ```
 
