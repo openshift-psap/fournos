@@ -6,7 +6,7 @@ todos:
     content: "Project scaffolding: pyproject.toml, Containerfile, README.md, .gitignore, .dockerignore, Makefile, pre-commit config"
     status: complete
   - id: 2-crd
-    content: "FournosJob CRD: spec (forge, cluster, hardware, pipeline, priority, secrets) and status (phase, cluster, pipelineRun, dashboardURL, message)"
+    content: "FournosJob CRD: spec (forge, cluster, hardware, pipeline, priority, secretRefs, env) and status (phase, cluster, pipelineRun, dashboardURL, message)"
     status: complete
   - id: 3-operator
     content: "kopf operator: startup handler, on_create/on_resume handler (validate, create Workload), timer handler (state machine: Pending→Admitted→Running→terminal), on_delete handler (cleanup)"
@@ -88,9 +88,9 @@ Jobs are submitted as `FournosJob` custom resources ([manifests/crd.yaml](manife
 | Field                        | Required     | Description                                                                                      |
 | ---------------------------- | ------------ | ------------------------------------------------------------------------------------------------ |
 | `spec.forge.project`         | yes          | FORGE project path                                                                               |
-| `spec.forge.preset`          | yes          | FORGE preset name                                                                                |
-| `spec.forge.configOverrides` | no           | Key-value overrides passed to the test framework                                                 |
-| `spec.env`                   | no           | Environment variables for test identification                                                    |
+| `spec.forge.args`            | yes          | List of arguments passed to FORGE                                                                |
+| `spec.forge.configOverrides` | no           | Arbitrary YAML overrides passed to the test framework                                            |
+| `spec.env`                   | no           | Environment variables passed to the pipeline as a `KEY=VALUE` env file                           |
 | `spec.cluster`               |              | Pin to a specific cluster (Kueue ResourceFlavor)                                                 |
 | `spec.hardware.gpuType`      |              | Short GPU model name (e.g. `a100`, `h200`). The operator adds the resource prefix automatically. |
 | `spec.hardware.gpuCount`     | with gpuType | Number of GPUs (minimum 1)                                                                       |
@@ -98,7 +98,7 @@ Jobs are submitted as `FournosJob` custom resources ([manifests/crd.yaml](manife
 | `spec.displayName`           | no           | Human-readable job name (defaults to `metadata.name`)                                            |
 | `spec.pipeline`              | no           | Tekton Pipeline name (default: `fournos-full`)                                                   |
 | `spec.priority`              | no           | Kueue WorkloadPriorityClass name                                                                 |
-| `spec.secrets`               | no           | Additional Secret names for the pipeline                                                         |
+| `spec.secretRefs`            | no           | Names of Kubernetes Secrets to mount into the pipeline (references, not values)                   |
 
 
  At least one of `spec.cluster` or `spec.hardware` must be provided. Both can be set together to pin a hardware request to a specific cluster.
@@ -133,7 +133,10 @@ spec:
   cluster: cluster-1
   forge:
     project: testproj/llmd
-    preset: cks
+    args:
+      - cks
+    configOverrides:
+      batch_size: 64
   env:
     OCPCI_SUITE: regression
     OCPCI_VARIANT: nightly
@@ -237,9 +240,18 @@ The operator is stateless and crash-safe. On restart, `@kopf.on.resume` re-evalu
 
 ## 7. FORGE integration
 
-FORGE is an existing benchmark execution framework that runs on the hub cluster inside Tekton Task pods and owns all operations on target clusters — setup, benchmark execution, and cleanup — by issuing remote `oc`/`kubectl` commands via kubeconfig Secrets. Fournos has a strict separation of concerns: it handles cluster selection, scheduling, and bookkeeping, but never interacts with target clusters directly. All FORGE parameters (`project`, `preset`, `configOverrides`) are passed through opaquely to the Tekton Pipeline as params, along with `spec.env` for test identification. Fournos also passes `job-name` (from `spec.displayName` or `metadata.name`) so FORGE can use it for its own resource naming and correlation.
+FORGE is an existing benchmark execution framework that runs on the hub cluster inside Tekton Task pods and owns all operations on target clusters — setup, benchmark execution, and cleanup — by issuing remote `oc`/`kubectl` commands via kubeconfig Secrets. Fournos has a strict separation of concerns: it handles cluster selection, scheduling, and bookkeeping, but never interacts with target clusters directly.
 
-The Tekton Task definitions in `manifests/tekton/tasks.yaml` are stub implementations showing the expected parameter interface. The real FORGE tasks will replace them.
+The operator passes FORGE configuration to the Tekton Pipeline as two params:
+
+- **`forge-project`** — `spec.forge.project` as a plain string, for direct use in task scripts (e.g. `bin/run_ci "$(params.forge-project)" ci "$FOURNOS_STEP"`)
+- **`forge-config`** — the entire `spec.forge` dict serialized as YAML, written to `forge_config.yaml` in the task for FORGE to consume
+
+Environment variables (`spec.env`) are serialized as `KEY=VALUE` lines and passed as the `env` param. Tasks write this to `forge_config.env` and source it before invoking FORGE.
+
+Fournos also passes `job-name` (from `spec.displayName` or `metadata.name`) so FORGE can use it for its own resource naming and correlation.
+
+The Tekton Task definitions in `config/forge/workflows/tasks.yaml` and `config/fournos-validation/workflows/tasks.yaml` implement the parameter interface. Mock tasks in `dev/mock-pipelines/tasks.yaml` are used for local development and testing.
 
 ## 8. Tekton Pipelines and Tasks
 
@@ -350,7 +362,7 @@ README.md
 - **CRD-based operator** (kopf) — consumers interact via `kubectl` / Kubernetes API, getting RBAC, audit logging, and `kubectl wait` for free
 - **Unified Kueue scheduling** — all jobs flow through Kueue for consistent quota tracking and priority ordering. Cluster-pinned jobs use `nodeSelector` to constrain admission to a single ResourceFlavor; hardware-request jobs leave all flavors eligible.
 - **Separation of concerns** — Fournos owns scheduling, bookkeeping, and parameter passing; FORGE owns all target-cluster operations (setup, execution, cleanup). Fournos never touches target clusters directly.
-- **FORGE is opaque** — Fournos never validates FORGE config, just passes parameters through to the Tekton Pipeline
+- **FORGE is opaque** — Fournos never validates FORGE config; the entire `spec.forge` dict is serialized as YAML and passed through to the Tekton Pipeline alongside `spec.forge.project` as a convenience string param
 - **Tekton for execution, Kueue for scheduling** — virtual Workload pattern with `fournos/gpu-`* resources
 - **Stateless operator** — all job state lives in Kubernetes resources (FournosJob CRs, PipelineRuns, Workloads), not in memory. Crash-safe via `on_resume`.
 - **Timer-based reconciliation** — the operator polls Workload admission and PipelineRun completion via a kopf timer (5s interval), eliminating the need for callback tasks or watch streams on third-party resources
