@@ -39,8 +39,10 @@ spec:
       script: |
         #!/usr/bin/env bash
 
-        set -euo pipefail
-        set -x
+        set -o pipefail
+        set -o errexit
+        set -o nounset
+        set -o errtrace
 
         cat > forge_config.yaml <<< "$FORGE_CONFIG"
         echo "--- forge_config.yaml:"
@@ -52,15 +54,26 @@ spec:
         cat forge_config.env
         echo "---"
 
-        set -a; source forge_config.env; set +a;
-        
+        if grep -q '^PULL_PULL_SHA=' forge_config.env; then
+          PULL_PULL_SHA=$(cat forge_config.env | grep '^PULL_PULL_SHA=' | cut -d'=' -f2)
+        fi
+
         if [[ "${PULL_PULL_SHA:-}" ]]; then
+        echo
+          echo "Updating to PULL_PULL_SHA=$PULL_PULL_SHA ..."
+
           git -C "$FORGE_HOME" fetch --quiet origin "$PULL_PULL_SHA"
           git -C "$FORGE_HOME" reset --hard FETCH_HEAD
         else
           echo "No PULL_PULL_SHA, using the image commit"
-          git show --quiet
         fi
+
+        git show --quiet
+
+        export ARTIFACT_DIR=/tmp/artifacts
+        mkdir -p "${ARTIFACT_DIR}"
+
+        export FOURNOS_CI=true
 
         exec bin/run_ci "$(params.forge-project)" ci "$FOURNOS_STEP"
 

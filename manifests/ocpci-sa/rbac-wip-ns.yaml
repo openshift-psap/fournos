@@ -1,0 +1,29 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ocpci-fournos-job-manager
+  namespace: psap-automation-wip
+rules:
+  - apiGroups: ["fournos.dev"]
+    resources: ["fournosjobs"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ocpci-fournos-job-manager
+  namespace: psap-automation-wip
+subjects:
+  - kind: ServiceAccount
+    name: ocpci
+    namespace: psap-automation  # This points back to the original namespace
+roleRef:
+  kind: Role
+  name: ocpci-fournos-job-manager
+  apiGroup: rbac.authorization.k8s.io
