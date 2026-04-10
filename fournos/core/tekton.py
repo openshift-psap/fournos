@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import shlex
 
 import yaml
 
@@ -60,7 +61,9 @@ class TektonClient:
                     },
                     {
                         "name": "env",
-                        "value": "".join(f"{k}={v}\n" for k, v in env.items()),
+                        "value": "".join(
+                            f"{k}={shlex.quote(v)}\n" for k, v in env.items()
+                        ),
                     },
                     {"name": "kubeconfig-secret", "value": kubeconfig_secret},
                     {"name": "gpu-count", "value": str(gpu_count)},
