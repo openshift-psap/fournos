@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import textwrap
 import time
@@ -10,7 +9,9 @@ from typing import Any
 import pytest
 from kubernetes import client, config
 
-NAMESPACE = os.environ.get("FOURNOS_NAMESPACE", "psap-automation")
+from fournos.settings import settings
+
+NAMESPACE = settings.namespace
 GROUP = "fournos.dev"
 VERSION = "v1"
 PLURAL = "fournosjobs"

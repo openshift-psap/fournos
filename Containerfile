@@ -15,4 +15,4 @@ RUN pip install --no-cache-dir --no-deps .
 
 USER 1001
 
-ENTRYPOINT ["kopf", "run", "-m", "fournos.operator", "--liveness=http://0.0.0.0:8080/healthz"]
+ENTRYPOINT ["python", "-m", "fournos", "--liveness=http://0.0.0.0:8080/healthz"]

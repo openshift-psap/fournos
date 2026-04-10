@@ -38,17 +38,18 @@ deploy: install
 ##@ Testing
 
 test:
-	$(VENV_BIN)pytest -v tests/
+	FOURNOS_NAMESPACE=$(or $(FOURNOS_NAMESPACE),fournos-local-dev) $(VENV_BIN)pytest -v tests/
 
 ##@ Local Development
 
 dev-setup:
 	@KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 	 KIND_EXPERIMENTAL_PROVIDER=$(KIND_EXPERIMENTAL_PROVIDER) \
+	 FOURNOS_NAMESPACE=$(or $(FOURNOS_NAMESPACE),fournos-local-dev) \
 	 bash dev/setup.sh
 
 dev-run:
-	FOURNOS_GC_INTERVAL_SEC=5 $(VENV_BIN)kopf run -m fournos.operator --namespace $(FOURNOS_NAMESPACE)
+	FOURNOS_GC_INTERVAL_SEC=5 FOURNOS_NAMESPACE=$(or $(FOURNOS_NAMESPACE),fournos-local-dev) $(VENV_BIN)python -m fournos
 
 dev-teardown:
 	KIND_EXPERIMENTAL_PROVIDER=$(KIND_EXPERIMENTAL_PROVIDER) kind delete cluster --name $(KIND_CLUSTER_NAME)
@@ -58,11 +59,12 @@ dev-teardown:
 ci-setup:
 	@KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 	 KIND_EXPERIMENTAL_PROVIDER=docker \
+	 FOURNOS_NAMESPACE=$(or $(FOURNOS_NAMESPACE),psap-automation-ci-test) \
 	 bash dev/setup.sh
 
 ci-run:
-	FOURNOS_GC_INTERVAL_SEC=5 \
-	  $(VENV_BIN)kopf run -m fournos.operator \
+	FOURNOS_GC_INTERVAL_SEC=5 FOURNOS_NAMESPACE=$(or $(FOURNOS_NAMESPACE),psap-automation-ci-test) \
+	  $(VENV_BIN)python -m fournos \
 	  --liveness=http://0.0.0.0:8080/healthz > fournos.log 2>&1 & \
 	echo $$! > fournos.pid; \
 	echo "Waiting for operator to be ready..."; \

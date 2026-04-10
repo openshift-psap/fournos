@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     model_config = {"env_prefix": "FOURNOS_"}
 
-    namespace: str = "psap-automation"
+    namespace: str = Field(description="Kubernetes namespace (FOURNOS_NAMESPACE)")
     tekton_dashboard_url: str = ""
     kubeconfig_secret_pattern: str = "{cluster}-kubeconfig"
     kueue_local_queue_name: str = "fournos-queue"

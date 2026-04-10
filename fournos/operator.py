@@ -81,6 +81,8 @@ def startup(**_):
     _tekton = TektonClient(custom_objects)
     _registry = ClusterRegistry(client.CoreV1Api())
 
+    logger.info("Operating in namespace %s", settings.namespace)
+
     gc_thread = threading.Thread(target=_gc_loop, daemon=True)
     gc_thread.start()
     logger.info("Resource GC started (interval=%ss)", settings.gc_interval_sec)

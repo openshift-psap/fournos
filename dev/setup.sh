@@ -65,7 +65,7 @@ done
 # Prepare the namespace
 # ---------------------
 
-FOURNOS_NAMESPACE=psap-automation
+: "${FOURNOS_NAMESPACE:?FOURNOS_NAMESPACE must be set}"
 kubectl create ns "$FOURNOS_NAMESPACE" --dry-run -oyaml | kubectl apply -f-
 kubectl label ns/$FOURNOS_NAMESPACE fournos.dev/queue-access=true
 

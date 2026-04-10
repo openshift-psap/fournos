@@ -101,16 +101,17 @@ Prerequisites: [Podman](https://podman.io/),
 [kind](https://kind.sigs.k8s.io/), and `kubectl`.
 
 ```bash
-oc new-project fournos-$USER-dev
 make dev-setup    # creates a kind cluster, installs Tekton + Kueue + CRD, applies mock resources
-export FOURNOS_NAMESPACE=$(oc project -q)
 make dev-run      # starts the operator locally (connects to the kind cluster)
 ```
+
+Both targets default to the `fournos-local-dev` namespace. Override with
+`FOURNOS_NAMESPACE=<YOUR_NAMESPACE> make dev-setup dev-run`.
 
 In another terminal:
 
 ```bash
-make test                              # run the integration test suite
+FOURNOS_NAMESPACE=fournos-local-dev make test   # run the integration test suite
 ```
 
 ```bash
@@ -205,7 +206,7 @@ All settings are read from environment variables with the `FOURNOS_` prefix:
 
 | Variable | Default | Description |
 |---|---|---|
-| `FOURNOS_NAMESPACE` | `fournos-$USER-dev` | Kubernetes namespace |
+| `FOURNOS_NAMESPACE` | **required** | Kubernetes namespace |
 | `FOURNOS_TEKTON_DASHBOARD_URL` | | Tekton Dashboard base URL |
 | `FOURNOS_KUBECONFIG_SECRET_PATTERN` | `{cluster}-kubeconfig` | Pattern for resolving cluster names to Secret names |
 | `FOURNOS_KUEUE_LOCAL_QUEUE_NAME` | `fournos-queue` | Kueue LocalQueue name |
