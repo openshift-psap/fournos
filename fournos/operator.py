@@ -15,9 +15,19 @@ from fournos.core.clusters import ClusterRegistry
 from fournos.core.constants import LABEL_JOB_NAME
 from fournos.core.kueue import KueueClient
 from fournos.core.tekton import TektonClient
+from fournos import __version__
 from fournos.settings import settings
 
 logger = logging.getLogger(__name__)
+
+BANNER = rf"""
+ _____                              
+|  ___|__  _   _ _ __ _ __   ___  ___ 
+| |_ / _ \| | | | '__| '_ \ / _ \/ __|
+|  _| (_) | |_| | |  | | | | (_) \__ \
+|_|  \___/ \__,_|_|  |_| |_|\___/|___/
+                                v{__version__}
+"""
 
 _kueue: KueueClient
 _tekton: TektonClient
@@ -83,6 +93,9 @@ def startup(**_):
     global _kueue, _tekton, _registry
 
     logging.getLogger("fournos").setLevel(settings.log_level.upper())
+
+    for line in BANNER.strip().splitlines():
+        logger.info(line)
 
     try:
         config.load_incluster_config()
