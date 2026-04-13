@@ -11,7 +11,7 @@ metadata:
   name: fournos
 rules:
   - apiGroups: ["fournos.dev"]
-    resources: ["fournosjobs", "fournosjobs/status"]
+    resources: ["fournosjobs", "fournosjobs/status", "fournosjobs/finalizers"]
     verbs: ["get", "list", "watch", "patch", "update"]
   - apiGroups: ["kueue.x-k8s.io"]
     resources: ["workloads"]
