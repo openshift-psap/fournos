@@ -93,6 +93,7 @@ def startup(**_):
     global _kueue, _tekton, _registry
 
     logging.getLogger("fournos").setLevel(settings.log_level.upper())
+    logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 
     for line in BANNER.strip().splitlines():
         logger.info(line)
@@ -180,7 +181,9 @@ def on_create(spec, name, namespace, status, patch, body, **_):
         else:
             patch.status["phase"] = "Failed"
             patch.status["message"] = f"Failed to create Workload: {exc.reason}"
-            logger.error("Job %s: Workload creation failed: %s", name, exc.reason)
+            logger.error(
+                "Job %s: Workload creation failed: %s\n%s", name, exc.reason, exc.body
+            )
             return
 
     patch.status["phase"] = "Pending"
