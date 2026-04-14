@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fournos"
-version = "0.3.1"
+version = "0.4.0"
 description = "Benchmark job operator — Kubernetes CRD + Kueue + Tekton"
 requires-python = ">=3.11"
 dependencies = [

@@ -2,6 +2,7 @@
 
 import yaml
 
+from fournos.core.constants import Phase
 from tests.conftest import (
     create_job,
     get_job,
@@ -31,7 +32,7 @@ def test_cluster_pinned(k8s):
     poll_phase(
         k8s,
         "test-cluster",
-        terminal={"Running", "Succeeded", "Failed"},
+        terminal={Phase.RUNNING, Phase.SUCCEEDED, Phase.FAILED},
         timeout=30,
     )
 
@@ -49,10 +50,10 @@ def test_cluster_pinned(k8s):
     phase = poll_phase(
         k8s,
         "test-cluster",
-        terminal={"Succeeded", "Failed"},
+        terminal={Phase.SUCCEEDED, Phase.FAILED},
         timeout=60,
     )
-    assert phase == "Succeeded", job_status_summary(k8s, "test-cluster")
+    assert phase == Phase.SUCCEEDED, job_status_summary(k8s, "test-cluster")
 
     job = get_job(k8s, "test-cluster")
     assert job["status"]["cluster"] == "cluster-2", (
@@ -75,10 +76,10 @@ def test_hardware_request(k8s):
     phase = poll_phase(
         k8s,
         "test-hardware",
-        terminal={"Succeeded", "Failed"},
+        terminal={Phase.SUCCEEDED, Phase.FAILED},
         timeout=60,
     )
-    assert phase == "Succeeded", job_status_summary(k8s, "test-hardware")
+    assert phase == Phase.SUCCEEDED, job_status_summary(k8s, "test-hardware")
 
     job = get_job(k8s, "test-hardware")
     cluster = job["status"].get("cluster")
@@ -103,7 +104,7 @@ def test_cluster_and_hardware(k8s):
     poll_phase(
         k8s,
         "test-cluster-hw",
-        terminal={"Running", "Succeeded", "Failed"},
+        terminal={Phase.RUNNING, Phase.SUCCEEDED, Phase.FAILED},
         timeout=30,
     )
 
@@ -121,10 +122,10 @@ def test_cluster_and_hardware(k8s):
     phase = poll_phase(
         k8s,
         "test-cluster-hw",
-        terminal={"Succeeded", "Failed"},
+        terminal={Phase.SUCCEEDED, Phase.FAILED},
         timeout=60,
     )
-    assert phase == "Succeeded", job_status_summary(k8s, "test-cluster-hw")
+    assert phase == Phase.SUCCEEDED, job_status_summary(k8s, "test-cluster-hw")
 
     job = get_job(k8s, "test-cluster-hw")
     assert job["status"]["cluster"] == "cluster-4", (
@@ -147,10 +148,10 @@ def test_alternative_pipeline_selection(k8s):
     phase = poll_phase(
         k8s,
         "test-run-only",
-        terminal={"Succeeded", "Failed"},
+        terminal={Phase.SUCCEEDED, Phase.FAILED},
         timeout=60,
     )
-    assert phase == "Succeeded", job_status_summary(k8s, "test-run-only")
+    assert phase == Phase.SUCCEEDED, job_status_summary(k8s, "test-run-only")
 
     pr = get_k8s_resource("pipelinerun", "test-run-only")
     pipeline_ref = pr["spec"]["pipelineRef"]["name"]
@@ -173,12 +174,14 @@ def test_inadmissible_stays_pending(k8s):
     phase = poll_phase(
         k8s,
         "test-inadmissible",
-        terminal={"Running", "Admitted", "Succeeded", "Failed"},
+        terminal={Phase.RUNNING, Phase.ADMITTED, Phase.SUCCEEDED, Phase.FAILED},
         interval=3,
         timeout=15,
         raise_on_timeout=False,
     )
-    assert phase == "Pending", f"Inadmissible job should stay Pending, got {phase!r}"
+    assert phase == Phase.PENDING, (
+        f"Inadmissible job should stay Pending, got {phase!r}"
+    )
     assert workload_exists("test-inadmissible"), (
         "Workload test-inadmissible should still exist"
     )
@@ -217,12 +220,12 @@ def test_cluster_without_required_gpu_stays_pending(k8s):
     phase = poll_phase(
         k8s,
         "test-wrong-gpu",
-        terminal={"Running", "Admitted", "Succeeded", "Failed"},
+        terminal={Phase.RUNNING, Phase.ADMITTED, Phase.SUCCEEDED, Phase.FAILED},
         interval=3,
         timeout=15,
         raise_on_timeout=False,
     )
-    assert phase == "Pending", (
+    assert phase == Phase.PENDING, (
         f"Job requesting A100s on cluster-3 should stay Pending, got {phase!r}"
     )
 
@@ -263,7 +266,7 @@ def test_optional_spec_fields(k8s):
     poll_phase(
         k8s,
         "test-opts",
-        terminal={"Running", "Succeeded", "Failed"},
+        terminal={Phase.RUNNING, Phase.SUCCEEDED, Phase.FAILED},
         timeout=30,
     )
 

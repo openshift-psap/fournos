@@ -2,6 +2,7 @@
 
 import time
 
+from fournos.core.constants import Phase
 from tests.conftest import (
     GROUP,
     NAMESPACE,
@@ -31,10 +32,10 @@ def test_workload_cleaned_after_completion(k8s):
     phase = poll_phase(
         k8s,
         "test-wl-cleanup",
-        terminal={"Succeeded", "Failed"},
+        terminal={Phase.SUCCEEDED, Phase.FAILED},
         timeout=60,
     )
-    assert phase == "Succeeded", job_status_summary(k8s, "test-wl-cleanup")
+    assert phase == Phase.SUCCEEDED, job_status_summary(k8s, "test-wl-cleanup")
 
     job = get_job(k8s, "test-wl-cleanup")
     conditions = {c["type"]: c for c in job["status"].get("conditions", [])}
@@ -69,7 +70,7 @@ def test_delete_cleans_up_resources(k8s):
     poll_phase(
         k8s,
         "test-delete",
-        terminal={"Running", "Succeeded", "Failed"},
+        terminal={Phase.RUNNING, Phase.SUCCEEDED, Phase.FAILED},
         timeout=30,
     )
     assert pipelinerun_exists("test-delete"), (
@@ -138,7 +139,7 @@ def test_filter_jobs_by_phase(k8s):
     poll_phase(
         k8s,
         "test-filter-ok",
-        terminal={"Admitted", "Running", "Succeeded", "Failed"},
+        terminal={Phase.ADMITTED, Phase.RUNNING, Phase.SUCCEEDED, Phase.FAILED},
         timeout=30,
     )
     time.sleep(3)
@@ -148,9 +149,11 @@ def test_filter_jobs_by_phase(k8s):
         j["metadata"]["name"]: j.get("status", {}).get("phase", "")
         for j in jobs["items"]
     }
-    assert phases["test-filter-stuck"] == "Pending", (
+    assert phases["test-filter-stuck"] == Phase.PENDING, (
         f"Stuck job should remain Pending, got {phases['test-filter-stuck']!r}"
     )
-    assert phases["test-filter-ok"] in ("Admitted", "Running", "Succeeded"), (
-        f"OK job should have progressed past Pending, got {phases['test-filter-ok']!r}"
-    )
+    assert phases["test-filter-ok"] in (
+        Phase.ADMITTED,
+        Phase.RUNNING,
+        Phase.SUCCEEDED,
+    ), f"OK job should have progressed past Pending, got {phases['test-filter-ok']!r}"

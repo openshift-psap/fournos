@@ -79,6 +79,7 @@ oc delete FournosJob -n $FOURNOS_NAMESPACE <name>      # cleanup
 | `spec.pipeline` | no | Tekton Pipeline name (default: `fournos-full`) |
 | `spec.priority` | no | Kueue WorkloadPriorityClass name |
 | `spec.secretRefs` | no | Names of Kubernetes Secrets to mount into the pipeline (references, not values) |
+| `spec.exclusive` | no | If `true`, locks the target cluster so no other FournosJob can run there. Requires `spec.cluster`. |
 
 \* At least one of `spec.cluster` or `spec.hardware` must be provided. Both can be
 set together to pin a hardware request to a specific cluster.
@@ -240,3 +241,6 @@ PipelineRun through Kubernetes owner references.
 Target clusters need nothing installed — FORGE runs on the hub cluster inside
 Tekton Task pods and communicates with targets via `oc`/`kubectl` through
 kubeconfig Secrets.
+
+For a detailed breakdown of the CRD, scheduling, operator internals, and key
+design decisions, see the [Design Document](Fournos_Design_Document.md).

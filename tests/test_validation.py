@@ -3,6 +3,7 @@
 import json
 import subprocess
 
+from fournos.core.constants import Phase
 from tests.conftest import (
     NAMESPACE,
     create_job,
@@ -27,10 +28,10 @@ def test_neither_cluster_nor_hardware(k8s):
     phase = poll_phase(
         k8s,
         "test-no-target",
-        terminal={"Failed"},
+        terminal={Phase.FAILED},
         timeout=15,
     )
-    assert phase == "Failed", job_status_summary(k8s, "test-no-target")
+    assert phase == Phase.FAILED, job_status_summary(k8s, "test-no-target")
 
     job = get_job(k8s, "test-no-target")
     msg = job["status"]["message"].lower()
@@ -53,10 +54,10 @@ def test_unknown_cluster(k8s):
     phase = poll_phase(
         k8s,
         "test-unknown",
-        terminal={"Failed"},
+        terminal={Phase.FAILED},
         timeout=15,
     )
-    assert phase == "Failed", job_status_summary(k8s, "test-unknown")
+    assert phase == Phase.FAILED, job_status_summary(k8s, "test-unknown")
 
     job = get_job(k8s, "test-unknown")
     msg = job["status"]["message"].lower()
@@ -79,10 +80,10 @@ def test_unknown_gpu_type(k8s):
     phase = poll_phase(
         k8s,
         "test-bad-gpu",
-        terminal={"Failed"},
+        terminal={Phase.FAILED},
         timeout=15,
     )
-    assert phase == "Failed", job_status_summary(k8s, "test-bad-gpu")
+    assert phase == Phase.FAILED, job_status_summary(k8s, "test-bad-gpu")
 
     job = get_job(k8s, "test-bad-gpu")
     msg = job["status"]["message"]
@@ -105,7 +106,7 @@ def test_admitted_without_flavor(k8s):
         },
     )
 
-    poll_phase(k8s, "test-no-flavor", terminal={"Pending"}, timeout=15)
+    poll_phase(k8s, "test-no-flavor", terminal={Phase.PENDING}, timeout=15)
 
     patch = {
         "status": {
@@ -142,10 +143,10 @@ def test_admitted_without_flavor(k8s):
     phase = poll_phase(
         k8s,
         "test-no-flavor",
-        terminal={"Failed"},
+        terminal={Phase.FAILED},
         timeout=30,
     )
-    assert phase == "Failed", job_status_summary(k8s, "test-no-flavor")
+    assert phase == Phase.FAILED, job_status_summary(k8s, "test-no-flavor")
 
     job = get_job(k8s, "test-no-flavor")
     msg = job["status"]["message"].lower()

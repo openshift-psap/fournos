@@ -4,7 +4,12 @@ import logging
 
 from kubernetes import client
 
-from fournos.core.constants import LABEL_JOB_NAME, LABEL_MANAGED_BY
+from fournos.core.constants import (
+    CLUSTER_SLOT_RESOURCE,
+    LABEL_JOB_NAME,
+    LABEL_MANAGED_BY,
+    MAX_CLUSTER_SLOTS,
+)
 from fournos.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -31,13 +36,17 @@ class KueueClient:
         gpu_type: str | None = None,
         gpu_count: int = 0,
         cluster: str | None = None,
+        exclusive: bool = False,
         priority: str | None = None,
         owner_ref: dict | None = None,
     ) -> dict:
-        resource_requests: dict[str, str] = {"cpu": "1"}
+        resource_requests: dict[str, str] = {}
         if gpu_type and gpu_count:
             gpu_resource = self._gpu_resource_name(gpu_type)
             resource_requests[gpu_resource] = str(gpu_count)
+
+        slots = MAX_CLUSTER_SLOTS if exclusive else 1
+        resource_requests[CLUSTER_SLOT_RESOURCE] = str(slots)
 
         pod_spec: dict = {
             "containers": [

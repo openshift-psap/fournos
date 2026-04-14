@@ -52,7 +52,7 @@ spec:
     withinClusterQueue: LowerPriority
     reclaimWithinCohort: Any
   resourceGroups:
-    - coveredResources: ["fournos/gpu-a100", "fournos/gpu-h200", "cpu"]
+    - coveredResources: ["fournos/gpu-a100", "fournos/gpu-h200", "fournos/cluster-slot"]
       flavors:
         - name: cluster-1
           resources:
@@ -60,32 +60,32 @@ spec:
               nominalQuota: 8
             - name: "fournos/gpu-h200"
               nominalQuota: 0
-            - name: "cpu"
-              nominalQuota: 32
+            - name: "fournos/cluster-slot"
+              nominalQuota: 100
         - name: cluster-2
           resources:
             - name: "fournos/gpu-a100"
               nominalQuota: 8
             - name: "fournos/gpu-h200"
               nominalQuota: 0
-            - name: "cpu"
-              nominalQuota: 32
+            - name: "fournos/cluster-slot"
+              nominalQuota: 100
         - name: cluster-3
           resources:
             - name: "fournos/gpu-a100"
               nominalQuota: 0
             - name: "fournos/gpu-h200"
               nominalQuota: 8
-            - name: "cpu"
-              nominalQuota: 32
+            - name: "fournos/cluster-slot"
+              nominalQuota: 100
         - name: cluster-4
           resources:
             - name: "fournos/gpu-a100"
               nominalQuota: 0
             - name: "fournos/gpu-h200"
               nominalQuota: 8
-            - name: "cpu"
-              nominalQuota: 32
+            - name: "fournos/cluster-slot"
+              nominalQuota: 100
 
 ---
 # LocalQueue — all Fournos Workloads are submitted here.
