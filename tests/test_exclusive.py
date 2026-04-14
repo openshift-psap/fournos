@@ -26,6 +26,22 @@ MOCK_SLEEP_SECONDS = "15"
 @pytest.fixture(autouse=True)
 def _slow_mock_pipeline():
     """Bump mock pipeline sleep so exclusive jobs stay Running long enough."""
+    result = subprocess.run(
+        [
+            "kubectl",
+            "get",
+            "configmap",
+            "fournos-mock-config",
+            "-n",
+            NAMESPACE,
+            "-o",
+            "jsonpath={.data.sleep}",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    original_sleep = result.stdout.strip() or "3"
+
     subprocess.run(
         [
             "kubectl",
@@ -50,7 +66,7 @@ def _slow_mock_pipeline():
             "-n",
             NAMESPACE,
             "-p",
-            '{"data":{"sleep":"3"}}',
+            f'{{"data":{{"sleep":"{original_sleep}"}}}}',
         ],
         check=True,
         capture_output=True,

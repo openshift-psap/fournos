@@ -70,7 +70,12 @@ def on_create(spec, name, namespace, status, patch, body):
             patch.status["message"] = f"Failed to list GPU types: {exc.reason}"
             logger.error("Job %s: list_gpu_types failed: %s", name, exc.reason)
             return
-        if known_gpu_types and gpu_type not in known_gpu_types:
+        if not known_gpu_types:
+            patch.status["phase"] = Phase.FAILED
+            patch.status["message"] = "No GPU types configured"
+            logger.error("Job %s: no GPU types found in any ClusterQueue", name)
+            return
+        if gpu_type not in known_gpu_types:
             patch.status["phase"] = Phase.FAILED
             patch.status["message"] = (
                 f"GPU type '{gpu_type}' not available. "
