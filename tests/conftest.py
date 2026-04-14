@@ -221,6 +221,27 @@ def get_workload_node_selector(name: str) -> dict:
     return pod_sets[0].get("template", {}).get("spec", {}).get("nodeSelector", {})
 
 
+def get_workload_excluded_clusters(name: str) -> list[str]:
+    """Return the sorted list of clusters excluded via nodeAffinity NotIn on the Workload."""
+    wl = get_k8s_resource("workload", name)
+    pod_sets = wl.get("spec", {}).get("podSets", [])
+    if not pod_sets:
+        return []
+    affinity = pod_sets[0].get("template", {}).get("spec", {}).get("affinity", {})
+    node_aff = affinity.get("nodeAffinity", {})
+    terms = node_aff.get("requiredDuringSchedulingIgnoredDuringExecution", {}).get(
+        "nodeSelectorTerms", []
+    )
+    for term in terms:
+        for expr in term.get("matchExpressions", []):
+            if (
+                expr.get("key") == "fournos.dev/cluster"
+                and expr.get("operator") == "NotIn"
+            ):
+                return sorted(expr.get("values", []))
+    return []
+
+
 def get_workload_flavor(name: str) -> str | None:
     """Return the ResourceFlavor Kueue assigned to the Workload."""
     wl = get_k8s_resource("workload", name)

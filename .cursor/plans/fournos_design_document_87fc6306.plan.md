@@ -99,6 +99,7 @@ Jobs are submitted as `FournosJob` custom resources ([manifests/crd.yaml](manife
 | `spec.pipeline`              | no           | Tekton Pipeline name (default: `fournos-full`)                                                   |
 | `spec.priority`              | no           | Kueue WorkloadPriorityClass name                                                                 |
 | `spec.secretRefs`            | no           | Names of Kubernetes Secrets to mount into the pipeline (references, not values)                   |
+| `spec.exclusive`             | no           | If `true`, locks the target cluster so no other FournosJob can run there. Requires `spec.cluster`. |
 
 
  At least one of `spec.cluster` or `spec.hardware` must be provided. Both can be set together to pin a hardware request to a specific cluster.
@@ -112,7 +113,7 @@ The operator writes status to `.status`:
 
 | Field          | Description                                                 |
 | -------------- | ----------------------------------------------------------- |
-| `phase`        | `Pending` → `Admitted` → `Running` → `Succeeded` / `Failed` |
+| `phase`        | `Blocked` → `Pending` → `Admitted` → `Running` → `Succeeded` / `Failed` |
 | `cluster`      | Cluster assigned by Kueue                                   |
 | `pipelineRun`  | Name of the Tekton PipelineRun                              |
 | `dashboardURL` | Tekton Dashboard link (if configured)                       |
@@ -162,6 +163,18 @@ All jobs flow through Kueue — there is one scheduling path with different cons
 
 Each ResourceFlavor has `spec.nodeLabels: { fournos.dev/cluster: <name> }`. When `cluster` is specified, the operator sets a matching `nodeSelector` on the Workload's podSet template so Kueue constrains admission to that flavor.
 
+### Exclusive cluster locking
+
+When `spec.exclusive: true` is set (requires `spec.cluster`), the operator enforces full exclusivity:
+
+1. **On creation**: If the target cluster has any active (non-terminal) FournosJobs, the exclusive job enters `phase=Blocked` until the cluster clears.
+2. **While locked**: Other jobs targeting the locked cluster are blocked — cluster-pinned jobs enter `Blocked`, and hardware-only jobs get `nodeAffinity` rules (`NotIn` for `fournos.dev/cluster`) to steer Kueue away from the locked cluster.
+3. **Anti-affinity reconciliation**: While a hardware-only job is `Pending`, the operator periodically compares the Workload's exclusion list against the current set of locked clusters. If they differ, the Workload is recreated with updated anti-affinity (this resets Kueue queue position).
+4. **Post-admission safety**: If a non-exclusive job is admitted to a cluster that became locked after Workload creation (race condition), the Workload is deleted and the job transitions to `Blocked`.
+5. **Lock release**: The lock is implicitly released when the exclusive FournosJob reaches a terminal phase (`Succeeded` or `Failed`), since lock status is derived from active job labels rather than stored state.
+
+Exclusive locks are tracked via the `fournos.dev/exclusive-cluster` label on the FournosJob, not in-memory state — the operator remains stateless and crash-safe.
+
 ### Job lifecycle
 
 ```mermaid
@@ -175,6 +188,13 @@ sequenceDiagram
     Client->>K8sAPI: kubectl apply FournosJob
     K8sAPI->>Operator: on_create event
     Operator->>Operator: validate spec
+
+    alt cluster locked or occupied (exclusive)
+        Operator->>K8sAPI: set phase=Blocked
+        Note over Operator,Kueue: timer (5s): re-check lock/occupancy
+        Operator->>Operator: blocking condition cleared
+    end
+
     Operator->>Kueue: create Workload
     Operator->>K8sAPI: set phase=Pending
 
@@ -194,10 +214,11 @@ sequenceDiagram
 
 
 
-1. **on_create**: Operator validates the spec (cluster exists, at least one of cluster/hardware), creates a Kueue Workload with `ownerReferences` pointing at the FournosJob, sets `phase=Pending`
-2. **timer (Pending)**: Polls the Workload for Kueue admission. On admission, reads the assigned flavor (= cluster name), sets `phase=Admitted`
-3. **timer (Admitted)**: Resolves the kubeconfig Secret, creates the Tekton PipelineRun with `ownerReferences` pointing at the FournosJob, sets `phase=Running`
-4. **timer (Running)**: Polls the PipelineRun for completion. On success/failure, deletes the Workload and sets `phase=Succeeded` or `phase=Failed`
+1. **on_create**: Operator validates the spec (cluster exists, at least one of cluster/hardware). If the target cluster is locked or occupied (for exclusive jobs), sets `phase=Blocked`. Otherwise creates a Kueue Workload with `ownerReferences` pointing at the FournosJob and sets `phase=Pending`. Hardware-only jobs get `nodeAffinity` rules to exclude locked clusters.
+2. **timer (Blocked)**: Re-checks blocking conditions. When cleared, creates the Workload and transitions to `Pending`.
+3. **timer (Pending)**: Polls the Workload for Kueue admission. Reconciles stale anti-affinity for hardware-only jobs. On admission, performs post-admission safety checks (exclusive occupancy, locked cluster race), then sets `phase=Admitted`.
+4. **timer (Admitted)**: Resolves the kubeconfig Secret, creates the Tekton PipelineRun with `ownerReferences` pointing at the FournosJob, sets `phase=Running`
+5. **timer (Running)**: Polls the PipelineRun for completion. On success/failure, deletes the Workload and sets `phase=Succeeded` or `phase=Failed`
 
 Deleting a FournosJob triggers Kubernetes cascade deletion of its owned Workload and PipelineRun via `ownerReferences` — no explicit cleanup handler is needed.
 
@@ -210,19 +231,29 @@ Benefits of the unified path:
 
 ## 5. Operator handlers
 
-The operator is implemented in `fournos/operator.py` using [kopf](https://kopf.dev/) decorators:
+The operator is split across several modules:
+
+- **`fournos/operator.py`** — kopf-decorated entry points (startup, create/resume, timer) and background GC. Delegates all business logic to the handlers package.
+- **`fournos/handlers/`** — phase handler package:
+  - `status.py` — condition helpers, `owner_ref`, `create_workload_for_job`, shared constants
+  - `lifecycle.py` — `on_create`, `reconcile_blocked`, `reconcile_pending` (early phases + locking logic)
+  - `execution.py` — `reconcile_admitted`, `reconcile_running` (PipelineRun management)
+- **`fournos/core/locking.py`** — cluster lock helpers (`get_locked_clusters`, `is_cluster_occupied`)
+- **`fournos/state.py`** — shared client instances (`_OperatorState` dataclass with `kueue`, `tekton`, `registry`)
+
+Kopf handlers registered in `operator.py`:
 
 
-| Handler                               | Trigger                                             | Responsibility                                                               |
-| ------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `@kopf.on.startup`                    | Process start                                       | Load kubeconfig, initialise clients, start resource GC thread                |
-| `@kopf.on.create` / `@kopf.on.resume` | New or existing CR                                  | Validate spec, create Workload (with ownerRef), set `phase=Pending`          |
-| `@kopf.timer(interval=5.0)`           | Every 5s while phase ∈ {Pending, Admitted, Running} | Drive the state machine: poll admission, create PipelineRun (with ownerRef), poll completion |
+| Handler                               | Trigger                                                        | Responsibility                                                               |
+| ------------------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `@kopf.on.startup`                    | Process start                                                  | Load kubeconfig, initialise clients into `state.ctx`, start resource GC thread |
+| `@kopf.on.create` / `@kopf.on.resume` | New or existing CR                                             | Validate spec, check locks/occupancy, create Workload (with ownerRef), set `phase=Pending` or `phase=Blocked` |
+| `@kopf.timer(interval=5.0)`           | Every 5s while phase ∈ {Blocked, Pending, Admitted, Running}   | Drive the state machine: re-check blocks, poll admission, create PipelineRun (with ownerRef), poll completion |
 
 
 The timer's `when` guard ensures it stops firing once the job reaches a terminal phase (`Succeeded` or `Failed`), so completed jobs have zero ongoing overhead.
 
-Validation failures (unknown cluster, missing cluster/hardware) result in immediate `phase=Failed` with a descriptive `message` — no Workload is created.
+Validation failures (unknown cluster, missing cluster/hardware, `exclusive` without `cluster`) result in immediate `phase=Failed` with a descriptive `message` — no Workload is created.
 
 ### Resource GC
 
@@ -326,13 +357,20 @@ All settings via environment variables with `FOURNOS_` prefix ([fournos/settings
 
 ```
 fournos/
-  operator.py              # kopf operator (startup, create/resume, timer handlers)
+  operator.py              # kopf wiring layer (startup, create/resume, timer, GC)
+  state.py                 # Shared client instances (_OperatorState dataclass)
   settings.py              # Pydantic Settings (env vars)
+  handlers/
+    __init__.py            # Re-exports for operator.py
+    status.py              # Condition helpers, owner_ref, create_workload_for_job
+    lifecycle.py           # on_create, reconcile_blocked, reconcile_pending
+    execution.py           # reconcile_admitted, reconcile_running
   core/
     constants.py           # Shared label keys
     clusters.py            # ClusterRegistry (Secret lookup)
+    locking.py             # Exclusive cluster lock helpers (get_locked_clusters, is_cluster_occupied)
     tekton.py              # TektonClient (PipelineRun CRUD)
-    kueue.py               # KueueClient (Workload CRUD, admission checks)
+    kueue.py               # KueueClient (Workload CRUD, admission checks, nodeAffinity)
 manifests/
   crd.yaml                 # FournosJob CustomResourceDefinition
   kueue-config.yaml        # ClusterQueue, ResourceFlavors, LocalQueue, WorkloadPriorityClasses
@@ -350,6 +388,7 @@ tests/
   test_validation.py       # Missing target, unknown cluster
   test_lifecycle.py        # Workload cleanup, delete cleanup, list, filter by phase
   test_resource_gc.py      # Stale Workload/PipelineRun garbage collection
+  test_exclusive.py        # Exclusive cluster locking (happy path, blocking, occupancy, lock release)
 Containerfile
 Makefile                   # dev-setup, dev-run, test, dev-teardown, ci-setup, ci-run, ci-stop, lint, format
 pyproject.toml
@@ -368,6 +407,7 @@ README.md
 - **Timer-based reconciliation** — the operator polls Workload admission and PipelineRun completion via a kopf timer (5s interval), eliminating the need for callback tasks or watch streams on third-party resources
 - **Operator cleans up on completion** — Kueue Workloads are deleted when the PipelineRun reaches a terminal state, releasing quota without relying on external callbacks
 - **ownerReferences for cascade deletion** — Workloads and PipelineRuns carry `ownerReferences` pointing at their FournosJob, so Kubernetes automatically cascade-deletes them when the job is removed
+- **Exclusive locking via labels** — cluster locks are derived from `fournos.dev/exclusive-cluster` labels on active FournosJobs, not from in-memory state. This keeps the operator stateless and crash-safe. Hardware-only jobs use Workload `nodeAffinity` (`NotIn`) to avoid locked clusters; cluster-pinned jobs enter `Blocked` phase.
 - **Multiple pipelines** — `fournos-full` (prepare → run → cleanup) and `fournos-run-only` (run only), selectable per job
 - **Target clusters need nothing installed** — FORGE runs on the hub cluster inside Tekton Task pods and communicates with targets via remote `oc`/`kubectl` commands through kubeconfig Secrets
 

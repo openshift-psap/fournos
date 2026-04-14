@@ -79,6 +79,7 @@ oc delete FournosJob -n $FOURNOS_NAMESPACE <name>      # cleanup
 | `spec.pipeline` | no | Tekton Pipeline name (default: `fournos-full`) |
 | `spec.priority` | no | Kueue WorkloadPriorityClass name |
 | `spec.secretRefs` | no | Names of Kubernetes Secrets to mount into the pipeline (references, not values) |
+| `spec.exclusive` | no | If `true`, locks the target cluster so no other FournosJob can run there. Requires `spec.cluster`. |
 
 \* At least one of `spec.cluster` or `spec.hardware` must be provided. Both can be
 set together to pin a hardware request to a specific cluster.
@@ -89,7 +90,7 @@ The operator writes status to `.status`:
 
 | Field | Description |
 |---|---|
-| `phase` | `Pending` → `Admitted` → `Running` → `Succeeded` / `Failed` |
+| `phase` | `Blocked` → `Pending` → `Admitted` → `Running` → `Succeeded` / `Failed` |
 | `cluster` | Cluster assigned by Kueue |
 | `pipelineRun` | Name of the Tekton PipelineRun |
 | `dashboardURL` | Tekton Dashboard link (if configured) |

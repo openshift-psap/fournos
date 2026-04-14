@@ -44,8 +44,16 @@ spec:
   steps:
     - name: run-forge
       image: busybox:1.36
+      env:
+        - name: MOCK_SLEEP
+          valueFrom:
+            configMapKeyRef:
+              name: fournos-mock-config
+              key: sleep
+              optional: true
       script: |
         #!/bin/sh
+        MOCK_SLEEP="${MOCK_SLEEP:-3}"
         echo "[mock-run] forge-project=$(params.forge-project)"
         echo "[mock-run] forge-config:"
         echo "$(params.forge-config)" | sed 's/^/  /'
@@ -53,8 +61,8 @@ spec:
         echo "$(params.env)" | sed 's/^/  /'
         echo "[mock-run] gpu-count=$(params.gpu-count)"
         echo "[mock-run] job=$(params.job-name)"
-        echo "[mock-run] simulating workload (3s)..."
-        sleep 3
+        echo "[mock-run] simulating workload (${MOCK_SLEEP}s)..."
+        sleep "$MOCK_SLEEP"
         echo "[mock-run] done"
 
 ---
@@ -119,6 +127,16 @@ spec:
           value: "$(params.job-name)"
         - name: secret-refs
           value: ["$(params.secret-refs[*])"]
+
+---
+# Mock config — controls mock task behavior.
+# Override "sleep" to keep pipelines alive longer for exclusive-locking tests.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fournos-mock-config
+data:
+  sleep: "3"
 
 ---
 # Mock kubeconfig Secrets — one per cluster defined in kueue-config.

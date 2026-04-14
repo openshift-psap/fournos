@@ -28,6 +28,10 @@ spec:
           type: string
           jsonPath: .spec.displayName
           priority: 1
+        - name: Exclusive
+          type: boolean
+          jsonPath: .spec.exclusive
+          priority: 1
         - name: Phase
           type: string
           jsonPath: .status.phase
@@ -106,6 +110,14 @@ spec:
                     These are references, not secret values.
                   items:
                     type: string
+                exclusive:
+                  type: boolean
+                  default: false
+                  description: >-
+                    Lock the target cluster for exclusive use by this job.
+                    When true, the job waits until the cluster has no other active
+                    jobs and then prevents any new job from being scheduled there.
+                    Requires 'cluster' to be set.
                 priority:
                   type: string
             status:
@@ -114,6 +126,7 @@ spec:
                 phase:
                   type: string
                   enum:
+                    - Blocked
                     - Pending
                     - Admitted
                     - Running
