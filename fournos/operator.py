@@ -87,8 +87,10 @@ def on_create(spec, name, namespace, status, patch, body, **_):
     "v1",
     "fournosjobs",
     interval=5.0,
-    when=lambda status, **_: status.get("phase")
-    in (Phase.BLOCKED, Phase.PENDING, Phase.ADMITTED, Phase.RUNNING),
+    when=lambda status, **_: (
+        status.get("phase")
+        in (Phase.BLOCKED, Phase.PENDING, Phase.ADMITTED, Phase.RUNNING)
+    ),
 )
 def reconcile(spec, name, namespace, status, patch, body, **_):
     phase = status.get("phase", "")
