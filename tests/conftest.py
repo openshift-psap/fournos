@@ -110,30 +110,40 @@ def poll_phase(
     name: str,
     *,
     terminal: set[str],
+    message_substring: str | None = None,
     interval: float = 3.0,
     timeout: float = 60.0,
     raise_on_timeout: bool = True,
 ) -> str:
     """Poll the FournosJob until its phase reaches one of *terminal* states.
 
+    When *message_substring* is provided, both the phase match **and** the
+    substring match in ``status.message`` are required before returning.
+
     Raises ``AssertionError`` on timeout unless ``raise_on_timeout=False``,
     in which case the last observed phase is returned.
     """
     deadline = time.monotonic() + timeout
     phase = ""
+    message = ""
     while True:
-        phase = get_job_phase(k8s, name)
-        if phase in terminal:
+        job = get_job(k8s, name)
+        phase = job.get("status", {}).get("phase", "")
+        message = job.get("status", {}).get("message", "")
+        phase_ok = phase in terminal
+        message_ok = message_substring is None or message_substring in message
+        if phase_ok and message_ok:
             return phase
         if time.monotonic() >= deadline:
             break
         time.sleep(interval)
     if raise_on_timeout:
-        job = get_job(k8s, name)
         status = job.get("status", {})
         detail = f"phase={phase or '<unset>'}"
-        if status.get("message"):
-            detail += f", message={status['message']!r}"
+        if message:
+            detail += f", message={message!r}"
+        if message_substring and message_substring not in message:
+            detail += f"\n  (expected message containing {message_substring!r})"
         for c in status.get("conditions", []):
             cond_str = f"{c['type']}={c['status']}"
             if c.get("reason"):
@@ -221,25 +231,17 @@ def get_workload_node_selector(name: str) -> dict:
     return pod_sets[0].get("template", {}).get("spec", {}).get("nodeSelector", {})
 
 
-def get_workload_excluded_clusters(name: str) -> list[str]:
-    """Return the sorted list of clusters excluded via nodeAffinity NotIn on the Workload."""
+def get_workload_cluster_slots(name: str) -> int:
+    """Return the fournos/cluster-slot request from the Workload."""
     wl = get_k8s_resource("workload", name)
     pod_sets = wl.get("spec", {}).get("podSets", [])
     if not pod_sets:
-        return []
-    affinity = pod_sets[0].get("template", {}).get("spec", {}).get("affinity", {})
-    node_aff = affinity.get("nodeAffinity", {})
-    terms = node_aff.get("requiredDuringSchedulingIgnoredDuringExecution", {}).get(
-        "nodeSelectorTerms", []
-    )
-    for term in terms:
-        for expr in term.get("matchExpressions", []):
-            if (
-                expr.get("key") == "fournos.dev/cluster"
-                and expr.get("operator") == "NotIn"
-            ):
-                return sorted(expr.get("values", []))
-    return []
+        return 0
+    containers = pod_sets[0].get("template", {}).get("spec", {}).get("containers", [])
+    if not containers:
+        return 0
+    requests = containers[0].get("resources", {}).get("requests", {})
+    return int(requests.get("fournos/cluster-slot", "0"))
 
 
 def get_workload_flavor(name: str) -> str | None:
@@ -287,7 +289,9 @@ def create_stale_workload(k8s, name: str) -> None:
                                 {
                                     "name": "placeholder",
                                     "image": "registry.k8s.io/pause:3.9",
-                                    "resources": {"requests": {"cpu": "1"}},
+                                    "resources": {
+                                        "requests": {"fournos/cluster-slot": "1"}
+                                    },
                                 }
                             ],
                             "restartPolicy": "Never",

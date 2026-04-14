@@ -4,7 +4,12 @@ import logging
 
 from kubernetes import client
 
-from fournos.core.constants import LABEL_JOB_NAME, LABEL_MANAGED_BY
+from fournos.core.constants import (
+    CLUSTER_SLOT_RESOURCE,
+    LABEL_JOB_NAME,
+    LABEL_MANAGED_BY,
+    MAX_CLUSTER_SLOTS,
+)
 from fournos.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -31,14 +36,17 @@ class KueueClient:
         gpu_type: str | None = None,
         gpu_count: int = 0,
         cluster: str | None = None,
-        exclude_clusters: list[str] | None = None,
+        exclusive: bool = False,
         priority: str | None = None,
         owner_ref: dict | None = None,
     ) -> dict:
-        resource_requests: dict[str, str] = {"cpu": "1"}
+        resource_requests: dict[str, str] = {}
         if gpu_type and gpu_count:
             gpu_resource = self._gpu_resource_name(gpu_type)
             resource_requests[gpu_resource] = str(gpu_count)
+
+        slots = MAX_CLUSTER_SLOTS if exclusive else 1
+        resource_requests[CLUSTER_SLOT_RESOURCE] = str(slots)
 
         pod_spec: dict = {
             "containers": [
@@ -53,25 +61,6 @@ class KueueClient:
 
         if cluster:
             pod_spec["nodeSelector"] = {"fournos.dev/cluster": cluster}
-
-        if exclude_clusters:
-            pod_spec["affinity"] = {
-                "nodeAffinity": {
-                    "requiredDuringSchedulingIgnoredDuringExecution": {
-                        "nodeSelectorTerms": [
-                            {
-                                "matchExpressions": [
-                                    {
-                                        "key": "fournos.dev/cluster",
-                                        "operator": "NotIn",
-                                        "values": sorted(exclude_clusters),
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                }
-            }
 
         metadata: dict = {
             "name": name,
@@ -182,26 +171,6 @@ class KueueClient:
             if c.get("message"):
                 return c.get("reason", ""), c.get("message", "")
         return "", ""
-
-    @staticmethod
-    def get_excluded_clusters(workload: dict) -> list[str]:
-        """Return the sorted list of clusters excluded via nodeAffinity NotIn."""
-        pod_sets = workload.get("spec", {}).get("podSets", [])
-        if not pod_sets:
-            return []
-        affinity = pod_sets[0].get("template", {}).get("spec", {}).get("affinity", {})
-        node_aff = affinity.get("nodeAffinity", {})
-        terms = node_aff.get("requiredDuringSchedulingIgnoredDuringExecution", {}).get(
-            "nodeSelectorTerms", []
-        )
-        for term in terms:
-            for expr in term.get("matchExpressions", []):
-                if (
-                    expr.get("key") == "fournos.dev/cluster"
-                    and expr.get("operator") == "NotIn"
-                ):
-                    return sorted(expr.get("values", []))
-        return []
 
     @staticmethod
     def get_assigned_flavor(workload: dict) -> str | None:

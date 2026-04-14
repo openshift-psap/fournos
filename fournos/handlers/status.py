@@ -4,14 +4,11 @@ from __future__ import annotations
 
 import datetime
 
-from fournos.core.constants import Phase
-
 CRD_GROUP = "fournos.dev"
 CRD_VERSION = "v1"
 
 COND_WORKLOAD_ADMITTED = "WorkloadAdmitted"
 COND_PIPELINE_RUN_READY = "PipelineRunReady"
-COND_CLUSTER_LOCKED = "ClusterLocked"
 
 
 def owner_ref(body: dict) -> dict:
@@ -62,14 +59,8 @@ def set_condition(
     patch.status["conditions"] = result
 
 
-def set_blocked(patch, conditions, reason, message):
-    patch.status["phase"] = Phase.BLOCKED
-    patch.status["message"] = message
-    set_condition(patch, conditions, COND_CLUSTER_LOCKED, "True", reason, message)
-
-
-def create_workload_for_job(spec, name, body, *, exclude_clusters=None):
-    """Create a Kueue Workload."""
+def create_workload_for_job(spec, name, body):
+    """Create a Kueue Workload with cluster-slot reservation."""
     from fournos.state import ctx
 
     hardware = spec.get("hardware")
@@ -78,7 +69,7 @@ def create_workload_for_job(spec, name, body, *, exclude_clusters=None):
         gpu_type=hardware.get("gpuType") if hardware else None,
         gpu_count=hardware.get("gpuCount", 0) if hardware else 0,
         cluster=spec.get("cluster"),
-        exclude_clusters=exclude_clusters,
+        exclusive=spec.get("exclusive", False),
         priority=spec.get("priority"),
         owner_ref=owner_ref(body),
     )

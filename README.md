@@ -90,7 +90,7 @@ The operator writes status to `.status`:
 
 | Field | Description |
 |---|---|
-| `phase` | `Blocked` → `Pending` → `Admitted` → `Running` → `Succeeded` / `Failed` |
+| `phase` | `Pending` → `Admitted` → `Running` → `Succeeded` / `Failed` |
 | `cluster` | Cluster assigned by Kueue |
 | `pipelineRun` | Name of the Tekton PipelineRun |
 | `dashboardURL` | Tekton Dashboard link (if configured) |
@@ -241,3 +241,6 @@ PipelineRun through Kubernetes owner references.
 Target clusters need nothing installed — FORGE runs on the hub cluster inside
 Tekton Task pods and communicates with targets via `oc`/`kubectl` through
 kubeconfig Secrets.
+
+For a detailed breakdown of the CRD, scheduling, operator internals, and key
+design decisions, see the [Design Document](Fournos_Design_Document.md).

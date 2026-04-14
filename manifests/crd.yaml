@@ -126,7 +126,6 @@ spec:
                 phase:
                   type: string
                   enum:
-                    - Blocked
                     - Pending
                     - Admitted
                     - Running

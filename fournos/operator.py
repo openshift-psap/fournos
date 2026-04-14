@@ -1,8 +1,7 @@
 """Fournos Kubernetes operator — kopf wiring layer.
 
 Registers kopf handlers (startup, create/resume, timer) and delegates all
-business logic to ``handlers`` and ``core.locking``.  Shared clients live
-in ``state.ctx``.
+business logic to ``handlers``.  Shared clients live in ``state.ctx``.
 """
 
 from __future__ import annotations
@@ -88,16 +87,13 @@ def on_create(spec, name, namespace, status, patch, body, **_):
     "fournosjobs",
     interval=5.0,
     when=lambda status, **_: (
-        status.get("phase")
-        in (Phase.BLOCKED, Phase.PENDING, Phase.ADMITTED, Phase.RUNNING)
+        status.get("phase") in (Phase.PENDING, Phase.ADMITTED, Phase.RUNNING)
     ),
 )
 def reconcile(spec, name, namespace, status, patch, body, **_):
     phase = status.get("phase", "")
 
-    if phase == Phase.BLOCKED:
-        handlers.reconcile_blocked(spec, name, status, patch, body)
-    elif phase == Phase.PENDING:
+    if phase == Phase.PENDING:
         handlers.reconcile_pending(spec, name, status, patch, body)
     elif phase == Phase.ADMITTED:
         handlers.reconcile_admitted(spec, name, namespace, status, patch, body)

@@ -1,7 +1,8 @@
-"""Lifecycle handlers — on_create and reconcile_blocked / reconcile_pending.
+"""Lifecycle handlers — on_create and reconcile_pending.
 
-Covers the early phases of a FournosJob: creation, blocking, and pending
-admission through Kueue.
+Covers the early phases of a FournosJob: creation and pending admission
+through Kueue.  Exclusive locking is handled entirely by Kueue via
+cluster-slot resources.
 """
 
 from __future__ import annotations
@@ -10,16 +11,13 @@ import logging
 
 from kubernetes import client
 
-from fournos.core.constants import LABEL_EXCLUSIVE_CLUSTER, Phase
+from fournos.core.constants import CLUSTER_SLOT_RESOURCE, Phase
 from fournos.core.kueue import KueueClient
-from fournos.core.locking import get_locked_clusters, is_cluster_occupied
 from fournos.state import ctx
 
 from .status import (
-    COND_CLUSTER_LOCKED,
     COND_WORKLOAD_ADMITTED,
     create_workload_for_job,
-    set_blocked,
     set_condition,
     utcnow,
 )
@@ -80,52 +78,8 @@ def on_create(spec, name, namespace, status, patch, body):
             )
             return
 
-    # --- Exclusive-lock label ---
-    if exclusive:
-        patch.meta.setdefault("labels", {})[LABEL_EXCLUSIVE_CLUSTER] = cluster
-
-    # --- Lock / occupancy gate ---
-    conditions: list[dict] = []
-
-    if exclusive:
-        active_jobs = is_cluster_occupied(cluster, name)
-        if active_jobs:
-            set_blocked(
-                patch,
-                conditions,
-                "ClusterOccupied",
-                f"Waiting for cluster {cluster} to clear "
-                f"(occupied by {', '.join(sorted(active_jobs))})",
-            )
-            logger.info("Job %s: cluster %s occupied, phase=Blocked", name, cluster)
-            return
-
-    elif cluster:
-        locks = get_locked_clusters()
-        if cluster in locks:
-            set_blocked(
-                patch,
-                conditions,
-                "ClusterLocked",
-                f"Cluster {cluster} is locked by exclusive job {locks[cluster]}",
-            )
-            logger.info(
-                "Job %s: cluster %s locked by %s, phase=Blocked",
-                name,
-                cluster,
-                locks[cluster],
-            )
-            return
-
-    # Hardware-only jobs: exclude locked clusters via nodeAffinity
-    exclude = None
-    if not cluster:
-        locks = get_locked_clusters()
-        if locks:
-            exclude = list(locks.keys())
-
     try:
-        create_workload_for_job(spec, name, body, exclude_clusters=exclude)
+        create_workload_for_job(spec, name, body)
     except client.exceptions.ApiException as exc:
         if exc.status == 409:
             pass
@@ -152,87 +106,48 @@ def on_create(spec, name, namespace, status, patch, body):
 
 
 # ---------------------------------------------------------------------------
-# BLOCKED — re-check whether the blocking condition has cleared
+# PENDING — wait for Kueue admission
 # ---------------------------------------------------------------------------
 
 
-def reconcile_blocked(spec, name, status, patch, body):
-    """Re-check whether the blocking condition has cleared."""
-    cluster = spec.get("cluster")
-    exclusive = spec.get("exclusive", False)
-    conditions = list(status.get("conditions") or [])
+def _pending_status(
+    wl_message: str,
+    cluster: str | None,
+    exclusive: bool,
+) -> tuple[str, str]:
+    """Return (user_message, log_message) with cluster-slot context when applicable."""
+    if not wl_message:
+        return "Waiting for Kueue admission", "Workload pending admission"
 
-    if exclusive:
-        active_jobs = is_cluster_occupied(cluster, name)
-        if active_jobs:
-            new_msg = (
-                f"Waiting for cluster {cluster} to clear "
-                f"(occupied by {', '.join(sorted(active_jobs))})"
-            )
-            if status.get("message") != new_msg:
-                set_blocked(patch, conditions, "ClusterOccupied", new_msg)
-            logger.info("Job %s: cluster %s still occupied", name, cluster)
-            return
-    elif cluster:
-        locks = get_locked_clusters()
-        if cluster in locks:
-            new_msg = f"Cluster {cluster} is locked by exclusive job {locks[cluster]}"
-            if status.get("message") != new_msg:
-                set_blocked(patch, conditions, "ClusterLocked", new_msg)
-            logger.info("Job %s: cluster %s still locked", name, cluster)
-            return
+    is_slot_issue = CLUSTER_SLOT_RESOURCE in wl_message
+
+    if is_slot_issue and exclusive and cluster:
+        user_msg = (
+            f"Waiting for exclusive access to cluster {cluster} "
+            f"(other jobs are still running)"
+        )
+        log_msg = (
+            f"exclusive job waiting for cluster {cluster} to clear (slot contention)"
+        )
+    elif is_slot_issue and cluster:
+        user_msg = (
+            f"Cluster {cluster} is exclusively locked by another job, "
+            f"waiting for it to finish"
+        )
+        log_msg = f"cluster {cluster} exclusively locked (slot contention)"
+    elif is_slot_issue:
+        user_msg = (
+            "All eligible clusters are exclusively locked, waiting for availability"
+        )
+        log_msg = "hardware-only job blocked by exclusive locks (slot contention)"
     else:
-        # Hardware-only job bounced back from Pending (post-admission race).
-        pass
+        user_msg = f"Waiting for admission: {wl_message}"
+        log_msg = "Workload pending admission"
 
-    # Block condition cleared — create Workload and transition to Pending.
-    exclude = None
-    if not cluster:
-        locks = get_locked_clusters()
-        if locks:
-            exclude = list(locks.keys())
-
-    try:
-        create_workload_for_job(spec, name, body, exclude_clusters=exclude)
-    except client.exceptions.ApiException as exc:
-        if exc.status == 409:
-            pass
-        else:
-            patch.status["phase"] = Phase.FAILED
-            patch.status["message"] = f"Failed to create Workload: {exc.reason}"
-            logger.error("Job %s: Workload creation failed: %s", name, exc.reason)
-            return
-
-    patch.status["phase"] = Phase.PENDING
-    patch.status["message"] = "Workload created, waiting for Kueue admission"
-    set_condition(
-        patch,
-        conditions,
-        COND_CLUSTER_LOCKED,
-        "False",
-        "Cleared",
-        "Cluster is available",
-    )
-    set_condition(
-        patch,
-        conditions,
-        COND_WORKLOAD_ADMITTED,
-        "False",
-        "Pending",
-        "Workload created, waiting for Kueue admission",
-    )
-    logger.info("Job %s: block cleared, created Workload, phase=Pending", name)
-
-
-# ---------------------------------------------------------------------------
-# PENDING — wait for Kueue admission, reconcile anti-affinity
-# ---------------------------------------------------------------------------
+    return user_msg, log_msg
 
 
 def reconcile_pending(spec, name, status, patch, body):
-    cluster = spec.get("cluster")
-    exclusive = spec.get("exclusive", False)
-
     wl = ctx.kueue.get_workload_or_none(name)
     if wl is None:
         logger.info("Job %s: Workload not yet visible", name)
@@ -241,35 +156,11 @@ def reconcile_pending(spec, name, status, patch, body):
     conditions = list(status.get("conditions") or [])
 
     if not KueueClient.is_admitted(wl):
-        # --- Stale anti-affinity reconciliation for hardware-only jobs ---
-        if not cluster:
-            current_excluded = KueueClient.get_excluded_clusters(wl)
-            locks = get_locked_clusters()
-            desired_excluded = sorted(locks.keys()) if locks else []
-            if current_excluded != desired_excluded:
-                ctx.kueue.delete_workload(name)
-                try:
-                    create_workload_for_job(
-                        spec,
-                        name,
-                        body,
-                        exclude_clusters=desired_excluded or None,
-                    )
-                except client.exceptions.ApiException as exc:
-                    if exc.status != 409:
-                        raise
-                logger.info(
-                    "Job %s: recreated Workload with updated exclusion list %s",
-                    name,
-                    desired_excluded,
-                )
-                return
-
         wl_reason, wl_message = KueueClient.get_pending_message(wl)
-        new_msg = (
-            f"Waiting for admission: {wl_message}"
-            if wl_message
-            else "Waiting for Kueue admission"
+        new_msg, log_msg = _pending_status(
+            wl_message,
+            spec.get("cluster"),
+            spec.get("exclusive", False),
         )
         if status.get("message") != new_msg:
             patch.status["message"] = new_msg
@@ -279,12 +170,12 @@ def reconcile_pending(spec, name, status, patch, body):
                 COND_WORKLOAD_ADMITTED,
                 "False",
                 wl_reason or "Pending",
-                wl_message or "Workload is queued for Kueue admission",
+                new_msg,
             )
-        logger.info("Job %s: Workload pending admission", name)
+        logger.info("Job %s: %s", name, log_msg)
         return
 
-    # --- Workload admitted — post-admission safety checks ---
+    # --- Workload admitted ---
     assigned_cluster = KueueClient.get_assigned_flavor(wl)
     if not assigned_cluster:
         patch.status["phase"] = Phase.FAILED
@@ -300,41 +191,6 @@ def reconcile_pending(spec, name, status, patch, body):
         ctx.kueue.delete_workload(name)
         logger.error("Job %s: admitted without assigned flavor", name)
         return
-
-    if exclusive:
-        active_jobs = is_cluster_occupied(assigned_cluster, name)
-        if active_jobs:
-            logger.info(
-                "Job %s: exclusive but cluster %s still occupied by %s, staying Pending",
-                name,
-                assigned_cluster,
-                active_jobs,
-            )
-            new_msg = (
-                f"Admitted to {assigned_cluster} but waiting for cluster to clear "
-                f"(occupied by {', '.join(sorted(active_jobs))})"
-            )
-            if status.get("message") != new_msg:
-                patch.status["message"] = new_msg
-            return
-
-    if not exclusive:
-        locks = get_locked_clusters()
-        if assigned_cluster in locks:
-            ctx.kueue.delete_workload(name)
-            set_blocked(
-                patch,
-                conditions,
-                "ClusterLocked",
-                f"Cluster {assigned_cluster} is locked by exclusive job "
-                f"{locks[assigned_cluster]}",
-            )
-            logger.info(
-                "Job %s: admitted to locked cluster %s, moving to Blocked",
-                name,
-                assigned_cluster,
-            )
-            return
 
     patch.status["phase"] = Phase.ADMITTED
     patch.status["cluster"] = assigned_cluster
