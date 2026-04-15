@@ -8,6 +8,27 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+from projects.cluster.toolbox.build_image.main import run as build_image_toolbox
+from projects.cluster.toolbox.rebuild_image.main import run as rebuild_image_toolbox
+
+def _istag_exists(istag_name: str, namespace: str) -> bool:
+    """
+    Check if an ImageStreamTag exists in the given namespace
+
+    Args:
+        istag_name: ImageStreamTag name in format 'imagestream:tag'
+        namespace: Target namespace
+
+    Returns:
+        bool: True if the ImageStreamTag exists, False otherwise
+    """
+    result = run.run(
+        f"oc get istag {istag_name} -n {namespace}",
+        check=False,
+        capture_stdout=True,
+    )
+    return result.returncode == 0
+
 
 def _apply_manifest_replacements(manifest_file):
     """
@@ -186,12 +207,10 @@ def build_image():
     """
     logger.info("=== Building FOURNOS Image ===")
 
-    # Import and call the build_image toolbox
-    from projects.cluster.toolbox.build_image.main import run as build_image_toolbox
-
     # Get configuration parameters
     build_config = config.project.get_config("fournos_deploy.build")
     namespace = config.project.get_config("fournos_deploy.namespace.name")
+    force_rebuild = config.project.get_config("fournos_deploy.images.fournos.force_rebuild", print=False)
 
     # Allow environment variable overrides
     pr_number = os.environ.get("PULL_NUMBER")
@@ -204,6 +223,19 @@ def build_image():
     logger.info(f"Repository: {build_config['repo_name']}")
     logger.info(f"Target: {build_config['imagestream_name']}:{build_config['tag_name']}")
     logger.info(f"Namespace: {namespace}")
+    logger.info(f"Force rebuild: {force_rebuild}")
+
+    # Check if image already exists and force_rebuild is False
+    if not force_rebuild:
+        logger.info("Checking if image already exists...")
+
+        # Check if ImageStreamTag exists
+        istag_name = f"{build_config['imagestream_name']}:{build_config['tag_name']}"
+        if _istag_exists(istag_name, namespace):
+            logger.info(f"✅ Image {istag_name} already exists, skipping build")
+            return 0
+
+        logger.info(f"Image {istag_name} does not exist, proceeding with build")
 
     # Call the build toolbox
     result = build_image_toolbox(
@@ -413,13 +445,13 @@ def rebuild_workflow_images():
     """
     logger.info("=== Rebuilding FOURNOS workflow images ===")
 
-    # Import and call the rebuild_image toolbox
-    from projects.cluster.toolbox.rebuild_image.main import run as rebuild_image_toolbox
-
     # Get configuration
     namespace = ensure_namespace()
     fournos_source = Path(config.project.get_config("fournos_deploy.fournos_source.path"))
     to_build_manifests = config.project.get_config("fournos_deploy.manifests.to_build")
+    force_rebuild = config.project.get_config("fournos_deploy.images.workflows.force_rebuild", print=False)
+
+    logger.info(f"Force rebuild workflows: {force_rebuild}")
 
     if not to_build_manifests:
         logger.info("No builds configured for rebuild")
@@ -428,7 +460,7 @@ def rebuild_workflow_images():
     logger.info(f"Found {len(to_build_manifests)} build manifest(s) to process")
 
     # Extract build names from manifests and rebuild each
-    total_errors = 0
+    skipped_builds = 0
     for manifest_path in to_build_manifests:
         manifest_file = fournos_source / manifest_path
 
@@ -440,14 +472,33 @@ def rebuild_workflow_images():
         # Apply text replacements to resolve any config references
         manifest_content = _apply_manifest_replacements(manifest_file)
 
-        # Parse YAML to extract build name
+        # Parse YAML to extract build name and output image
         doc = yaml.safe_load(manifest_content)
 
         if not (doc and doc.get('kind') == 'Build'):
             raise ValueError(f"Build manifest {manifest_file} isn't a Build")
 
         build_name = doc['metadata']['name']
+        output_image = doc['spec']['output']['image']
+
         logger.info(f"Rebuilding build: {build_name}")
+        logger.info(f"Output image: {output_image}")
+
+        # Check if image already exists and force_rebuild is False
+        if not force_rebuild:
+            logger.info("Checking if output image already exists...")
+
+            # Extract ImageStreamTag name from output image (everything after last /)
+            # Format: image-registry.openshift-image-registry.svc:5000/namespace/imagestream:tag
+            istag_name = output_image.split('/')[-1]
+
+            # Check if ImageStreamTag exists
+            if _istag_exists(istag_name, namespace):
+                logger.info(f"✅ Image {istag_name} already exists, skipping rebuild")
+                skipped_builds += 1
+                continue
+
+            logger.info(f"Image {istag_name} does not exist, proceeding with rebuild")
 
         result = rebuild_image_toolbox(
             build_name=build_name,
@@ -461,7 +512,7 @@ def rebuild_workflow_images():
 
         logger.info(f"✅ Rebuild completed successfully for build: {build_name}")
 
-    logger.info("✅ All FORGE image rebuilds completed successfully")
+    logger.info(f"✅ FORGE image rebuild completed - {skipped_builds} skipped, {len(to_build_manifests) - skipped_builds} rebuilt")
 
     return 0
 

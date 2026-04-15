@@ -71,6 +71,12 @@ fournos_deploy:
     wait_for_rollout: true
     rollout_timeout: 300
 
+  images:
+    fournos:
+      force_rebuild: false
+    workflows:
+      force_rebuild: false
+
   cleanup:
     resources:
     # Core
