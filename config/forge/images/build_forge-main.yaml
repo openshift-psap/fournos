@@ -21,7 +21,7 @@ spec:
     value: projects/core/image/Containerfile
   output:
     # the namespace is hardcoded here, but I don't know how to make that dynamic -,-
-    image: image-registry.openshift-image-registry.svc:5000/psap-automation/forge-core:main
+    image: image-registry.openshift-image-registry.svc:5000/${NAMESPACE}/forge-core:main
 
   timeout: 30m
   resources:

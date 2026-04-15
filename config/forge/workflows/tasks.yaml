@@ -22,7 +22,7 @@ spec:
       type: array
   steps:
     - name: forge
-      image: image-registry.openshift-image-registry.svc:5000/psap-automation/forge-core:main
+      image: image-registry.openshift-image-registry.svc:5000/${NAMESPACE}/forge-core:main
       env:
       - name: KUBECONFIG
         value: /workspace/kubeconfig/kubeconfig
