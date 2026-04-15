@@ -121,6 +121,15 @@ def deploy_config(ctx):
 
 
 @main.command()
+@click.pass_context
+@safe_cli_command
+def rebuild_workflow(ctx):
+    """Rebuild FOURNOS workflow images using existing Builds."""
+    exit_code = fournos_deploy.rebuild_forge_images()
+    sys.exit(exit_code)
+
+
+@main.command()
 @click.option('--skip-build', is_flag=True, help='Skip the image build step')
 @click.option('--skip-manifests', is_flag=True, help='Skip the manifest deployment step')
 @click.option('--skip-config', is_flag=True, help='Skip the config deployment step')

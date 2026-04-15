@@ -404,6 +404,68 @@ def deploy_workflow_config():
     return 0
 
 
+def rebuild_forge_images():
+    """
+    Rebuild FORGE images using rebuild_image toolbox
+
+    Returns:
+        int: 0 on success, raises exception on failure
+    """
+    logger.info("=== Rebuilding FOURNOS workflow Images ===")
+
+    # Import and call the rebuild_image toolbox
+    from projects.cluster.toolbox.rebuild_image.main import run as rebuild_image_toolbox
+
+    # Get configuration
+    namespace = ensure_namespace()
+    fournos_source = Path(config.project.get_config("fournos_deploy.fournos_source.path"))
+    to_build_manifests = config.project.get_config("fournos_deploy.manifests.to_build")
+
+    if not to_build_manifests:
+        logger.info("No builds configured for rebuild")
+        return 0
+
+    logger.info(f"Found {len(to_build_manifests)} build manifest(s) to process")
+
+    # Extract build names from manifests and rebuild each
+    total_errors = 0
+    for manifest_path in to_build_manifests:
+        manifest_file = fournos_source / manifest_path
+
+        if not manifest_file.exists():
+            raise ValueError(f"Build manifest {manifest_file} doesn't exist")
+
+        logger.info(f"Processing build manifest: {manifest_path}")
+
+        # Apply text replacements to resolve any config references
+        manifest_content = _apply_manifest_replacements(manifest_file)
+
+        # Parse YAML to extract build name
+        doc = yaml.safe_load(manifest_content)
+
+        if not (doc and doc.get('kind') == 'Build'):
+            raise ValueError(f"Build manifest {manifest_file} isn't a Build")
+
+        build_name = doc['metadata']['name']
+        logger.info(f"Rebuilding build: {build_name}")
+
+        result = rebuild_image_toolbox(
+            build_name=build_name,
+            namespace=namespace,
+            timeout_minutes=30
+        )
+
+        if not result:
+            logger.error(f"❌ Rebuild failed for build: {build_name}")
+            raise RuntimeError(f"Rebuild of {manifest_file} failed :/")
+
+        logger.info(f"✅ Rebuild completed successfully for build: {build_name}")
+
+    logger.info("✅ All FORGE image rebuilds completed successfully")
+
+    return 0
+
+
 def deploy():
     """
     Complete FOURNOS deployment including image build and manifest deployment
@@ -436,6 +498,11 @@ def deploy():
     # Step 4: Deploy FORGE workflow configuration
     logger.info("Step 4: Deploying FORGE workflow configuration...")
     result = deploy_workflow_config()
+    total_errors += result
+
+    # Step 5: Rebuild FORGE images
+    logger.info("Step 5: Rebuilding FOURNOS workflow images...")
+    result = rebuild_forge_images()
     total_errors += result
 
     if total_errors == 0:

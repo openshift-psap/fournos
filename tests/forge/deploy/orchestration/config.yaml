@@ -33,7 +33,8 @@ fournos_deploy:
     - ResourceFlavor
     - ClusterQueue
     - WorkloadPriorityClass
-
+    # BuildRun are triggered manually
+    - BuildRun
     rbac:
     - manifests/rbac/clusterrolebinding_fournos.yaml # will be skipped
     - manifests/rbac/clusterrole_fournos.yaml # will be skipped
@@ -49,7 +50,7 @@ fournos_deploy:
     config:
       forge_image:
       - config/forge/images/build_forge-main.yaml
-      - config/forge/images/buildrun_forge-main.yaml
+      - config/forge/images/buildrun_forge-main.yaml # will be skipped
       - config/forge/images/is_forge.yaml
       forge_workflow:
       - config/forge/workflows/pipeline-full.yaml
@@ -58,6 +59,9 @@ fournos_deploy:
       kueue_config:
       - config/kueue-cluster-config.yaml # will be skipped
       - config/kueue-config.yaml
+
+    to_build:
+    - config/forge/images/build_forge-main.yaml
 
     replace:
       NAMESPACE: "@fournos_deploy.namespace.name"
