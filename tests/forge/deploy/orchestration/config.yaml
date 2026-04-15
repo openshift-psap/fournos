@@ -1,1 +1,38 @@
 vaults: []
+
+cluster:
+  name: null
+
+fournos_deploy:
+  namespace: psap-automation-wip
+
+  # Image build configuration
+  build:
+    repo_name: openshift-psap/fournos
+    commit: main  # Will be overridden by CLI or environment
+    imagestream_name: fournos
+    tag_name: latest
+    dockerfile_path: Containerfile  # Path to Containerfile within the repository
+    timeout_minutes: 30
+
+  # FOURNOS source configuration
+  fournos_source:
+    path: /home/kpouget/openshift/fournos
+
+  manifests:
+    skip_kinds: # don't deploy the cluster-wide updates as part of the automation
+    - ClusterRoleBinding
+    - ClusterRole
+    rbac:
+    - manifests/rbac/clusterrolebinding_fournos.yaml # will be skipped
+    - manifests/rbac/clusterrole_fournos.yaml # will be skipped
+    - manifests/rbac/rolebinding_fournos.yaml
+    - manifests/rbac/role_fournos.yaml
+    - manifests/rbac/sa_fournos.yaml
+    replace:
+      NAMESPACE: "@fournos_deploy.namespace"
+
+  # Deployment configuration
+  deploy:
+    wait_for_rollout: true
+    rollout_timeout: 300

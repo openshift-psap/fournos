@@ -14,7 +14,7 @@ import types
 @click.pass_context
 @ci_lib.safe_ci_function
 def main(ctx):
-    """Foreign Testing Project CI Operations for FORGE."""
+    """FOURNOS Deploy Project CI Operations for FORGE."""
     ctx.ensure_object(types.SimpleNamespace)
     fournos_deploy.init()
 
@@ -23,7 +23,7 @@ def main(ctx):
 @click.pass_context
 @ci_lib.safe_ci_command
 def deploy(ctx):
-    """Deploy FOURNOS in a given namespace."""
+    """Complete FOURNOS deployment (build + deploy manifests + deploy config)."""
     return fournos_deploy.deploy()
 
 
