@@ -1,7 +1,14 @@
-vaults: []
+vaults: ["psap-forge-fournos-deploy"]
 
 cluster:
   name: null
+
+secrets:
+  # Kubeconfig vault configuration
+  kubeconfig:
+    vault:
+      name: psap-forge-fournos-deploy
+      key: kubeconfig
 
 fournos_deploy:
   namespace:

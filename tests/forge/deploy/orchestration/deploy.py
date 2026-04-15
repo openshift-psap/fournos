@@ -1,4 +1,4 @@
-from projects.core.library import env, config, run
+from projects.core.library import env, config, run, vault
 from projects.cluster.toolbox.build_image.main import run as build_image_toolbox
 from projects.cluster.toolbox.rebuild_image.main import run as rebuild_image_toolbox
 
@@ -205,10 +205,54 @@ def _deploy_manifest_list(
     return 0
 
 
+def _setup_kubeconfig_from_vault():
+    """
+    Setup KUBECONFIG from vault with fallback logic
+
+    Priority:
+    1. If vault kubeconfig is available, use it
+    2. If vault kubeconfig is missing but KUBECONFIG env var is set, keep existing
+    3. Otherwise, raise exception
+
+    Raises:
+        RuntimeError: If neither vault kubeconfig nor existing KUBECONFIG is available
+    """
+
+    # Check if vault configuration exists
+    vaults = config.project.get_config("vaults", print=False)
+    vault.init(vaults, strict=False)
+
+    # Try to get kubeconfig vault configuration
+    kubeconfig_vault_name = config.project.get_config(
+        "secrets.kubeconfig.vault.name", print=False
+    )
+    kubeconfig_vault_key = config.project.get_config(
+        "secrets.kubeconfig.vault.key", print=False
+    )
+
+    # Try to get kubeconfig path from vault
+    kubeconfig_path = vault.get_vault_content_path(
+        kubeconfig_vault_name, kubeconfig_vault_key
+    )
+    if kubeconfig_path and Path(kubeconfig_path).exists():
+        os.environ["KUBECONFIG"] = str(kubeconfig_path)
+        logger.info(f"✅ Set KUBECONFIG from vault: {kubeconfig_path}")
+        return
+
+    logger.info("Vault kubeconfig file does not exist or is empty")
+
+    if "KUBECONFIG" in os.environ:
+        logger.info("Using existing KUBECONFIG environment variable")
+        return
+
+    raise RuntimeError("Neither vault kubeconfig nor existing KUBECONFIG is available")
+
+
 def init():
     env.init()
     run.init()
     config.init(pathlib.Path(__file__).parent)
+    _setup_kubeconfig_from_vault()
 
 
 def build_image():

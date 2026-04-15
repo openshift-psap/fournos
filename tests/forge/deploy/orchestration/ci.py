@@ -23,6 +23,7 @@ def main(ctx):
 
     # Verify OpenShift authentication early
     from projects.core.library import run
+
     result = run.run("oc whoami", check=False, capture_stdout=True)
     if result.returncode != 0:
         print(f"❌ OpenShift authentication failed: {result.stderr}")
