@@ -232,11 +232,13 @@ Environment variables (`spec.env`) are serialized as `KEY=VALUE` lines and passe
 
 Fournos also passes `job-name` (from `spec.displayName` or `metadata.name`) so FORGE can use it for its own resource naming and correlation.
 
-The Tekton Task definitions in `config/forge/workflows/tasks.yaml` and `config/fournos-validation/workflows/tasks.yaml` implement the parameter interface. Mock tasks in `dev/mock-pipelines/tasks.yaml` are used for local development and testing.
+**Hub configuration vs mocks:** `config/forge/` is the authoritative layout for deploying FORGE on the hub (workflows, images, samples). Tasks in `config/forge/workflows/tasks.yaml` and `config/fournos-validation/workflows/tasks.yaml` implement the parameter interface for real clusters. `dev/mock-pipelines/` holds echo/sleep Tekton stand-ins used only by kind-based dev setup and tests—not a substitute for `config/forge/`.
 
 ## 8. Tekton Pipelines and Tasks
 
-### Tasks ([manifests/tekton/tasks.yaml](manifests/tekton/tasks.yaml))
+The Task and Pipeline YAML checked in under `config/forge/workflows/` is what you apply on OpenShift for real workloads. Pipelines under `dev/mock-pipelines/` exist for local kind clusters and automated tests; they reuse the same `spec.pipeline` names but are not the production FORGE definitions.
+
+### Tasks ([config/forge/workflows/tasks.yaml](config/forge/workflows/tasks.yaml))
 
 FORGE-owned tasks (stubs in this repo, replaced by real FORGE implementation):
 
@@ -253,9 +255,10 @@ FORGE-owned tasks (stubs in this repo, replaced by real FORGE implementation):
 
 | Pipeline           | File                                                              | Tasks         | Finally  |
 | ------------------ | ----------------------------------------------------------------- | ------------- | -------- |
-| `fournos-full`     | [pipeline-full.yaml](manifests/tekton/pipeline-full.yaml)         | prepare → run | cleanup  |
-| `fournos-run-only` | [pipeline-run-only.yaml](manifests/tekton/pipeline-run-only.yaml) | run           | *(none)* |
+| `fournos-full`     | [pipeline-full.yaml](config/forge/workflows/pipeline-full.yaml)         | prepare → run | cleanup  |
+| `fournos-run-only` | [pipeline-run-only.yaml](dev/mock-pipelines/pipeline-run-only.yaml) *(kind / tests)* | run           | *(none)* |
 
+For a run-only pipeline in real hub deployments, use [pipeline-test-only.yaml](config/forge/workflows/pipeline-test-only.yaml) (`forge-test-only`).
 
 The `spec.pipeline` field in `FournosJob` selects which pipeline to use (default: `fournos-full`).
 
@@ -263,27 +266,32 @@ Completion detection is handled by the operator's timer polling PipelineRun cond
 
 ## 9. Kueue configuration
 
-[manifests/kueue-config.yaml](manifests/kueue-config.yaml):
+[config/kueue-cluster-config.yaml](config/kueue-cluster-config.yaml):
 
 - **ResourceFlavors**: one per cluster, with `nodeLabels: { fournos.dev/cluster: <name> }` for cluster-pinned scheduling
 - **ClusterQueue** `fournos-queue`: per-cluster GPU quotas using virtual resource `fournos/gpu-{type}`, plus `fournos/cluster-slot` (quota 100 per flavor) for the exclusive locking semaphore
-- **LocalQueue** in `psap-automation` namespace
 - **WorkloadPriorityClasses** (v1beta2): `manual`, `nightly`, `presubmit`, `adhoc`
+
+[config/kueue-config.yaml](config/kueue-config.yaml):
+
+- **LocalQueue** `fournos-queue` in the Fournos namespace (references the cluster `ClusterQueue`)
 
 ## 10. Deployment
 
 Namespace-scoped tenant on a shared OpenShift management cluster:
 
 - [manifests/crd.yaml](manifests/crd.yaml) — FournosJob CustomResourceDefinition
-- [manifests/rbac.yaml](manifests/rbac.yaml) — ClusterRole + ClusterRoleBinding for Kueue cluster resources; Role + RoleBinding for FournosJob, PipelineRun, Secret access
+- [manifests/rbac](manifests/rbac) — ClusterRole + ClusterRoleBinding for Kueue cluster resources; Role + RoleBinding for FournosJob, PipelineRun, Secret access
 - [manifests/deployment.yaml](manifests/deployment.yaml) — Deployment in `psap-automation` with liveness probe
 - [Containerfile](Containerfile) — Python base image, pip install, `kopf run` entrypoint with liveness endpoint
 
 ```bash
 kubectl apply -f manifests/crd.yaml
-kubectl apply -f manifests/rbac.yaml
-kubectl apply -f manifests/kueue-config.yaml
-kubectl apply -f manifests/tekton/
+for rbac_file in manifests/rbac/*.yaml; do
+  cat "$rbac_file" | NAMESPACE=$FOURNOS_NAMESPACE envsubst | oc apply -f- -n $FOURNOS_NAMESPACE
+done
+kubectl apply -f config/kueue-config.yaml
+kubectl apply -f config/kueue-cluster-config.yaml
 kubectl apply -f manifests/deployment.yaml
 ```
 
@@ -322,14 +330,16 @@ fournos/
     kueue.py               # KueueClient (Workload CRUD, admission checks, cluster-slot requests)
 manifests/
   crd.yaml                 # FournosJob CustomResourceDefinition
-  kueue-config.yaml        # ClusterQueue, ResourceFlavors, LocalQueue, WorkloadPriorityClasses
-  rbac.yaml                # Role, ClusterRole, RoleBinding, ClusterRoleBinding
+  rbac/                    # Role, ClusterRole, RoleBinding, ClusterRoleBinding, ServiceAccount
   deployment.yaml          # Deployment
-  tekton/                  # Tasks, fournos-full Pipeline, fournos-run-only Pipeline
+config/
+  kueue-cluster-config.yaml # ResourceFlavors, ClusterQueue, WorkloadPriorityClasses
+  kueue-config.yaml        # LocalQueue (namespace-scoped)
+  forge/                   # Hub cluster: real FORGE ImageStreams, Builds, Tekton workflows, samples (not mocks)
 dev/
   setup.sh                 # kind cluster setup (Tekton + Kueue + CRD + mock resources)
   mock-kueue-config.yaml   # Dev Kueue config (mock clusters, quotas)
-  mock-resources.yaml      # Mock Tasks, Pipelines, kubeconfig Secrets
+  mock-pipelines/          # Echo/sleep Tekton Tasks and Pipelines for kind only
   sample-job.yaml          # Example FournosJob CR for testing
 tests/
   conftest.py              # Fixtures (kubernetes client, helpers, cleanup)

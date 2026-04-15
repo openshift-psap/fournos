@@ -3,6 +3,7 @@ KIND_CLUSTER_NAME              ?= fournos-dev
 KIND_EXPERIMENTAL_PROVIDER     ?= podman
 KIND_CONTEXT                   := kind-$(KIND_CLUSTER_NAME)
 VENV_BIN                       := $(if $(wildcard .venv/bin/),.venv/bin/,)
+FOURNOS_NAMESPACE              ?= fournos-local-dev
 
 .PHONY: lint format test docker-build docker-push \
         install deploy dev-setup dev-run dev-teardown \
@@ -30,10 +31,15 @@ install:
 	kubectl apply -f manifests/crd.yaml
 
 deploy: install
-	kubectl apply -f manifests/rbac.yaml
-	kubectl apply -f manifests/kueue-config.yaml
-	kubectl apply -f manifests/tekton/
-	kubectl apply -f manifests/deployment.yaml
+	for rbac_file in manifests/rbac/*.yaml; do \
+		cat $$rbac_file | NAMESPACE=$(FOURNOS_NAMESPACE) envsubst | kubectl apply -f- -n $(FOURNOS_NAMESPACE); \
+	done
+	kubectl apply -f config/kueue-cluster-config.yaml
+	kubectl apply -f config/kueue-config.yaml -n $(FOURNOS_NAMESPACE)
+	for wf in config/forge/workflows/*.yaml; do \
+		cat $$wf | NAMESPACE=$(FOURNOS_NAMESPACE) envsubst '$$NAMESPACE' | kubectl apply -f- -n $(FOURNOS_NAMESPACE); \
+	done
+	kubectl apply -f manifests/deployment.yaml -n $(FOURNOS_NAMESPACE)
 
 ##@ Testing
 

@@ -1,0 +1,18 @@
+# Namespace-scoped permissions for resources Fournos manages directly
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fournos
+rules:
+  - apiGroups: ["fournos.dev"]
+    resources: ["fournosjobs", "fournosjobs/status", "fournosjobs/finalizers"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: ["kueue.x-k8s.io"]
+    resources: ["workloads"]
+    verbs: ["create", "get", "list", "watch", "patch", "delete"]
+  - apiGroups: ["tekton.dev"]
+    resources: ["pipelineruns"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]

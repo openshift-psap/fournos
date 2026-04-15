@@ -81,7 +81,9 @@ kubectl apply -f manifests/crd.yaml -n $FOURNOS_NAMESPACE
 # ---------------------------------------------------------------
 echo ""
 echo "Applying Fournos manifests..."
-cat manifests/rbac.yaml | NAMESPACE=$FOURNOS_NAMESPACE envsubst | kubectl apply -f- -n $FOURNOS_NAMESPACE
+for rbac_file in manifests/rbac/*.yaml; do
+  cat "$rbac_file" | NAMESPACE=$FOURNOS_NAMESPACE envsubst | kubectl apply -f- -n $FOURNOS_NAMESPACE
+done
 
 # ---------------------------------------------------------------
 # 6. Apply mock resources (overrides real Tasks, adds fake secrets, kueues ...)
