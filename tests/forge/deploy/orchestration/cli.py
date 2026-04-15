@@ -130,6 +130,15 @@ def rebuild_workflow(ctx):
 
 
 @main.command()
+@click.pass_context
+@safe_cli_command
+def cleanup(ctx):
+    """Clean up FOURNOS deployment resources from namespace."""
+    exit_code = fournos_deploy.cleanup()
+    sys.exit(exit_code)
+
+
+@main.command()
 @click.option('--skip-build', is_flag=True, help='Skip the image build step')
 @click.option('--skip-manifests', is_flag=True, help='Skip the manifest deployment step')
 @click.option('--skip-config', is_flag=True, help='Skip the config deployment step')
@@ -150,6 +159,15 @@ def deploy(ctx, skip_build, skip_manifests, skip_config):
     # TODO: Implement skip logic in the deploy function
     # For now, just run the complete deploy
     exit_code = fournos_deploy.deploy()
+    sys.exit(exit_code)
+
+
+@main.command()
+@click.pass_context
+@safe_cli_command
+def cleanup_and_deploy(ctx):
+    """Clean slate FOURNOS deployment (cleanup + build + deploy manifests + deploy config)."""
+    exit_code = fournos_deploy.cleanup_and_deploy()
     sys.exit(exit_code)
 
 
@@ -190,15 +208,25 @@ def status(ctx):
     else:
         click.echo("❌ No deployments found")
 
-    # Check services
-    result = fournos_deploy.run.run(f"oc get services -n {namespace} -o name", check=False, capture_stdout=True)
-    if result.returncode == 0 and result.stdout.strip():
-        services = result.stdout.strip().split('\n')
-        click.echo(f"🌐 Found {len(services)} service(s)")
-        for service in services:
-            click.echo(f"   • {service}")
-    else:
-        click.echo("❌ No services found")
+    # Show cleanup preview
+    click.echo("")
+    click.echo(f"Fournos resources in the {namespace} namespace:")
+    cleanup_config = config.project.get_config("fournos_deploy.cleanup.resources", print=False)
+    for resource_spec in cleanup_config:
+        result = run.run(
+            f"oc get {resource_spec} -n {namespace} --no-headers -o name 2>/dev/null || true",
+            check=False,
+            capture_stdout=True,
+            log_command=False,
+        )
+
+        if result.returncode == 0 and result.stdout.strip():
+            resources = result.stdout.strip().split('\n')
+            click.echo(f"   • {resource_spec} ({len(resources)} resources):")
+            for resource in resources:
+                click.echo(f"     - {resource}")
+        else:
+            click.echo(f"   • {resource_spec}: No resources found")
 
 
 

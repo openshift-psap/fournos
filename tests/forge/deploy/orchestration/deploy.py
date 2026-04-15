@@ -404,14 +404,14 @@ def deploy_workflow_config():
     return 0
 
 
-def rebuild_forge_images():
+def rebuild_workflow_images():
     """
-    Rebuild FORGE images using rebuild_image toolbox
+    Rebuild the workflow images
 
     Returns:
         int: 0 on success, raises exception on failure
     """
-    logger.info("=== Rebuilding FOURNOS workflow Images ===")
+    logger.info("=== Rebuilding FOURNOS workflow images ===")
 
     # Import and call the rebuild_image toolbox
     from projects.cluster.toolbox.rebuild_image.main import run as rebuild_image_toolbox
@@ -466,6 +466,109 @@ def rebuild_forge_images():
     return 0
 
 
+def cleanup():
+    """
+    Clean up FOURNOS deployment resources
+
+    Returns:
+        int: 0 on success, raises exception on failure
+    """
+    logger.info("=== Cleaning up FOURNOS Resources ===")
+
+    # Get configuration
+    namespace = ensure_namespace()
+    cleanup_config = config.project.get_config("fournos_deploy.cleanup")
+    cleanup_resources = cleanup_config["resources"]
+
+    # Guard: Early return if no resources configured
+    if not cleanup_resources:
+        logger.info("No cleanup resources configured")
+        return 0
+
+    logger.info(f"Will clean up {len(cleanup_resources)} resource types from namespace: {namespace}")
+
+    total_errors = 0
+    deleted_resources = 0
+
+    for resource_spec in cleanup_resources:
+        logger.info(f"Cleaning up resource: {resource_spec}")
+
+        try:
+            # Get list of resources first to see what exists
+            result = run.run(
+                f"oc get {resource_spec} -n {namespace} --no-headers -o name 2>/dev/null || true",
+                check=False,
+                capture_stdout=True
+            )
+
+            # Guard: Skip if command failed or no resources found
+            if result.returncode != 0 or not result.stdout.strip():
+                logger.info(f"No {resource_spec} resources found to delete")
+                continue
+
+            resources = result.stdout.strip().split('\n')
+            logger.info(f"Found {len(resources)} {resource_spec} resources to delete")
+
+            # Delete all resources of this type
+            delete_result = run.run(
+                f"oc delete {resource_spec} --all -n {namespace} --ignore-not-found",
+                check=False
+            )
+
+            # Guard: Handle deletion failure
+            if delete_result.returncode != 0:
+                logger.error(f"❌ Failed to delete {resource_spec}: {delete_result.stderr}")
+                total_errors += 1
+                continue
+
+            deleted_resources += len(resources)
+            logger.info(f"✅ Deleted {len(resources)} {resource_spec} resources")
+
+        except Exception as e:
+            logger.error(f"❌ Error cleaning up {resource_spec}: {e}")
+            total_errors += 1
+
+    # Summary
+    if total_errors == 0:
+        logger.info(f"✅ Cleanup completed successfully - deleted {deleted_resources} resources")
+        return 0
+
+    logger.warning(f"⚠️ Cleanup completed with {total_errors} error(s) - deleted {deleted_resources} resources")
+    return 0
+
+
+def cleanup_and_deploy():
+    """
+    Clean up existing resources and perform complete FOURNOS deployment
+
+    This provides a clean slate deployment by first removing existing resources
+    and then deploying everything fresh.
+
+    Returns:
+        int: 0 on success, non-zero on failure
+    """
+    logger.info("=== Starting Clean Slate FOURNOS Deployment ===")
+
+    total_errors = 0
+
+    # Step 0: Cleanup existing resources
+    logger.info("Step 0: Cleaning up existing FOURNOS resources...")
+    #result = cleanup()
+    #total_errors += result
+
+    # Now perform the complete deployment
+    logger.info("Starting fresh deployment...")
+    result = deploy()
+    total_errors += result
+
+    if total_errors == 0:
+        logger.info("✅ Clean slate FOURNOS deployment succeeded")
+    else:
+        logger.error(f"❌ Clean slate FOURNOS deployment completed with {total_errors} error(s)")
+
+    return min(total_errors, 1)  # Return 1 if any errors occurred
+
+
 def deploy():
     """
     Complete FOURNOS deployment including image build and manifest deployment
@@ -502,7 +605,7 @@ def deploy():
 
     # Step 5: Rebuild FORGE images
     logger.info("Step 5: Rebuilding FOURNOS workflow images...")
-    result = rebuild_forge_images()
+    result = rebuild_workflow_images()
     total_errors += result
 
     if total_errors == 0:

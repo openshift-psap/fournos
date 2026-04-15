@@ -70,3 +70,20 @@ fournos_deploy:
   deploy:
     wait_for_rollout: true
     rollout_timeout: 300
+
+  cleanup:
+    resources:
+    # Core
+    - Deployments.app
+    # Shipwright
+    - Builds.shipwright.io
+    - ImageStream.image.openshift.io
+    - BuildRuns.shipwright.io
+    # Tekton
+    - PipelineRuns.tekton.dev
+    - Pipeline.tekton.dev
+    - Task.tekton.dev
+    # Fournos
+    - FournosJob.fournos.dev
+    # Kueue
+    - LocalQueue.kueue.x-k8s.io

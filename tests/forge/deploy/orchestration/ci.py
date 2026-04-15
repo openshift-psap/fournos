@@ -23,8 +23,8 @@ def main(ctx):
 @click.pass_context
 @ci_lib.safe_ci_command
 def deploy(ctx):
-    """Complete FOURNOS deployment (build + deploy manifests + deploy config)."""
-    return fournos_deploy.deploy()
+    """Complete FOURNOS deployment with cleanup (clean slate deployment)."""
+    return fournos_deploy.cleanup_and_deploy()
 
 
 if __name__ == "__main__":
