@@ -135,16 +135,27 @@ def _deploy_manifest_list(manifest_files, namespace, fournos_source, skip_kinds,
         with open(processed_file, 'w') as f:
             f.write(manifest_content)
 
-        # Apply the processed manifest
-        result = run.run(
-            f"oc apply -f {processed_file} -n {namespace}",
-            check=False
+        # Determine whether to use 'create' or 'apply' based on generateName
+        has_generate_name = any(
+            doc and doc.get('metadata', {}).get('generateName')
+            for doc in docs if doc
         )
 
-        if result.returncode != 0:
-            raise RuntimeError(f"Failed to apply {file_prefix} {manifest_path}: {result.stderr}")
+        if has_generate_name:
+            # Use 'create' for objects with generateName
+            oc_command = f"oc create -f {processed_file} -n {namespace}"
+            action = "created"
+        else:
+            # Use 'apply' for objects with name
+            oc_command = f"oc apply -f {processed_file} -n {namespace}"
+            action = "applied"
 
-        logger.info(f"✅ Successfully applied {manifest_path}")
+        result = run.run(oc_command, check=False, capture_stderr=True)
+
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to {action.split()[0]} {file_prefix} {manifest_path}: {result.stderr}")
+
+        logger.info(f"✅ Successfully {action} {manifest_path}")
 
     # Summary
     successful_count = len(manifest_files) - len(skipped_manifests)
