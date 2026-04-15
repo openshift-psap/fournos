@@ -27,7 +27,7 @@ fournos_deploy:
 
   # FOURNOS source configuration
   fournos_source:
-    path: /home/kpouget/openshift/fournos
+    path: ../fournos
 
   manifests:
     skip_kinds: # don't deploy the cluster-wide updates as part of the automation

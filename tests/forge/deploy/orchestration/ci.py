@@ -3,23 +3,32 @@
 Fournos-Deploy Project CI Operations
 """
 
-from projects.core.library import ci as ci_lib
+from projects.core.library import ci as ci_lib, config
 from projects.fournos_launcher.orchestration import utils
 
 import deploy as fournos_deploy
 
 import click
 import types
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @click.group()
+@click.option("--project-source", help="Path to FOURNOS source directory")
 @click.pass_context
 @ci_lib.safe_ci_function
-def main(ctx):
+def main(ctx, project_source):
     """FOURNOS Deploy Project CI Operations for FORGE."""
     ctx.ensure_object(types.SimpleNamespace)
     fournos_deploy.init()
     utils.ensure_oc_available()
+
+    # Apply CLI configuration overrides
+    if project_source:
+        config.project.set_config("fournos_deploy.fournos_source.path", project_source)
+        logger.info(f"Using FOURNOS source path: {project_source}")
 
     # Verify OpenShift authentication early
     from projects.core.library import run
