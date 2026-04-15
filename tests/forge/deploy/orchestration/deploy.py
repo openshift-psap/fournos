@@ -1,4 +1,6 @@
 from projects.core.library import env, config, run
+from projects.cluster.toolbox.build_image.main import run as build_image_toolbox
+from projects.cluster.toolbox.rebuild_image.main import run as rebuild_image_toolbox
 
 import pathlib
 import logging
@@ -8,8 +10,6 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-from projects.cluster.toolbox.build_image.main import run as build_image_toolbox
-from projects.cluster.toolbox.rebuild_image.main import run as rebuild_image_toolbox
 
 def _istag_exists(istag_name: str, namespace: str) -> bool:
     """
@@ -41,17 +41,21 @@ def _apply_manifest_replacements(manifest_file):
         str: Processed manifest content with replacements applied
     """
     # Get replacements configuration
-    replacements_config = config.project.get_config("fournos_deploy.manifests.replace", print=False)
+    replacements_config = config.project.get_config(
+        "fournos_deploy.manifests.replace", print=False
+    )
 
     # Prepare replacements with config value resolution
     resolved_replacements = {}
     for key in replacements_config.keys():
-        resolved_value = config.project.get_config(f"fournos_deploy.manifests.replace.{key}", print=False)
+        resolved_value = config.project.get_config(
+            f"fournos_deploy.manifests.replace.{key}", print=False
+        )
         resolved_replacements[key] = str(resolved_value)
         logger.info(f"Replacement: ${key} -> {resolved_value}")
 
     # Read manifest content
-    with open(manifest_file, 'r') as f:
+    with open(manifest_file, "r") as f:
         manifest_content = f.read()
 
     # Apply text replacements
@@ -73,7 +77,9 @@ def ensure_namespace():
     namespace_labels = namespace_config.get("labels", {})
 
     # Create namespace if it doesn't exist
-    result = run.run(f"oc create namespace {namespace}", check=False, capture_stderr=True)
+    result = run.run(
+        f"oc create namespace {namespace}", check=False, capture_stderr=True
+    )
 
     if result.returncode == 0:
         logger.info(f"Created namespace: {namespace}")
@@ -101,7 +107,9 @@ def ensure_namespace():
     return namespace
 
 
-def _deploy_manifest_list(manifest_files, namespace, fournos_source, skip_kinds, file_prefix="manifest"):
+def _deploy_manifest_list(
+    manifest_files, namespace, fournos_source, skip_kinds, file_prefix="manifest"
+):
     """
     Deploy a list of manifest files with common processing logic
 
@@ -130,7 +138,9 @@ def _deploy_manifest_list(manifest_files, namespace, fournos_source, skip_kinds,
         manifest_file = fournos_source / manifest_path
 
         if not manifest_file.exists():
-            raise FileNotFoundError(f"{file_prefix.title()} file not found: {manifest_path}")
+            raise FileNotFoundError(
+                f"{file_prefix.title()} file not found: {manifest_path}"
+            )
 
         logger.info(f"Processing: {manifest_path}")
 
@@ -142,8 +152,10 @@ def _deploy_manifest_list(manifest_files, namespace, fournos_source, skip_kinds,
 
         should_skip = False
         for doc in docs:
-            if doc and doc.get('kind') in skip_kinds:
-                logger.info(f"Skipping {manifest_path}: contains {doc.get('kind')} (in skip_kinds)")
+            if doc and doc.get("kind") in skip_kinds:
+                logger.info(
+                    f"Skipping {manifest_path}: contains {doc.get('kind')} (in skip_kinds)"
+                )
                 skipped_manifests.append(manifest_path)
                 should_skip = True
                 break
@@ -153,13 +165,12 @@ def _deploy_manifest_list(manifest_files, namespace, fournos_source, skip_kinds,
 
         # Write processed manifest to temporary file
         processed_file = manifests_dir / f"processed-{manifest_file.name}"
-        with open(processed_file, 'w') as f:
+        with open(processed_file, "w") as f:
             f.write(manifest_content)
 
         # Determine whether to use 'create' or 'apply' based on generateName
         has_generate_name = any(
-            doc and doc.get('metadata', {}).get('generateName')
-            for doc in docs if doc
+            doc and doc.get("metadata", {}).get("generateName") for doc in docs if doc
         )
 
         if has_generate_name:
@@ -174,7 +185,9 @@ def _deploy_manifest_list(manifest_files, namespace, fournos_source, skip_kinds,
         result = run.run(oc_command, check=False, capture_stderr=True)
 
         if result.returncode != 0:
-            raise RuntimeError(f"Failed to {action.split()[0]} {file_prefix} {manifest_path}: {result.stderr}")
+            raise RuntimeError(
+                f"Failed to {action.split()[0]} {file_prefix} {manifest_path}: {result.stderr}"
+            )
 
         logger.info(f"✅ Successfully {action} {manifest_path}")
 
@@ -210,7 +223,9 @@ def build_image():
     # Get configuration parameters
     build_config = config.project.get_config("fournos_deploy.build")
     namespace = config.project.get_config("fournos_deploy.namespace.name")
-    force_rebuild = config.project.get_config("fournos_deploy.images.fournos.force_rebuild", print=False)
+    force_rebuild = config.project.get_config(
+        "fournos_deploy.images.fournos.force_rebuild", print=False
+    )
 
     # Allow environment variable overrides
     pr_number = os.environ.get("PULL_NUMBER")
@@ -221,7 +236,9 @@ def build_image():
 
     logger.info(f"Building image from commit: {commit}")
     logger.info(f"Repository: {build_config['repo_name']}")
-    logger.info(f"Target: {build_config['imagestream_name']}:{build_config['tag_name']}")
+    logger.info(
+        f"Target: {build_config['imagestream_name']}:{build_config['tag_name']}"
+    )
     logger.info(f"Namespace: {namespace}")
     logger.info(f"Force rebuild: {force_rebuild}")
 
@@ -243,9 +260,11 @@ def build_image():
         commit=commit,
         imagestream_name=build_config["imagestream_name"],
         tag_name=build_config["tag_name"],
-        dockerfile_path=build_config.get("dockerfile_path", "projects/core/image/Containerfile"),
+        dockerfile_path=build_config.get(
+            "dockerfile_path", "projects/core/image/Containerfile"
+        ),
         namespace=namespace,
-        timeout_minutes=build_config.get("timeout_minutes", 30)
+        timeout_minutes=build_config.get("timeout_minutes", 30),
     )
 
     if not result:
@@ -266,7 +285,9 @@ def deploy_manifests():
     logger.info("=== Deploying FOURNOS Manifests ===")
 
     # Get configuration
-    fournos_source = Path(config.project.get_config("fournos_deploy.fournos_source.path"))
+    fournos_source = Path(
+        config.project.get_config("fournos_deploy.fournos_source.path")
+    )
     deploy_config = config.project.get_config("fournos_deploy.deploy")
     manifests_config = config.project.get_config("fournos_deploy.manifests")
 
@@ -285,11 +306,15 @@ def deploy_manifests():
     crd_files = manifests_config["crd"]
     manifest_files = rbac_files + crd_files
 
-    logger.info(f"Will deploy {len(rbac_files)} RBAC and {len(crd_files)} CRD manifest files")
+    logger.info(
+        f"Will deploy {len(rbac_files)} RBAC and {len(crd_files)} CRD manifest files"
+    )
     logger.info(f"Skipping kinds: {list(skip_kinds)}")
 
     # Deploy the manifests using common helper
-    _deploy_manifest_list(manifest_files, namespace, fournos_source, skip_kinds, "manifest")
+    _deploy_manifest_list(
+        manifest_files, namespace, fournos_source, skip_kinds, "manifest"
+    )
 
     # Wait for deployments to be ready if configured
     if deploy_config["wait_for_rollout"]:
@@ -311,13 +336,15 @@ def deploy_manifests():
                 logger.info(f"Waiting for deployment {deployment}...")
                 result = run.run(
                     f"oc rollout status deployment/{deployment} -n {namespace} --timeout={timeout}s",
-                    check=False
+                    check=False,
                 )
 
                 if result.returncode == 0:
                     logger.info(f"✅ Deployment {deployment} is ready")
                 else:
-                    raise RuntimeError(f"Deployment {deployment} failed to become ready within {timeout}s timeout")
+                    raise RuntimeError(
+                        f"Deployment {deployment} failed to become ready within {timeout}s timeout"
+                    )
         else:
             logger.info("No deployments found to wait for")
 
@@ -336,7 +363,9 @@ def deploy_fournos_workload():
     logger.info("=== Deploying FOURNOS Workload ===")
 
     # Get configuration
-    fournos_source = Path(config.project.get_config("fournos_deploy.fournos_source.path"))
+    fournos_source = Path(
+        config.project.get_config("fournos_deploy.fournos_source.path")
+    )
     manifests_config = config.project.get_config("fournos_deploy.manifests")
     build_config = config.project.get_config("fournos_deploy.build")
 
@@ -364,13 +393,15 @@ def deploy_fournos_workload():
     docs = list(yaml.safe_load_all(manifest_content))
 
     for doc in docs:
-        if doc and doc.get('kind') == 'Deployment':
+        if doc and doc.get("kind") == "Deployment":
             # Update the image in the deployment spec
-            containers = doc['spec']['template']['spec']['containers']
+            containers = doc["spec"]["template"]["spec"]["containers"]
             for container in containers:
                 # Update the image to use our built image
-                container['image'] = image_name
-                logger.info(f"Updated container '{container.get('name', 'unnamed')}' image to: {image_name}")
+                container["image"] = image_name
+                logger.info(
+                    f"Updated container '{container.get('name', 'unnamed')}' image to: {image_name}"
+                )
 
     # Write updated manifest back to YAML
     updated_content = yaml.dump_all(docs, default_flow_style=False)
@@ -379,19 +410,18 @@ def deploy_fournos_workload():
     deploy_dir = env.ARTIFACT_DIR / "src" / "manifests"
     deploy_dir.mkdir(exist_ok=True, parents=True)
     processed_file = deploy_dir / f"processed-{deployment_file.name}"
-    with open(processed_file, 'w') as f:
+    with open(processed_file, "w") as f:
         f.write(updated_content)
 
     # Apply the processed manifest
-    result = run.run(
-        f"oc apply -f {processed_file} -n {namespace}",
-        check=False
-    )
+    result = run.run(f"oc apply -f {processed_file} -n {namespace}", check=False)
 
     if result.returncode != 0:
-        raise RuntimeError(f"Failed to apply deployment {deployment_path}: {result.stderr}")
+        raise RuntimeError(
+            f"Failed to apply deployment {deployment_path}: {result.stderr}"
+        )
 
-    logger.info(f"✅ Successfully deployed FOURNOS workload")
+    logger.info("✅ Successfully deployed FOURNOS workload")
 
     return 0
 
@@ -406,7 +436,9 @@ def deploy_workflow_config():
     logger.info("=== Deploying FORGE Workflow Configuration ===")
 
     # Get configuration
-    fournos_source = Path(config.project.get_config("fournos_deploy.fournos_source.path"))
+    fournos_source = Path(
+        config.project.get_config("fournos_deploy.fournos_source.path")
+    )
     skip_kinds = set(config.project.get_config("fournos_deploy.manifests.skip_kinds"))
     config_manifests = config.project.get_config("fournos_deploy.manifests.config")
 
@@ -429,7 +461,9 @@ def deploy_workflow_config():
     logger.info(f"Skipping kinds: {list(skip_kinds)}")
 
     # Deploy the config manifests using common helper
-    _deploy_manifest_list(manifest_files, namespace, fournos_source, skip_kinds, "config")
+    _deploy_manifest_list(
+        manifest_files, namespace, fournos_source, skip_kinds, "config"
+    )
 
     logger.info("✅ FORGE workflow configuration deployment completed")
 
@@ -447,9 +481,13 @@ def rebuild_workflow_images():
 
     # Get configuration
     namespace = ensure_namespace()
-    fournos_source = Path(config.project.get_config("fournos_deploy.fournos_source.path"))
+    fournos_source = Path(
+        config.project.get_config("fournos_deploy.fournos_source.path")
+    )
     to_build_manifests = config.project.get_config("fournos_deploy.manifests.to_build")
-    force_rebuild = config.project.get_config("fournos_deploy.images.workflows.force_rebuild", print=False)
+    force_rebuild = config.project.get_config(
+        "fournos_deploy.images.workflows.force_rebuild", print=False
+    )
 
     logger.info(f"Force rebuild workflows: {force_rebuild}")
 
@@ -475,11 +513,11 @@ def rebuild_workflow_images():
         # Parse YAML to extract build name and output image
         doc = yaml.safe_load(manifest_content)
 
-        if not (doc and doc.get('kind') == 'Build'):
+        if not (doc and doc.get("kind") == "Build"):
             raise ValueError(f"Build manifest {manifest_file} isn't a Build")
 
-        build_name = doc['metadata']['name']
-        output_image = doc['spec']['output']['image']
+        build_name = doc["metadata"]["name"]
+        output_image = doc["spec"]["output"]["image"]
 
         logger.info(f"Rebuilding build: {build_name}")
         logger.info(f"Output image: {output_image}")
@@ -490,7 +528,7 @@ def rebuild_workflow_images():
 
             # Extract ImageStreamTag name from output image (everything after last /)
             # Format: image-registry.openshift-image-registry.svc:5000/namespace/imagestream:tag
-            istag_name = output_image.split('/')[-1]
+            istag_name = output_image.split("/")[-1]
 
             # Check if ImageStreamTag exists
             if _istag_exists(istag_name, namespace):
@@ -501,9 +539,7 @@ def rebuild_workflow_images():
             logger.info(f"Image {istag_name} does not exist, proceeding with rebuild")
 
         result = rebuild_image_toolbox(
-            build_name=build_name,
-            namespace=namespace,
-            timeout_minutes=30
+            build_name=build_name, namespace=namespace, timeout_minutes=30
         )
 
         if not result:
@@ -512,7 +548,9 @@ def rebuild_workflow_images():
 
         logger.info(f"✅ Rebuild completed successfully for build: {build_name}")
 
-    logger.info(f"✅ FORGE image rebuild completed - {skipped_builds} skipped, {len(to_build_manifests) - skipped_builds} rebuilt")
+    logger.info(
+        f"✅ FORGE image rebuild completed - {skipped_builds} skipped, {len(to_build_manifests) - skipped_builds} rebuilt"
+    )
 
     return 0
 
@@ -536,7 +574,9 @@ def cleanup():
         logger.info("No cleanup resources configured")
         return 0
 
-    logger.info(f"Will clean up {len(cleanup_resources)} resource types from namespace: {namespace}")
+    logger.info(
+        f"Will clean up {len(cleanup_resources)} resource types from namespace: {namespace}"
+    )
 
     total_errors = 0
     deleted_resources = 0
@@ -549,7 +589,7 @@ def cleanup():
             result = run.run(
                 f"oc get {resource_spec} -n {namespace} --no-headers -o name 2>/dev/null || true",
                 check=False,
-                capture_stdout=True
+                capture_stdout=True,
             )
 
             # Guard: Skip if command failed or no resources found
@@ -557,18 +597,20 @@ def cleanup():
                 logger.info(f"No {resource_spec} resources found to delete")
                 continue
 
-            resources = result.stdout.strip().split('\n')
+            resources = result.stdout.strip().split("\n")
             logger.info(f"Found {len(resources)} {resource_spec} resources to delete")
 
             # Delete all resources of this type
             delete_result = run.run(
                 f"oc delete {resource_spec} --all -n {namespace} --ignore-not-found",
-                check=False
+                check=False,
             )
 
             # Guard: Handle deletion failure
             if delete_result.returncode != 0:
-                logger.error(f"❌ Failed to delete {resource_spec}: {delete_result.stderr}")
+                logger.error(
+                    f"❌ Failed to delete {resource_spec}: {delete_result.stderr}"
+                )
                 total_errors += 1
                 continue
 
@@ -581,10 +623,14 @@ def cleanup():
 
     # Summary
     if total_errors == 0:
-        logger.info(f"✅ Cleanup completed successfully - deleted {deleted_resources} resources")
+        logger.info(
+            f"✅ Cleanup completed successfully - deleted {deleted_resources} resources"
+        )
         return 0
 
-    logger.warning(f"⚠️ Cleanup completed with {total_errors} error(s) - deleted {deleted_resources} resources")
+    logger.warning(
+        f"⚠️ Cleanup completed with {total_errors} error(s) - deleted {deleted_resources} resources"
+    )
     return 0
 
 
@@ -604,8 +650,8 @@ def cleanup_and_deploy():
 
     # Step 0: Cleanup existing resources
     logger.info("Step 0: Cleaning up existing FOURNOS resources...")
-    #result = cleanup()
-    #total_errors += result
+    result = cleanup()
+    total_errors += result
 
     # Now perform the complete deployment
     logger.info("Starting fresh deployment...")
@@ -615,7 +661,9 @@ def cleanup_and_deploy():
     if total_errors == 0:
         logger.info("✅ Clean slate FOURNOS deployment succeeded")
     else:
-        logger.error(f"❌ Clean slate FOURNOS deployment completed with {total_errors} error(s)")
+        logger.error(
+            f"❌ Clean slate FOURNOS deployment completed with {total_errors} error(s)"
+        )
 
     return min(total_errors, 1)  # Return 1 if any errors occurred
 

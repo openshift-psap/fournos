@@ -7,24 +7,23 @@ Interactive CLI for FOURNOS deployment with configuration overrides.
 
 import deploy as fournos_deploy
 from projects.core.library.cli import safe_cli_command
-from projects.core.library import config
-from projects.core.library import env, config, run
+from projects.core.library import config, run
 
 import sys
 import types
-import logging
-logger = logging.getLogger(__name__)
-
 import click
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @click.group()
-@click.option('--namespace', help='Target namespace for FOURNOS deployment')
-@click.option('--commit', help='Git commit SHA to build (overrides config)')
-@click.option('--tag', help='Image tag name (overrides config)')
-@click.option('--repo', help='Repository name in owner/repo format')
-@click.option('--dockerfile', help='Path to Dockerfile/Containerfile within repository')
-@click.option('--timeout', type=int, help='Build timeout in minutes')
+@click.option("--namespace", help="Target namespace for FOURNOS deployment")
+@click.option("--commit", help="Git commit SHA to build (overrides config)")
+@click.option("--tag", help="Image tag name (overrides config)")
+@click.option("--repo", help="Repository name in owner/repo format")
+@click.option("--dockerfile", help="Path to Dockerfile/Containerfile within repository")
+@click.option("--timeout", type=int, help="Build timeout in minutes")
 @click.pass_context
 def main(ctx, namespace, commit, tag, repo, dockerfile, timeout):
     """FOURNOS Deployment CLI Operations."""
@@ -58,8 +57,10 @@ def main(ctx, namespace, commit, tag, repo, dockerfile, timeout):
 
 
 @main.command()
-@click.option('--imagestream', help='ImageStream name (overrides config)')
-@click.option('--force-rebuild', is_flag=True, help='Force rebuild even if image exists')
+@click.option("--imagestream", help="ImageStream name (overrides config)")
+@click.option(
+    "--force-rebuild", is_flag=True, help="Force rebuild even if image exists"
+)
 @click.pass_context
 @safe_cli_command
 def build_image(ctx, imagestream, force_rebuild):
@@ -78,9 +79,9 @@ def build_image(ctx, imagestream, force_rebuild):
 
 
 @main.command()
-@click.option('--source-path', help='Path to FOURNOS source manifests')
-@click.option('--no-wait', is_flag=True, help='Do not wait for deployments to be ready')
-@click.option('--rollout-timeout', type=int, help='Timeout for rollout in seconds')
+@click.option("--source-path", help="Path to FOURNOS source manifests")
+@click.option("--no-wait", is_flag=True, help="Do not wait for deployments to be ready")
+@click.option("--rollout-timeout", type=int, help="Timeout for rollout in seconds")
 @click.pass_context
 @safe_cli_command
 def deploy_manifests(ctx, source_path, no_wait, rollout_timeout):
@@ -95,7 +96,9 @@ def deploy_manifests(ctx, source_path, no_wait, rollout_timeout):
         logger.info("Rollout wait disabled")
 
     if rollout_timeout:
-        config.project.set_config("fournos_deploy.deploy.rollout_timeout", rollout_timeout)
+        config.project.set_config(
+            "fournos_deploy.deploy.rollout_timeout", rollout_timeout
+        )
         logger.info(f"Using rollout timeout: {rollout_timeout} seconds")
 
     exit_code = fournos_deploy.deploy_manifests()
@@ -139,9 +142,11 @@ def cleanup(ctx):
 
 
 @main.command()
-@click.option('--skip-build', is_flag=True, help='Skip the image build step')
-@click.option('--skip-manifests', is_flag=True, help='Skip the manifest deployment step')
-@click.option('--skip-config', is_flag=True, help='Skip the config deployment step')
+@click.option("--skip-build", is_flag=True, help="Skip the image build step")
+@click.option(
+    "--skip-manifests", is_flag=True, help="Skip the manifest deployment step"
+)
+@click.option("--skip-config", is_flag=True, help="Skip the config deployment step")
 @click.pass_context
 @safe_cli_command
 def deploy(ctx, skip_build, skip_manifests, skip_config):
@@ -178,7 +183,7 @@ def status(ctx):
 
     namespace = config.project.get_config("fournos_deploy.namespace.name")
 
-    click.echo(f"=== FOURNOS Deployment Status ===")
+    click.echo("=== FOURNOS Deployment Status ===")
     click.echo(f"Namespace: {namespace}")
     click.echo("")
 
@@ -191,17 +196,23 @@ def status(ctx):
     click.echo("✅ Target namespace exists")
 
     # Check ImageStream
-    imagestream_name = config.project.get_config("fournos_deploy.build.imagestream_name")
-    result = run.run(f"oc get imagestream {imagestream_name} -n {namespace}", check=False)
+    imagestream_name = config.project.get_config(
+        "fournos_deploy.build.imagestream_name"
+    )
+    result = run.run(
+        f"oc get imagestream {imagestream_name} -n {namespace}", check=False
+    )
     if result.returncode == 0:
         click.echo(f"✅ ImageStream '{imagestream_name}' exists")
     else:
         click.echo(f"❌ ImageStream '{imagestream_name}' not found")
 
     # Check deployments
-    result = run.run(f"oc get deployments -n {namespace} -o name", check=False, capture_stdout=True)
+    result = run.run(
+        f"oc get deployments -n {namespace} -o name", check=False, capture_stdout=True
+    )
     if result.returncode == 0 and result.stdout.strip():
-        deployments = result.stdout.strip().split('\n')
+        deployments = result.stdout.strip().split("\n")
         click.echo(f"📦 Found {len(deployments)} deployment(s)")
         for deployment in deployments:
             click.echo(f"   • {deployment}")
@@ -211,7 +222,9 @@ def status(ctx):
     # Show cleanup preview
     click.echo("")
     click.echo(f"Fournos resources in the {namespace} namespace:")
-    cleanup_config = config.project.get_config("fournos_deploy.cleanup.resources", print=False)
+    cleanup_config = config.project.get_config(
+        "fournos_deploy.cleanup.resources", print=False
+    )
     for resource_spec in cleanup_config:
         result = run.run(
             f"oc get {resource_spec} -n {namespace} --no-headers -o name 2>/dev/null || true",
@@ -221,13 +234,12 @@ def status(ctx):
         )
 
         if result.returncode == 0 and result.stdout.strip():
-            resources = result.stdout.strip().split('\n')
+            resources = result.stdout.strip().split("\n")
             click.echo(f"   • {resource_spec} ({len(resources)} resources):")
             for resource in resources:
                 click.echo(f"     - {resource}")
         else:
             click.echo(f"   • {resource_spec}: No resources found")
-
 
 
 @main.command()
@@ -241,23 +253,31 @@ def config_show(ctx):
         click.echo("=== Current FOURNOS Deploy Configuration ===")
         click.echo(f"Namespace: {fournos_config.get('namespace', 'not set')}")
 
-        build_config = fournos_config.get('build', {})
+        build_config = fournos_config.get("build", {})
         click.echo("")
         click.echo("Build Configuration:")
         click.echo(f"  Repository: {build_config.get('repo_name', 'not set')}")
         click.echo(f"  Commit: {build_config.get('commit', 'not set')}")
         click.echo(f"  ImageStream: {build_config.get('imagestream_name', 'not set')}")
         click.echo(f"  Tag: {build_config.get('tag_name', 'not set')}")
-        click.echo(f"  Dockerfile Path: {build_config.get('dockerfile_path', 'not set')}")
-        click.echo(f"  Timeout: {build_config.get('timeout_minutes', 'not set')} minutes")
+        click.echo(
+            f"  Dockerfile Path: {build_config.get('dockerfile_path', 'not set')}"
+        )
+        click.echo(
+            f"  Timeout: {build_config.get('timeout_minutes', 'not set')} minutes"
+        )
 
-        deploy_config = fournos_config.get('deploy', {})
+        deploy_config = fournos_config.get("deploy", {})
         click.echo("")
         click.echo("Deploy Configuration:")
-        click.echo(f"  Wait for rollout: {deploy_config.get('wait_for_rollout', 'not set')}")
-        click.echo(f"  Rollout timeout: {deploy_config.get('rollout_timeout', 'not set')} seconds")
+        click.echo(
+            f"  Wait for rollout: {deploy_config.get('wait_for_rollout', 'not set')}"
+        )
+        click.echo(
+            f"  Rollout timeout: {deploy_config.get('rollout_timeout', 'not set')} seconds"
+        )
 
-        fournos_source = fournos_config.get('fournos_source', {})
+        fournos_source = fournos_config.get("fournos_source", {})
         click.echo("")
         click.echo("Source Configuration:")
         click.echo(f"  FOURNOS path: {fournos_source.get('path', 'not set')}")
