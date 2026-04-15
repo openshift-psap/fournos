@@ -33,7 +33,7 @@ def main(ctx, namespace, commit, tag, repo, dockerfile, timeout):
 
     # Apply CLI configuration overrides
     if namespace:
-        config.project.set_config("fournos_deploy.namespace", namespace)
+        config.project.set_config("fournos_deploy.namespace.name", namespace)
         logger.info(f"Using namespace: {namespace}")
 
     if commit:
@@ -115,8 +115,8 @@ def deploy_workload(ctx):
 @click.pass_context
 @safe_cli_command
 def deploy_config(ctx):
-    """Deploy FORGE configuration for FOURNOS integration."""
-    exit_code = fournos_deploy.deploy_forge_config()
+    """Deploy FORGE workflow configuration for FOURNOS integration."""
+    exit_code = fournos_deploy.deploy_workflow_config()
     sys.exit(exit_code)
 
 
@@ -149,7 +149,7 @@ def deploy(ctx, skip_build, skip_manifests, skip_config):
 def status(ctx):
     """Show current FOURNOS deployment status."""
 
-    namespace = config.project.get_config("fournos_deploy.namespace")
+    namespace = config.project.get_config("fournos_deploy.namespace.name")
 
     click.echo(f"=== FOURNOS Deployment Status ===")
     click.echo(f"Namespace: {namespace}")

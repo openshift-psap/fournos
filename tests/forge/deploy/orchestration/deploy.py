@@ -40,6 +40,126 @@ def _apply_manifest_replacements(manifest_file):
     return manifest_content
 
 
+def ensure_namespace():
+    """
+    Create namespace with labels if it doesn't exist
+
+    Returns:
+        str: The namespace name
+    """
+    namespace_config = config.project.get_config("fournos_deploy.namespace")
+    namespace = namespace_config["name"]
+    namespace_labels = namespace_config.get("labels", {})
+
+    # Create namespace if it doesn't exist
+    result = run.run(f"oc create namespace {namespace}", check=False, capture_stderr=True)
+
+    if result.returncode == 0:
+        logger.info(f"Created namespace: {namespace}")
+    elif "already exists" in result.stderr:
+        logger.info(f"Namespace {namespace} already exists. Skip its configuration.")
+        return namespace
+    else:
+        raise RuntimeError(f"Failed to create namespace {namespace}: {result.stderr}")
+
+    # Apply namespace labels if any
+    if not namespace_labels:
+        return namespace
+
+    labels_args = []
+    for key, value in namespace_labels.items():
+        labels_args.append(f"{key}={value}")
+
+    labels_str = " ".join(labels_args)
+    result = run.run(f"oc label namespace {namespace} {labels_str}")
+    if result.returncode == 0:
+        logger.info(f"Applied labels to namespace: {labels_str}")
+    else:
+        logger.warning(f"Failed to apply labels to namespace: {result.stderr}")
+
+    return namespace
+
+
+def _deploy_manifest_list(manifest_files, namespace, fournos_source, skip_kinds, file_prefix="manifest"):
+    """
+    Deploy a list of manifest files with common processing logic
+
+    Args:
+        manifest_files: List of manifest file paths relative to fournos_source
+        namespace: Target namespace name for deployment
+        fournos_source: Path to FOURNOS source directory
+        skip_kinds: Set of Kubernetes kinds to skip
+        file_prefix: Prefix for processed file names
+
+    Returns:
+        int: 0 on success, raises exception on failure
+    """
+    if not manifest_files:
+        logger.warning(f"No {file_prefix} files configured for deployment")
+        return 0
+
+    # Process and apply each configured manifest
+    skipped_manifests = []
+
+    # Create output directory for processed manifests
+    manifests_dir = env.ARTIFACT_DIR / "src" / f"{file_prefix}s"
+    manifests_dir.mkdir(exist_ok=True, parents=True)
+
+    for manifest_path in manifest_files:
+        manifest_file = fournos_source / manifest_path
+
+        if not manifest_file.exists():
+            raise FileNotFoundError(f"{file_prefix.title()} file not found: {manifest_path}")
+
+        logger.info(f"Processing: {manifest_path}")
+
+        # Apply replacements
+        manifest_content = _apply_manifest_replacements(manifest_file)
+
+        # Parse YAML to check for skip_kinds
+        docs = list(yaml.safe_load_all(manifest_content))
+
+        should_skip = False
+        for doc in docs:
+            if doc and doc.get('kind') in skip_kinds:
+                logger.info(f"Skipping {manifest_path}: contains {doc.get('kind')} (in skip_kinds)")
+                skipped_manifests.append(manifest_path)
+                should_skip = True
+                break
+
+        if should_skip:
+            continue
+
+        # Write processed manifest to temporary file
+        processed_file = manifests_dir / f"processed-{manifest_file.name}"
+        with open(processed_file, 'w') as f:
+            f.write(manifest_content)
+
+        # Apply the processed manifest
+        result = run.run(
+            f"oc apply -f {processed_file} -n {namespace}",
+            check=False
+        )
+
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to apply {file_prefix} {manifest_path}: {result.stderr}")
+
+        logger.info(f"✅ Successfully applied {manifest_path}")
+
+    # Summary
+    successful_count = len(manifest_files) - len(skipped_manifests)
+    logger.info(f"{file_prefix.title()} deployment summary:")
+    logger.info(f"  ✅ Applied: {successful_count}")
+    logger.info(f"  ⏭️  Skipped: {len(skipped_manifests)}")
+
+    if skipped_manifests:
+        logger.info(f"Skipped {file_prefix}s: {skipped_manifests}")
+
+    logger.info(f"✅ {file_prefix.title()} stored in {manifests_dir}")
+
+    return 0
+
+
 def init():
     env.init()
     run.init()
@@ -60,7 +180,7 @@ def build_image():
 
     # Get configuration parameters
     build_config = config.project.get_config("fournos_deploy.build")
-    namespace = config.project.get_config("fournos_deploy.namespace")
+    namespace = config.project.get_config("fournos_deploy.namespace.name")
 
     # Allow environment variable overrides
     pr_number = os.environ.get("PULL_NUMBER")
@@ -103,13 +223,15 @@ def deploy_manifests():
     logger.info("=== Deploying FOURNOS Manifests ===")
 
     # Get configuration
-    namespace = config.project.get_config("fournos_deploy.namespace")
     fournos_source = Path(config.project.get_config("fournos_deploy.fournos_source.path"))
     deploy_config = config.project.get_config("fournos_deploy.deploy")
     manifests_config = config.project.get_config("fournos_deploy.manifests")
 
     if not fournos_source.exists():
         raise ValueError(f"FOURNOS source directory not found: {fournos_source}")
+
+    # Ensure namespace exists
+    namespace = ensure_namespace()
 
     logger.info(f"Deploying from: {fournos_source}")
     logger.info(f"Target namespace: {namespace}")
@@ -123,76 +245,8 @@ def deploy_manifests():
     logger.info(f"Will deploy {len(rbac_files)} RBAC and {len(crd_files)} CRD manifest files")
     logger.info(f"Skipping kinds: {list(skip_kinds)}")
 
-    if not manifest_files:
-        logger.warning("No manifest files configured for deployment")
-        return 0
-
-    # Create namespace if it doesn't exist
-    result = run.run(f"oc create namespace {namespace}", check=False, capture_stderr=True)
-
-    if result.returncode == 0:
-        logger.info(f"Created namespace: {namespace}")
-    elif "already exists" in result.stderr:
-        logger.info(f"Namespace {namespace} already exists")
-    else:
-        raise RuntimeError(f"Failed to create namespace {namespace}: {result.stderr}")
-
-    # Process and apply each configured manifest
-    skipped_manifests = []
-
-    manifests_dir = env.ARTIFACT_DIR / "src" / "manifests"
-    manifests_dir.mkdir(exist_ok=True)
-
-    for manifest_path in manifest_files:
-        manifest_file = fournos_source / manifest_path
-
-        if not manifest_file.exists():
-            raise FileNotFoundError(f"Manifest file not found: {manifest_path}")
-
-        logger.info(f"Processing: {manifest_path}")
-
-        # Apply replacements
-        manifest_content = _apply_manifest_replacements(manifest_file)
-
-        # Parse YAML to check for skip_kinds
-        docs = list(yaml.safe_load_all(manifest_content))
-
-        should_skip = False
-        for doc in docs:
-            if doc and doc.get('kind') in skip_kinds:
-                logger.info(f"Skipping {manifest_path}: contains {doc.get('kind')} (in skip_kinds)")
-                skipped_manifests.append(manifest_path)
-                should_skip = True
-                break
-
-        if should_skip:
-            continue
-
-        # Write processed manifest to temporary file
-
-        processed_file = manifests_dir / f"processed-{manifest_file.name}"
-        with open(processed_file, 'w') as f:
-            f.write(manifest_content)
-
-        # Apply the processed manifest
-        result = run.run(
-            f"oc apply -f {processed_file} -n {namespace}",
-            check=False
-        )
-
-        if result.returncode != 0:
-            raise RuntimeError(f"Failed to apply {manifest_path}: {result.stderr}")
-
-        logger.info(f"✅ Successfully applied {manifest_path}")
-
-    # Summary
-    successful_count = len(manifest_files) - len(skipped_manifests)
-    logger.info(f"Manifest deployment summary:")
-    logger.info(f"  ✅ Applied: {successful_count}")
-    logger.info(f"  ⏭️  Skipped: {len(skipped_manifests)}")
-
-    if skipped_manifests:
-        logger.info(f"Skipped manifests: {skipped_manifests}")
+    # Deploy the manifests using common helper
+    _deploy_manifest_list(manifest_files, namespace, fournos_source, skip_kinds, "manifest")
 
     # Wait for deployments to be ready if configured
     if deploy_config["wait_for_rollout"]:
@@ -224,7 +278,7 @@ def deploy_manifests():
         else:
             logger.info("No deployments found to wait for")
 
-    logger.info(f"✅ FOURNOS manifests deployment completed. Manifest stored in {manifests_dir}")
+    logger.info("✅ FOURNOS manifests deployment completed")
 
     return 0
 
@@ -239,10 +293,12 @@ def deploy_fournos_workload():
     logger.info("=== Deploying FOURNOS Workload ===")
 
     # Get configuration
-    namespace = config.project.get_config("fournos_deploy.namespace")
     fournos_source = Path(config.project.get_config("fournos_deploy.fournos_source.path"))
     manifests_config = config.project.get_config("fournos_deploy.manifests")
     build_config = config.project.get_config("fournos_deploy.build")
+
+    # Ensure namespace exists
+    namespace = ensure_namespace()
 
     deployment_path = manifests_config["deploy"]["fournos"]
     deployment_file = fournos_source / deployment_path
@@ -277,7 +333,9 @@ def deploy_fournos_workload():
     updated_content = yaml.dump_all(docs, default_flow_style=False)
 
     # Write processed manifest to temporary file
-    processed_file = env.artifact_dir / "src" / f"processed-{deployment_file.name}"
+    deploy_dir = env.ARTIFACT_DIR / "src" / "manifests"
+    deploy_dir.mkdir(exist_ok=True, parents=True)
+    processed_file = deploy_dir / f"processed-{deployment_file.name}"
     with open(processed_file, 'w') as f:
         f.write(updated_content)
 
@@ -295,30 +353,42 @@ def deploy_fournos_workload():
     return 0
 
 
-def deploy_forge_config():
+def deploy_workflow_config():
     """
-    Deploy FORGE configuration for FOURNOS
+    Deploy FORGE workflow configuration for FOURNOS
 
     Returns:
-        int: 0 on success, 1 on failure
+        int: 0 on success, raises exception on failure
     """
-    logger.info("=== Deploying FORGE Configuration ===")
+    logger.info("=== Deploying FORGE Workflow Configuration ===")
 
-    namespace = config.project.get_config("fournos_deploy.namespace")
+    # Get configuration
+    fournos_source = Path(config.project.get_config("fournos_deploy.fournos_source.path"))
+    skip_kinds = set(config.project.get_config("fournos_deploy.manifests.skip_kinds"))
+    config_manifests = config.project.get_config("fournos_deploy.manifests.config")
 
-    # TODO: Define what FORGE configuration needs to be deployed
-    # This could include:
-    # - ConfigMaps with FORGE settings
-    # - Secrets for FORGE integration
-    # - RBAC permissions
-    # - Custom resources
+    if not fournos_source.exists():
+        raise ValueError(f"FOURNOS source directory not found: {fournos_source}")
 
-    logger.info("FORGE configuration deployment is not yet implemented")
-    logger.info("This step would typically include:")
-    logger.info("- ConfigMaps with FORGE settings")
-    logger.info("- Integration secrets")
-    logger.info("- RBAC permissions")
-    logger.info("- Custom resource definitions")
+    # Ensure namespace exists
+    namespace = ensure_namespace()
+
+    logger.info(f"Deploying from: {fournos_source}")
+    logger.info(f"Target namespace: {namespace}")
+
+    # Combine all manifest files from all config sections
+    manifest_files = []
+    for section_name, section_files in config_manifests.items():
+        manifest_files.extend(section_files)
+        logger.info(f"Added {len(section_files)} manifests from {section_name}")
+
+    logger.info(f"Will deploy {len(manifest_files)} total config manifest files")
+    logger.info(f"Skipping kinds: {list(skip_kinds)}")
+
+    # Deploy the config manifests using common helper
+    _deploy_manifest_list(manifest_files, namespace, fournos_source, skip_kinds, "config")
+
+    logger.info("✅ FORGE workflow configuration deployment completed")
 
     return 0
 
@@ -352,9 +422,9 @@ def deploy():
     result = deploy_fournos_workload()
     total_errors += result
 
-    # Step 4: Deploy FORGE configuration
-    logger.info("Step 4: Deploying FORGE configuration...")
-    result = deploy_forge_config()
+    # Step 4: Deploy FORGE workflow configuration
+    logger.info("Step 4: Deploying FORGE workflow configuration...")
+    result = deploy_workflow_config()
     total_errors += result
 
     if total_errors == 0:
