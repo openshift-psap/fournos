@@ -23,12 +23,18 @@ fournos_deploy:
     skip_kinds: # don't deploy the cluster-wide updates as part of the automation
     - ClusterRoleBinding
     - ClusterRole
+    - CustomResourceDefinition
     rbac:
     - manifests/rbac/clusterrolebinding_fournos.yaml # will be skipped
     - manifests/rbac/clusterrole_fournos.yaml # will be skipped
     - manifests/rbac/rolebinding_fournos.yaml
     - manifests/rbac/role_fournos.yaml
     - manifests/rbac/sa_fournos.yaml
+    crd:
+    - manifests/crd.yaml # will be skipped
+    deploy:
+      fournos: manifests/deployment.yaml
+
     replace:
       NAMESPACE: "@fournos_deploy.namespace"
 

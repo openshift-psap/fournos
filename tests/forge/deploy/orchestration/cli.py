@@ -105,6 +105,15 @@ def deploy_manifests(ctx, source_path, no_wait, rollout_timeout):
 @main.command()
 @click.pass_context
 @safe_cli_command
+def deploy_workload(ctx):
+    """Deploy FOURNOS workload with built image."""
+    exit_code = fournos_deploy.deploy_fournos_workload()
+    sys.exit(exit_code)
+
+
+@main.command()
+@click.pass_context
+@safe_cli_command
 def deploy_config(ctx):
     """Deploy FORGE configuration for FOURNOS integration."""
     exit_code = fournos_deploy.deploy_forge_config()
