@@ -1,0 +1,102 @@
+vaults: ["psap-forge-fournos-deploy"]
+
+cluster:
+  name: null
+
+secrets:
+  # Kubeconfig vault configuration
+  kubeconfig:
+    vault:
+      name: psap-forge-fournos-deploy
+      key: kubeconfig
+
+fournos_deploy:
+  namespace:
+    name: psap-automation-wip
+    labels:
+      fournos.dev/queue-access: "true"
+
+  # Image build configuration
+  build:
+    repo_name: openshift-psap/fournos
+    commit: main  # Will be overridden by CLI or environment
+    imagestream_name: fournos
+    tag_name: latest
+    dockerfile_path: Containerfile  # Path to Containerfile within the repository
+    timeout_minutes: 30
+
+  # FOURNOS source configuration
+  fournos_source:
+    path: ../fournos
+
+  manifests:
+    skip_kinds: # don't deploy the cluster-wide updates as part of the automation
+    # RBAC cluster-wide resources
+    - ClusterRoleBinding
+    - ClusterRole
+    # CRDs
+    - CustomResourceDefinition
+    # Kueue cluster-wide resources
+    - ResourceFlavor
+    - ClusterQueue
+    - WorkloadPriorityClass
+    # BuildRun are triggered manually
+    - BuildRun
+    rbac:
+    - manifests/rbac/clusterrolebinding_fournos.yaml # will be skipped
+    - manifests/rbac/clusterrole_fournos.yaml # will be skipped
+    - manifests/rbac/rolebinding_fournos.yaml
+    - manifests/rbac/role_fournos.yaml
+    - manifests/rbac/sa_fournos.yaml
+    crd:
+    - manifests/crd.yaml # will be skipped
+
+    deploy:
+      fournos: manifests/deployment.yaml
+
+    config:
+      forge_image:
+      - config/forge/images/build_forge-main.yaml
+      - config/forge/images/buildrun_forge-main.yaml # will be skipped
+      - config/forge/images/is_forge.yaml
+      forge_workflow:
+      - config/forge/workflows/pipeline-full.yaml
+      - config/forge/workflows/pipeline-test-only.yaml
+      - config/forge/workflows/tasks.yaml
+      kueue_config:
+      - config/kueue-cluster-config.yaml # will be skipped
+      - config/kueue-config.yaml
+
+    to_build:
+    - config/forge/images/build_forge-main.yaml
+
+    replace:
+      NAMESPACE: "@fournos_deploy.namespace.name"
+
+  # Deployment configuration
+  deploy:
+    wait_for_rollout: true
+    rollout_timeout: 300
+
+  images:
+    fournos:
+      force_rebuild: false
+    workflows:
+      force_rebuild: false
+
+  cleanup:
+    resources:
+    # Core
+    - Deployments.app
+    # Shipwright
+    - Builds.shipwright.io
+    - ImageStream.image.openshift.io
+    - BuildRuns.shipwright.io
+    # Tekton
+    - PipelineRuns.tekton.dev
+    - Pipeline.tekton.dev
+    - Task.tekton.dev
+    # Fournos
+    - FournosJob.fournos.dev
+    # Kueue
+    - LocalQueue.kueue.x-k8s.io

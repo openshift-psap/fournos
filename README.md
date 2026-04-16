@@ -134,6 +134,8 @@ make test                        # integration tests (operator must be running)
 
 ## Deployment
 
+**FORGE on the hub:** [`config/forge/`](config/forge/) is the real OpenShift configuration for this repo—ImageStreams, Builds, Tekton Tasks and Pipelines, and sample jobs you apply to a cluster. It is **not** the same as the lightweight stand-ins under [`dev/mock-pipelines/`](dev/mock-pipelines/), which [`make dev-setup`](#local-development) installs on kind for local testing only.
+
 Prepare the namespace
 ```bash
 FOURNOS_NAMESPACE=fournos-$USER-dev
@@ -145,7 +147,9 @@ Deploy the operator:
 
 ```bash
 oc apply -n $FOURNOS_NAMESPACE -f manifests/crd.yaml
-cat manifests/rbac.yaml | NAMESPACE=$FOURNOS_NAMESPACE envsubst | oc apply -f- -n $FOURNOS_NAMESPACE
+for rbac_file in manifests/rbac/*.yaml; do
+  cat $rbac_file | NAMESPACE=$FOURNOS_NAMESPACE envsubst | oc apply -f- -n $FOURNOS_NAMESPACE
+done
 oc apply -n $FOURNOS_NAMESPACE -f manifests/deployment.yaml
 ```
 
@@ -194,7 +198,7 @@ details.
 
 ### Deploying the FORGE workflow configuration
 
-Deploy the cluster configuration (Builds + Tekton):
+Apply the production FORGE assets from `config/forge/` (not the kind mocks in `dev/mock-pipelines/`). Deploy the cluster configuration (Builds + Tekton):
 
 ```bash
 oc apply -n $FOURNOS_NAMESPACE -f config/forge/images/is_forge.yaml
@@ -203,7 +207,9 @@ cat config/forge/images/build_forge-main.yaml \
    | oc apply -n $FOURNOS_NAMESPACE
 oc create -n $FOURNOS_NAMESPACE  -f config/forge/images/buildrun_forge-main.yaml
 
-oc apply -n $FOURNOS_NAMESPACE -f config/forge/workflows
+for wf_file in config/forge/workflows/*.yaml; do
+  cat "$wf_file" | NAMESPACE=$FOURNOS_NAMESPACE envsubst '$NAMESPACE' | oc apply -f- -n $FOURNOS_NAMESPACE
+done
 ```
 
 ## Configuration

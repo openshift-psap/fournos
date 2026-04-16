@@ -22,7 +22,7 @@ spec:
       type: array
   steps:
     - name: forge
-      image: image-registry.openshift-image-registry.svc:5000/psap-automation/forge-core:main
+      image: image-registry.openshift-image-registry.svc:5000/${NAMESPACE}/forge-core:main
       env:
       - name: KUBECONFIG
         value: /workspace/kubeconfig/kubeconfig
@@ -43,6 +43,8 @@ spec:
         set -o errexit
         set -o nounset
         set -o errtrace
+
+        exec &> >(tee -a "$ARTIFACT_DIR/run.log")
 
         export ARTIFACT_DIR=/tmp/artifacts
         mkdir -p "${ARTIFACT_DIR}"
