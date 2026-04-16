@@ -271,12 +271,8 @@ def build_image():
         "fournos_deploy.images.fournos.force_rebuild", print=False
     )
 
-    # Allow environment variable overrides
-    pr_number = os.environ.get("PULL_NUMBER")
-    if pr_number:
-        commit = f"refs/pull/{pr_number}/head"
-    else:
-        commit = os.environ.get("PULL_PULL_SHA") or build_config.get("commit", "main")
+    # Get commit from configuration
+    commit = build_config.get("commit", "main")
 
     logger.info(f"Building image from commit: {commit}")
     logger.info(f"Repository: {build_config['repo_name']}")

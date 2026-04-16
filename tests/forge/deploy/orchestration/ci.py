@@ -11,6 +11,7 @@ import deploy as fournos_deploy
 import click
 import types
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,12 @@ def main(ctx, project_source):
     if project_source:
         config.project.set_config("fournos_deploy.fournos_source.path", project_source)
         logger.info(f"Using FOURNOS source path: {project_source}")
+
+    # Set commit from PULL_PULL_SHA if available
+    pull_sha = os.environ.get("PULL_PULL_SHA")
+    if pull_sha:
+        config.project.set_config("fournos_deploy.build.commit", pull_sha)
+        logger.info(f"Using commit from PULL_PULL_SHA: {pull_sha}")
 
     # Verify OpenShift authentication early
     from projects.core.library import run
