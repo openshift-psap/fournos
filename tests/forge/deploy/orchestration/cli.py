@@ -57,18 +57,13 @@ def main(ctx, namespace, commit, tag, repo, dockerfile, timeout):
 
 
 @main.command()
-@click.option("--imagestream", help="ImageStream name (overrides config)")
 @click.option(
     "--force-rebuild", is_flag=True, help="Force rebuild even if image exists"
 )
 @click.pass_context
 @safe_cli_command
-def build_image(ctx, imagestream, force_rebuild):
+def build_image(ctx, force_rebuild):
     """Build FOURNOS container image using Shipwright."""
-
-    if imagestream:
-        config.project.set_config("fournos_deploy.build.imagestream_name", imagestream)
-        logger.info(f"Using ImageStream: {imagestream}")
 
     if force_rebuild:
         config.project.set_config("fournos_deploy.images.fournos.force_rebuild", True)
@@ -142,27 +137,11 @@ def cleanup(ctx):
 
 
 @main.command()
-@click.option("--skip-build", is_flag=True, help="Skip the image build step")
-@click.option(
-    "--skip-manifests", is_flag=True, help="Skip the manifest deployment step"
-)
-@click.option("--skip-config", is_flag=True, help="Skip the config deployment step")
 @click.pass_context
 @safe_cli_command
-def deploy(ctx, skip_build, skip_manifests, skip_config):
+def deploy(ctx):
     """Complete FOURNOS deployment (build + deploy manifests + deploy config)."""
 
-    if skip_build:
-        logger.info("Skipping image build step")
-
-    if skip_manifests:
-        logger.info("Skipping manifest deployment step")
-
-    if skip_config:
-        logger.info("Skipping config deployment step")
-
-    # TODO: Implement skip logic in the deploy function
-    # For now, just run the complete deploy
     exit_code = fournos_deploy.deploy()
     sys.exit(exit_code)
 
