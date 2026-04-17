@@ -44,10 +44,10 @@ spec:
         set -o nounset
         set -o errtrace
 
-        exec &> >(tee -a "$ARTIFACT_DIR/run.log")
-
         export ARTIFACT_DIR=/tmp/artifacts
         mkdir -p "${ARTIFACT_DIR}"
+
+        exec &> >(tee -a "$ARTIFACT_DIR/run.log")
 
         cat > $ARTIFACT_DIR/forge_config.yaml <<< "$FORGE_CONFIG"
 
