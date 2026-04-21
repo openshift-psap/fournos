@@ -135,6 +135,7 @@ spec:
                     - Running
                     - Succeeded
                     - Failed
+                    - Aborting
                     - Aborted
                 cluster:
                   type: string

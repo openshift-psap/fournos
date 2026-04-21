@@ -87,15 +87,20 @@ def on_create(spec, name, namespace, status, patch, body, **_):
     "fournosjobs",
     interval=5.0,
     when=lambda status, **_: (
-        status.get("phase") in (Phase.PENDING, Phase.ADMITTED, Phase.RUNNING)
+        status.get("phase")
+        in (Phase.PENDING, Phase.ADMITTED, Phase.RUNNING, Phase.ABORTING)
     ),
 )
 def reconcile(spec, name, namespace, status, patch, body, **_):
+    phase = status.get("phase", "")
+
+    if phase == Phase.ABORTING:
+        handlers.reconcile_aborting(name, status, patch)
+        return
+
     if spec.get("aborted"):
         handlers.handle_abort(name, status, patch)
         return
-
-    phase = status.get("phase", "")
 
     if phase == Phase.PENDING:
         handlers.reconcile_pending(spec, name, status, patch, body)

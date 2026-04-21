@@ -81,7 +81,7 @@ oc delete FournosJob -n $FOURNOS_NAMESPACE <name>      # cleanup
 | `spec.priority` | no | Kueue WorkloadPriorityClass name |
 | `spec.secretRefs` | no | Names of Kubernetes Secrets to mount into the pipeline (references, not values) |
 | `spec.exclusive` | no | If `true`, locks the target cluster so no other FournosJob can run there. Requires `spec.cluster`. |
-| `spec.aborted` | no | Set to `true` to abort a running or pending job. Cancels the PipelineRun (gracefully, running `finally` tasks) and releases Kueue quota. |
+| `spec.aborted` | no | Set to `true` to abort a running or pending job. For running jobs, gracefully cancels the PipelineRun (Tekton `CancelledRunFinally`) and waits for cleanup before releasing Kueue quota. |
 
 \* At least one of `spec.cluster` or `spec.hardware` must be provided. Both can be
 set together to pin a hardware request to a specific cluster.
@@ -92,7 +92,7 @@ The operator writes status to `.status`:
 
 | Field | Description |
 |---|---|
-| `phase` | `Pending` → `Admitted` → `Running` → `Succeeded` / `Failed` / `Aborted` |
+| `phase` | `Pending` → `Admitted` → `Running` → `Succeeded` / `Failed` / `Aborting` → `Aborted` |
 | `cluster` | Cluster assigned by Kueue |
 | `pipelineRun` | Name of the Tekton PipelineRun |
 | `dashboardURL` | Tekton Dashboard link (if configured) |
@@ -245,8 +245,10 @@ The operator runs as a single-replica Deployment using
 
 Setting `spec.aborted: true` on a FournosJob gracefully cancels the
 PipelineRun (Tekton's `CancelledRunFinally`, which runs `finally` cleanup
-tasks), deletes the Workload to release Kueue quota, and transitions the
-job to `phase=Aborted`.
+tasks) and transitions to `phase=Aborting`. The operator keeps the Kueue
+Workload alive while the PipelineRun's cleanup runs, ensuring the cluster
+slot is not released prematurely. Once the PipelineRun completes, the
+Workload is deleted and the job moves to `phase=Aborted`.
 
 Deleting a FournosJob automatically cascade-deletes its Workload and
 PipelineRun through Kubernetes owner references.

@@ -66,7 +66,7 @@ def test_abort_pending_job(k8s):
 
 
 def test_abort_running_job(k8s):
-    """Aborting a Running job cancels the PipelineRun and deletes the Workload."""
+    """Aborting a Running job transitions through Aborting, then Aborted."""
     create_job(
         k8s,
         "test-abort-running",
@@ -80,11 +80,24 @@ def test_abort_running_job(k8s):
 
     _set_aborted(k8s, "test-abort-running")
 
+    # The job should first transition to Aborting while PipelineRun cleans up.
+    poll_phase(
+        k8s,
+        "test-abort-running",
+        terminal={Phase.ABORTING},
+        timeout=30,
+    )
+    # Workload must still exist while Aborting (quota not released yet).
+    assert workload_exists("test-abort-running"), (
+        "Workload must stay alive during Aborting phase"
+    )
+
+    # Wait for the final Aborted phase.
     phase = poll_phase(
         k8s,
         "test-abort-running",
         terminal={Phase.ABORTED},
-        timeout=30,
+        timeout=60,
     )
     assert phase == Phase.ABORTED, job_status_summary(k8s, "test-abort-running")
 
@@ -92,28 +105,23 @@ def test_abort_running_job(k8s):
     assert job["status"]["message"] == "Job aborted by user"
 
     conditions = {c["type"]: c for c in job["status"].get("conditions", [])}
+    assert conditions["WorkloadAdmitted"]["status"] == "False"
     assert conditions["WorkloadAdmitted"]["reason"] == "Aborted"
     assert "PipelineRunReady" in conditions
     assert conditions["PipelineRunReady"]["status"] == "False"
     assert conditions["PipelineRunReady"]["reason"] == "Aborted"
 
+    # PipelineRun should have been cancelled via CancelledRunFinally.
     pr = get_k8s_resource("pipelinerun", "test-abort-running")
     assert pr["spec"].get("status") == "CancelledRunFinally", (
         f"PipelineRun spec.status should be CancelledRunFinally, "
         f"got {pr['spec'].get('status')!r}"
     )
 
-    deadline = time.monotonic() + 60
-    while time.monotonic() < deadline:
-        pr = get_k8s_resource("pipelinerun", "test-abort-running")
-        if pr.get("status", {}).get("completionTime"):
-            break
-        time.sleep(3)
-    else:
-        raise AssertionError(
-            "PipelineRun test-abort-running did not complete within 60s "
-            "after CancelledRunFinally"
-        )
+    # PipelineRun must have completed (completionTime set).
+    assert pr.get("status", {}).get("completionTime"), (
+        "PipelineRun should have completionTime set after abort completes"
+    )
 
     pr_conditions = pr.get("status", {}).get("conditions", [])
     assert pr_conditions, "PipelineRun should have conditions after completion"
@@ -126,6 +134,7 @@ def test_abort_running_job(k8s):
         or "cancel" in last_cond.get("reason", "").lower()
     ), f"PipelineRun condition should mention cancellation, got {last_cond}"
 
+    # Workload should be gone now that we're in Aborted.
     poll_resource_gone(workload_exists, "test-abort-running")
 
 
