@@ -178,6 +178,9 @@ def test_exclusive_blocks_cluster_pinned_job(k8s):
     assert "cluster-2" in msg, (
         f"Message should mention the locked cluster, got: {msg!r}"
     )
+    assert "test-excl-lock" in msg, (
+        f"Message should name the exclusive job holding the lock, got: {msg!r}"
+    )
 
     poll_phase(
         k8s,
@@ -341,6 +344,9 @@ def test_lock_released_on_completion(k8s):
     msg = get_job(k8s, "test-waiting")["status"]["message"]
     assert "cluster-1" in msg, (
         f"Message should mention the locked cluster, got: {msg!r}"
+    )
+    assert "test-excl-release" in msg, (
+        f"Message should name the exclusive job holding the lock, got: {msg!r}"
     )
 
     poll_phase(

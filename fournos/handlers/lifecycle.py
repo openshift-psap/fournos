@@ -11,11 +11,19 @@ import logging
 
 from kubernetes import client
 
-from fournos.core.constants import CLUSTER_SLOT_RESOURCE, Phase
+from fournos.core.constants import (
+    CLUSTER_SLOT_RESOURCE,
+    LABEL_EXCLUSIVE_CLUSTER,
+    LOCK_HOLDING_PHASES,
+    Phase,
+)
 from fournos.core.kueue import KueueClient
+from fournos.settings import settings
 from fournos.state import ctx
 
 from .status import (
+    CRD_GROUP,
+    CRD_VERSION,
     COND_WORKLOAD_ADMITTED,
     create_workload_for_job,
     set_condition,
@@ -83,6 +91,9 @@ def on_create(spec, name, namespace, status, patch, body):
             )
             return
 
+    if exclusive:
+        patch.meta.setdefault("labels", {})[LABEL_EXCLUSIVE_CLUSTER] = cluster
+
     try:
         create_workload_for_job(spec, name, body)
     except client.exceptions.ApiException as exc:
@@ -115,10 +126,39 @@ def on_create(spec, name, namespace, status, patch, body):
 # ---------------------------------------------------------------------------
 
 
+def _find_exclusive_locker(cluster: str, exclude_job: str) -> str | None:
+    """Return the name of the exclusive job actively holding *cluster*, if any.
+
+    Only jobs in Admitted or Running phase actually hold cluster-slot quota.
+    Returns None on API errors so reconciliation is not interrupted.
+    """
+    try:
+        custom = client.CustomObjectsApi()
+        jobs = custom.list_namespaced_custom_object(
+            CRD_GROUP,
+            CRD_VERSION,
+            settings.namespace,
+            "fournosjobs",
+            label_selector=f"{LABEL_EXCLUSIVE_CLUSTER}={cluster}",
+        )
+    except client.exceptions.ApiException:
+        logger.warning("Failed to query exclusive locker for cluster %s", cluster)
+        return None
+    for job in jobs.get("items", []):
+        job_name = job["metadata"]["name"]
+        if job_name == exclude_job:
+            continue
+        phase = job.get("status", {}).get("phase", "")
+        if phase in LOCK_HOLDING_PHASES:
+            return job_name
+    return None
+
+
 def _pending_status(
     wl_message: str,
     cluster: str | None,
     exclusive: bool,
+    locker: str | None = None,
 ) -> tuple[str, str]:
     """Return (user_message, log_message) with cluster-slot context when applicable."""
     if not wl_message:
@@ -135,11 +175,20 @@ def _pending_status(
             f"exclusive job waiting for cluster {cluster} to clear (slot contention)"
         )
     elif is_slot_issue and cluster:
+        locker_label = f"job {locker}" if locker else "another job"
         user_msg = (
-            f"Cluster {cluster} is exclusively locked by another job, "
+            f"Cluster {cluster} is exclusively locked by {locker_label}, "
             f"waiting for it to finish"
         )
-        log_msg = f"cluster {cluster} exclusively locked (slot contention)"
+        if locker:
+            log_msg = (
+                f"cluster {cluster} exclusively locked by {locker} (slot contention)"
+            )
+        else:
+            log_msg = (
+                f"cluster {cluster} exclusively locked (slot contention, "
+                f"locker not found — may have just finished)"
+            )
     elif is_slot_issue:
         user_msg = (
             "All eligible clusters are exclusively locked, waiting for availability"
@@ -162,10 +211,15 @@ def reconcile_pending(spec, name, status, patch, body):
 
     if not KueueClient.is_admitted(wl):
         wl_reason, wl_message = KueueClient.get_pending_message(wl)
+        cluster = spec.get("cluster")
+        locker = None
+        if cluster and CLUSTER_SLOT_RESOURCE in wl_message:
+            locker = _find_exclusive_locker(cluster, name)
         new_msg, log_msg = _pending_status(
             wl_message,
-            spec.get("cluster"),
+            cluster,
             spec.get("exclusive", False),
+            locker,
         )
         if status.get("message") != new_msg:
             patch.status["message"] = new_msg
