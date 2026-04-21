@@ -142,7 +142,7 @@ def _find_exclusive_locker(cluster: str, exclude_job: str) -> str | None:
             label_selector=f"{LABEL_EXCLUSIVE_CLUSTER}={cluster}",
         )
     except client.exceptions.ApiException:
-        logger.debug("Failed to query exclusive locker for cluster %s", cluster)
+        logger.warning("Failed to query exclusive locker for cluster %s", cluster)
         return None
     for job in jobs.get("items", []):
         job_name = job["metadata"]["name"]
