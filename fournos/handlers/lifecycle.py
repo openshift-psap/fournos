@@ -14,7 +14,7 @@ from kubernetes import client
 from fournos.core.constants import (
     CLUSTER_SLOT_RESOURCE,
     LABEL_EXCLUSIVE_CLUSTER,
-    TERMINAL_PHASES,
+    LOCK_HOLDING_PHASES,
     Phase,
 )
 from fournos.core.kueue import KueueClient
@@ -127,21 +127,29 @@ def on_create(spec, name, namespace, status, patch, body):
 
 
 def _find_exclusive_locker(cluster: str, exclude_job: str) -> str | None:
-    """Return the name of the active exclusive job holding *cluster*, if any."""
-    custom = client.CustomObjectsApi()
-    jobs = custom.list_namespaced_custom_object(
-        CRD_GROUP,
-        CRD_VERSION,
-        settings.namespace,
-        "fournosjobs",
-        label_selector=f"{LABEL_EXCLUSIVE_CLUSTER}={cluster}",
-    )
+    """Return the name of the exclusive job actively holding *cluster*, if any.
+
+    Only jobs in Admitted or Running phase actually hold cluster-slot quota.
+    Returns None on API errors so reconciliation is not interrupted.
+    """
+    try:
+        custom = client.CustomObjectsApi()
+        jobs = custom.list_namespaced_custom_object(
+            CRD_GROUP,
+            CRD_VERSION,
+            settings.namespace,
+            "fournosjobs",
+            label_selector=f"{LABEL_EXCLUSIVE_CLUSTER}={cluster}",
+        )
+    except client.exceptions.ApiException:
+        logger.debug("Failed to query exclusive locker for cluster %s", cluster)
+        return None
     for job in jobs.get("items", []):
         job_name = job["metadata"]["name"]
         if job_name == exclude_job:
             continue
         phase = job.get("status", {}).get("phase", "")
-        if phase and phase not in TERMINAL_PHASES:
+        if phase in LOCK_HOLDING_PHASES:
             return job_name
     return None
 

@@ -16,4 +16,4 @@ class Phase(StrEnum):
     FAILED = "Failed"
 
 
-TERMINAL_PHASES = frozenset({Phase.SUCCEEDED, Phase.FAILED})
+LOCK_HOLDING_PHASES = frozenset({Phase.ADMITTED, Phase.RUNNING})
