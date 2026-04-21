@@ -42,6 +42,12 @@ def on_create(spec, name, namespace, status, patch, body):
     if status.get("phase"):
         return
 
+    if spec.get("aborted"):
+        patch.status["phase"] = Phase.ABORTED
+        patch.status["message"] = "Job aborted by user"
+        logger.info("Job %s: created with aborted=true, skipping", name)
+        return
+
     cluster = spec.get("cluster")
     hardware = spec.get("hardware")
     exclusive = spec.get("exclusive", False)

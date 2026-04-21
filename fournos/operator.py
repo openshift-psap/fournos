@@ -91,6 +91,10 @@ def on_create(spec, name, namespace, status, patch, body, **_):
     ),
 )
 def reconcile(spec, name, namespace, status, patch, body, **_):
+    if spec.get("aborted"):
+        handlers.handle_abort(name, status, patch)
+        return
+
     phase = status.get("phase", "")
 
     if phase == Phase.PENDING:

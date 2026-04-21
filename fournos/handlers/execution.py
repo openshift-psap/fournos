@@ -17,11 +17,46 @@ from fournos.state import ctx
 
 from .status import (
     COND_PIPELINE_RUN_READY,
+    COND_WORKLOAD_ADMITTED,
     owner_ref,
     set_condition,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def handle_abort(name, status, patch):
+    """Abort a job: cancel the PipelineRun, delete the Workload, set phase=Aborted."""
+    phase = status.get("phase", "")
+    conditions = list(status.get("conditions") or [])
+
+    if phase in (Phase.RUNNING, Phase.ADMITTED):
+        ctx.tekton.cancel_pipeline_run(name)
+
+    ctx.kueue.delete_workload(name)
+
+    patch.status["phase"] = Phase.ABORTED
+    patch.status["message"] = "Job aborted by user"
+
+    set_condition(
+        patch,
+        conditions,
+        COND_WORKLOAD_ADMITTED,
+        "False",
+        "Aborted",
+        "Job aborted by user",
+    )
+    if any(c.get("type") == COND_PIPELINE_RUN_READY for c in conditions):
+        set_condition(
+            patch,
+            patch.status["conditions"],
+            COND_PIPELINE_RUN_READY,
+            "False",
+            "Aborted",
+            "Job aborted by user",
+        )
+
+    logger.info("Job %s: aborted (was %s)", name, phase)
 
 
 def reconcile_admitted(spec, name, namespace, status, patch, body):

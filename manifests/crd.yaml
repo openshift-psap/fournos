@@ -120,6 +120,10 @@ spec:
                     Requires 'cluster' to be set.
                 priority:
                   type: string
+                aborted:
+                  type: boolean
+                  default: false
+                  description: Set to true to abort a running or pending job.
             status:
               type: object
               properties:
@@ -131,6 +135,7 @@ spec:
                     - Running
                     - Succeeded
                     - Failed
+                    - Aborted
                 cluster:
                   type: string
                 pipelineRun:

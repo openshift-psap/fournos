@@ -14,6 +14,8 @@ class Phase(StrEnum):
     RUNNING = "Running"
     SUCCEEDED = "Succeeded"
     FAILED = "Failed"
+    ABORTED = "Aborted"
 
 
+TERMINAL_PHASES = frozenset({Phase.SUCCEEDED, Phase.FAILED, Phase.ABORTED})
 LOCK_HOLDING_PHASES = frozenset({Phase.ADMITTED, Phase.RUNNING})

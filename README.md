@@ -60,6 +60,7 @@ spec:
 FOURNOS_NAMESPACE=fournos-$USER-dev
 oc create -f config/forge/samples/job-full.yaml -n $FOURNOS_NAMESPACE     # returns the generated name, e.g. forge-full-sample-x7k2m
 oc get FournosJobs -n $FOURNOS_NAMESPACE -w            # watch status transitions
+oc patch FournosJob <name> -n $FOURNOS_NAMESPACE --type merge -p '{"spec":{"aborted":true}}'  # abort a running job
 oc delete FournosJob -n $FOURNOS_NAMESPACE <name>      # cleanup
 ```
 
@@ -80,6 +81,7 @@ oc delete FournosJob -n $FOURNOS_NAMESPACE <name>      # cleanup
 | `spec.priority` | no | Kueue WorkloadPriorityClass name |
 | `spec.secretRefs` | no | Names of Kubernetes Secrets to mount into the pipeline (references, not values) |
 | `spec.exclusive` | no | If `true`, locks the target cluster so no other FournosJob can run there. Requires `spec.cluster`. |
+| `spec.aborted` | no | Set to `true` to abort a running or pending job. Cancels the PipelineRun (gracefully, running `finally` tasks) and releases Kueue quota. |
 
 \* At least one of `spec.cluster` or `spec.hardware` must be provided. Both can be
 set together to pin a hardware request to a specific cluster.
@@ -90,7 +92,7 @@ The operator writes status to `.status`:
 
 | Field | Description |
 |---|---|
-| `phase` | `Pending` → `Admitted` → `Running` → `Succeeded` / `Failed` |
+| `phase` | `Pending` → `Admitted` → `Running` → `Succeeded` / `Failed` / `Aborted` |
 | `cluster` | Cluster assigned by Kueue |
 | `pipelineRun` | Name of the Tekton PipelineRun |
 | `dashboardURL` | Tekton Dashboard link (if configured) |
@@ -240,6 +242,11 @@ The operator runs as a single-replica Deployment using
 3. **Launches** a Tekton PipelineRun with FORGE parameters (owned by the FournosJob via `ownerReferences`)
 4. **Watches** the PipelineRun until completion
 5. **Deletes** the Workload to release Kueue quota
+
+Setting `spec.aborted: true` on a FournosJob gracefully cancels the
+PipelineRun (Tekton's `CancelledRunFinally`, which runs `finally` cleanup
+tasks), deletes the Workload to release Kueue quota, and transitions the
+job to `phase=Aborted`.
 
 Deleting a FournosJob automatically cascade-deletes its Workload and
 PipelineRun through Kubernetes owner references.
