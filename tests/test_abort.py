@@ -103,6 +103,29 @@ def test_abort_running_job(k8s):
         f"got {pr['spec'].get('status')!r}"
     )
 
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        pr = get_k8s_resource("pipelinerun", "test-abort-running")
+        if pr.get("status", {}).get("completionTime"):
+            break
+        time.sleep(3)
+    else:
+        raise AssertionError(
+            "PipelineRun test-abort-running did not complete within 60s "
+            "after CancelledRunFinally"
+        )
+
+    pr_conditions = pr.get("status", {}).get("conditions", [])
+    assert pr_conditions, "PipelineRun should have conditions after completion"
+    last_cond = pr_conditions[-1]
+    assert last_cond["status"] == "False", (
+        f"Cancelled PipelineRun condition status should be False, got {last_cond}"
+    )
+    assert (
+        "cancel" in last_cond.get("message", "").lower()
+        or "cancel" in last_cond.get("reason", "").lower()
+    ), f"PipelineRun condition should mention cancellation, got {last_cond}"
+
     poll_resource_gone(workload_exists, "test-abort-running")
 
 
