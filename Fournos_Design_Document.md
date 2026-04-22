@@ -202,7 +202,7 @@ The operator is split across several modules:
 - **`fournos/handlers/`** — phase handler package:
   - `status.py` — condition helpers, `owner_ref`, `create_workload_for_job`, shared constants
   - `lifecycle.py` — `on_create`, `reconcile_pending` (early phases)
-  - `execution.py` — `reconcile_admitted`, `reconcile_running` (PipelineRun management), `handle_abort` / `reconcile_aborting` (abort flow)
+  - `execution.py` — `reconcile_admitted`, `reconcile_running` (PipelineRun management), `handle_shutdown` / `reconcile_stopping` (shutdown flow)
 - **`fournos/state.py`** — shared client instances (`_OperatorState` dataclass with `kueue`, `tekton`, `registry`)
 
 Kopf handlers registered in `operator.py`:
@@ -362,7 +362,7 @@ tests/
   test_lifecycle.py        # Workload cleanup, delete cleanup, list, filter by phase
   test_resource_gc.py      # Stale Workload/PipelineRun garbage collection
   test_exclusive.py        # Exclusive cluster locking (happy path, blocking, occupancy, lock release)
-  test_abort.py            # Job abort (pending, running, pre-aborted at creation)
+  test_shutdown.py         # Job shutdown (stop, terminate, at creation, completed no-op)
 Containerfile
 Makefile                   # dev-setup, dev-run, test, dev-teardown, ci-setup, ci-run, ci-stop, lint, format
 pyproject.toml

@@ -38,8 +38,12 @@ def handle_shutdown(name, status, patch, shutdown):
     phase = status.get("phase", "")
     conditions = list(status.get("conditions") or [])
 
-    has_pipeline_run = phase in (Phase.RUNNING, Phase.ADMITTED)
-    if has_pipeline_run:
+    pr = (
+        ctx.tekton.get_pipeline_run_or_none(name)
+        if phase in (Phase.RUNNING, Phase.ADMITTED)
+        else None
+    )
+    if pr is not None:
         graceful = shutdown == Shutdown.STOP
         ctx.tekton.cancel_pipeline_run(name, graceful=graceful)
 
