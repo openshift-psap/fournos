@@ -177,7 +177,7 @@ def _sanitize_k8s_key(key: str) -> str:
 
 def k8s_name(vault_entry: str) -> str:
     """Derive a K8s-safe Secret name from a vault entry name."""
-    return "vault-" + vault_entry.replace("/", "_").lower()
+    return "vault-" + vault_entry.replace("/", "-").replace("_", "-").lower()
 
 
 def sync(
