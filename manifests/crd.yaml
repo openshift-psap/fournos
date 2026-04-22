@@ -106,8 +106,10 @@ spec:
                 secretRefs:
                   type: array
                   description: >-
-                    Names of Kubernetes Secrets to mount into the pipeline.
-                    These are references, not secret values.
+                    Vault entry names to mount into the pipeline.  The operator
+                    resolves each name to a Kubernetes Secret via the
+                    fournos.dev/vault-entry label.  Secrets must be synced
+                    from Vault beforehand via sync_vault_secrets script.
                   items:
                     type: string
                 exclusive:

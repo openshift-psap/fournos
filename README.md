@@ -80,7 +80,7 @@ oc delete FournosJob -n $FOURNOS_NAMESPACE <name>      # cleanup
 | `spec.displayName` | no | Human-readable job name (defaults to `metadata.name`) |
 | `spec.pipeline` | no | Tekton Pipeline name (default: `fournos-full`) |
 | `spec.priority` | no | Kueue WorkloadPriorityClass name |
-| `spec.secretRefs` | no | Names of Kubernetes Secrets to mount into the pipeline (references, not values) |
+| `spec.secretRefs` | no | Vault entry names to mount into the pipeline. The operator resolves each name to a K8s Secret via the `fournos.dev/vault-entry` label. Secrets must be synced from Vault first (see [Synchronizing secrets from Vault](#synchronizing-secrets-from-vault)). |
 | `spec.exclusive` | no | If `true`, locks the target cluster so no other FournosJob can run there. Requires `spec.cluster`. |
 | `spec.shutdown` | no | Shutdown action: `Stop` cancels gracefully (Tekton `CancelledRunFinally` — runs `finally` tasks); `Terminate` cancels immediately (Tekton `Cancelled` — skips `finally` tasks). Both wait for the PipelineRun to finish before releasing Kueue quota. |
 
@@ -213,6 +213,46 @@ oc create -n $FOURNOS_NAMESPACE  -f config/forge/images/buildrun_forge-main.yaml
 for wf_file in config/forge/workflows/*.yaml; do
   cat "$wf_file" | NAMESPACE=$FOURNOS_NAMESPACE envsubst '$NAMESPACE' | oc apply -f- -n $FOURNOS_NAMESPACE
 done
+```
+
+### Synchronizing secrets from Vault
+
+Pipeline jobs can reference Kubernetes Secrets via `spec.secretRefs`. These
+secrets originate in a HashiCorp Vault instance. Because there is no permanent
+programmatic access to the vault, secrets are synchronized manually on demand —
+whenever the vault content changes.
+
+The sync script reads vault entries and creates one Opaque Secret per entry
+(named `vault-<entry>`). Existing secrets are updated in-place.
+
+```bash
+# 1. Set the required environment variables
+export VAULT_ADDR="https://vault.example.com"   # Vault server URL
+export VAULT_TOKEN="s.xxxxx"                     # your short-lived token
+export VAULT_SECRET_PATH="path/to/secrets"       # directory path within the KV engine
+
+# 2. Sync all vault entries under the configured path
+python hacks/sync_vault_secrets.py -n $FOURNOS_NAMESPACE
+
+# 3. Preview without touching the cluster
+python hacks/sync_vault_secrets.py -n $FOURNOS_NAMESPACE --dry-run
+```
+
+Makefile shortcuts (`VAULT_ADDR`, `VAULT_TOKEN`, and `VAULT_SECRET_PATH` must be set):
+
+```bash
+make sync-vault-secrets              # syncs all entries
+make sync-vault-secrets-dry-run      # preview only
+```
+
+The synced secrets are labelled `app.kubernetes.io/managed-by=fournos-vault-sync`
+for easy identification. Reference them in a FournosJob using their vault
+entry name — the operator resolves the actual K8s Secret name automatically:
+
+```yaml
+spec:
+  secretRefs:
+    - my-creds
 ```
 
 ## Configuration

@@ -154,6 +154,23 @@ def reconcile_admitted(spec, name, namespace, status, patch, body):
         display_name = spec.get("displayName") or name
 
         try:
+            resolved_refs = ctx.registry.resolve_secret_refs(spec.get("secretRefs", []))
+        except KeyError as exc:
+            patch.status["phase"] = Phase.FAILED
+            patch.status["message"] = str(exc).strip("'\"")
+            set_condition(
+                patch,
+                conditions,
+                COND_PIPELINE_RUN_READY,
+                "False",
+                "SecretRefNotFound",
+                str(exc).strip("'\""),
+            )
+            ctx.kueue.delete_workload(name)
+            logger.error("Job %s: %s", name, exc)
+            return
+
+        try:
             ctx.tekton.create_pipeline_run(
                 name=name,
                 display_name=display_name,
@@ -163,7 +180,7 @@ def reconcile_admitted(spec, name, namespace, status, patch, body):
                 env=spec.get("env", {}),
                 kubeconfig_secret=secret,
                 gpu_count=gpu_count,
-                secret_refs=spec.get("secretRefs", []),
+                secret_refs=resolved_refs,
                 cluster=cluster,
                 owner_ref=owner_ref(body),
             )
