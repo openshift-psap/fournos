@@ -10,18 +10,135 @@ import logging
 
 from kubernetes import client
 
-from fournos.core.constants import Phase
+from fournos.core.constants import Phase, Shutdown
 from fournos.core.tekton import TektonClient
 from fournos.settings import settings
 from fournos.state import ctx
 
 from .status import (
     COND_PIPELINE_RUN_READY,
+    COND_WORKLOAD_ADMITTED,
     owner_ref,
     set_condition,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def handle_shutdown(name, status, patch, shutdown):
+    """Start shutting down a job.
+
+    If a PipelineRun exists, cancel it and transition to Stopping — the
+    Workload (and its quota) is kept until the PipelineRun finishes.
+    ``Stop`` uses CancelledRunFinally (runs finally tasks), ``Terminate``
+    uses Cancelled (skips finally tasks).  If no PipelineRun exists
+    (Pending phase), delete the Workload immediately and go straight to
+    Stopped.
+    """
+    phase = status.get("phase", "")
+    conditions = list(status.get("conditions") or [])
+
+    pr = (
+        ctx.tekton.get_pipeline_run_or_none(name)
+        if phase in (Phase.RUNNING, Phase.ADMITTED)
+        else None
+    )
+    if pr is not None:
+        graceful = shutdown == Shutdown.STOP
+        ctx.tekton.cancel_pipeline_run(name, graceful=graceful)
+
+        patch.status["phase"] = Phase.STOPPING
+        if graceful:
+            patch.status["message"] = (
+                f"Shutdown ({shutdown}) requested, waiting for PipelineRun cleanup"
+            )
+        else:
+            patch.status["message"] = (
+                f"Shutdown ({shutdown}) requested, waiting for PipelineRun to stop"
+            )
+        set_condition(
+            patch,
+            conditions,
+            COND_PIPELINE_RUN_READY,
+            "False",
+            Phase.STOPPING,
+            f"PipelineRun cancellation requested (graceful={graceful})",
+        )
+        logger.info(
+            "Job %s: %s sent (graceful=%s), phase=Stopping (was %s)",
+            name,
+            shutdown,
+            graceful,
+            phase,
+        )
+    else:
+        ctx.kueue.delete_workload(name)
+        patch.status["phase"] = Phase.STOPPED
+        patch.status["message"] = "Job stopped by user"
+        set_condition(
+            patch,
+            conditions,
+            COND_WORKLOAD_ADMITTED,
+            "False",
+            Phase.STOPPED,
+            "Job stopped by user",
+        )
+        logger.info("Job %s: stopped (was %s)", name, phase)
+
+
+def reconcile_stopping(name, status, patch):
+    """Poll a cancelled PipelineRun until it finishes, then complete shutdown."""
+    pr = ctx.tekton.get_pipeline_run_or_none(name)
+    conditions = list(status.get("conditions") or [])
+
+    if pr is None:
+        _finish_stop(name, conditions, patch, "PipelineRun not found")
+        return
+
+    pr_status, pr_message = TektonClient.extract_status(pr)
+    logger.info(
+        "Job %s: stopping, PipelineRun status=%s, message=%s",
+        name,
+        pr_status,
+        pr_message,
+    )
+
+    if pr_status in ("succeeded", "failed"):
+        _finish_stop(name, conditions, patch, pr_message)
+    else:
+        new_msg = (
+            f"Stopping, waiting for cleanup: {pr_message}"
+            if pr_message
+            else "Stopping, waiting for PipelineRun cleanup"
+        )
+        if status.get("message") != new_msg:
+            patch.status["message"] = new_msg
+
+
+def _finish_stop(name, conditions, patch, pr_message):
+    """Transition from Stopping to Stopped: delete Workload and set terminal status."""
+    ctx.kueue.delete_workload(name)
+
+    patch.status["phase"] = Phase.STOPPED
+    patch.status["message"] = "Job stopped by user"
+
+    set_condition(
+        patch,
+        conditions,
+        COND_WORKLOAD_ADMITTED,
+        "False",
+        Phase.STOPPED,
+        "Job stopped by user",
+    )
+    set_condition(
+        patch,
+        patch.status["conditions"],
+        COND_PIPELINE_RUN_READY,
+        "False",
+        Phase.STOPPED,
+        pr_message or "Job stopped by user",
+    )
+    logger.info("Job %s: stopped, phase=Stopped", name)
 
 
 def reconcile_admitted(spec, name, namespace, status, patch, body):

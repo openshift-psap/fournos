@@ -134,6 +134,27 @@ class TektonClient:
         )
         return result.get("items", [])
 
+    def cancel_pipeline_run(self, name: str, *, graceful: bool = True) -> None:
+        """Cancel a PipelineRun. Ignores 404.
+
+        *graceful=True* uses ``CancelledRunFinally`` (runs finally tasks).
+        *graceful=False* uses ``Cancelled`` (skips finally tasks).
+        """
+        tekton_status = "CancelledRunFinally" if graceful else "Cancelled"
+        try:
+            self._k8s.patch_namespaced_custom_object(
+                group=TEKTON_GROUP,
+                version=TEKTON_VERSION,
+                namespace=settings.namespace,
+                plural=TEKTON_PIPELINE_RUN_PLURAL,
+                name=name,
+                body={"spec": {"status": tekton_status}},
+            )
+            logger.info("Set PipelineRun %s status to %s", name, tekton_status)
+        except client.exceptions.ApiException as exc:
+            if exc.status != 404:
+                raise
+
     def delete_pipeline_run(self, name: str) -> None:
         """Delete the PipelineRun for *name*. Ignores 404."""
         try:

@@ -87,11 +87,21 @@ def on_create(spec, name, namespace, status, patch, body, **_):
     "fournosjobs",
     interval=5.0,
     when=lambda status, **_: (
-        status.get("phase") in (Phase.PENDING, Phase.ADMITTED, Phase.RUNNING)
+        status.get("phase")
+        in (Phase.PENDING, Phase.ADMITTED, Phase.RUNNING, Phase.STOPPING)
     ),
 )
 def reconcile(spec, name, namespace, status, patch, body, **_):
     phase = status.get("phase", "")
+
+    if phase == Phase.STOPPING:
+        handlers.reconcile_stopping(name, status, patch)
+        return
+
+    shutdown = spec.get("shutdown")
+    if shutdown is not None:
+        handlers.handle_shutdown(name, status, patch, shutdown)
+        return
 
     if phase == Phase.PENDING:
         handlers.reconcile_pending(spec, name, status, patch, body)

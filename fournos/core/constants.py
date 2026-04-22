@@ -14,6 +14,14 @@ class Phase(StrEnum):
     RUNNING = "Running"
     SUCCEEDED = "Succeeded"
     FAILED = "Failed"
+    STOPPING = "Stopping"
+    STOPPED = "Stopped"
 
 
-LOCK_HOLDING_PHASES = frozenset({Phase.ADMITTED, Phase.RUNNING})
+TERMINAL_PHASES = frozenset({Phase.SUCCEEDED, Phase.FAILED, Phase.STOPPED})
+LOCK_HOLDING_PHASES = frozenset({Phase.ADMITTED, Phase.RUNNING, Phase.STOPPING})
+
+
+class Shutdown(StrEnum):
+    STOP = "Stop"
+    TERMINATE = "Terminate"

@@ -54,6 +54,7 @@ Jobs are submitted as `FournosJob` custom resources ([manifests/crd.yaml](manife
 | `spec.priority`              | no           | Kueue WorkloadPriorityClass name                                                                 |
 | `spec.secretRefs`            | no           | Names of Kubernetes Secrets to mount into the pipeline (references, not values)                   |
 | `spec.exclusive`             | no           | If `true`, locks the target cluster so no other FournosJob can run there. Requires `spec.cluster`. |
+| `spec.shutdown`              | no           | Shutdown action: `Stop` (graceful, runs finally tasks) or `Terminate` (immediate, skips finally tasks). Both wait for the PipelineRun to finish before releasing Kueue quota. |
 
 
  At least one of `spec.cluster` or `spec.hardware` must be provided. Both can be set together to pin a hardware request to a specific cluster.
@@ -67,7 +68,7 @@ The operator writes status to `.status`:
 
 | Field          | Description                                                 |
 | -------------- | ----------------------------------------------------------- |
-| `phase`        | `Pending` → `Admitted` → `Running` → `Succeeded` / `Failed` |
+| `phase`        | `Pending` → `Admitted` → `Running` → `Succeeded` / `Failed` / `Stopping` → `Stopped` |
 | `cluster`      | Cluster assigned by Kueue                                   |
 | `pipelineRun`  | Name of the Tekton PipelineRun                              |
 | `dashboardURL` | Tekton Dashboard link (if configured)                       |
@@ -162,14 +163,27 @@ sequenceDiagram
     Tekton-->>Operator: PipelineRun succeeded
     Operator->>Kueue: delete Workload (release quota + slots)
     Operator->>K8sAPI: set phase=Succeeded
+
+    Note over Client,Tekton: --- Shutdown path (spec.shutdown=Stop|Terminate) ---
+    Client->>K8sAPI: kubectl patch FournosJob (spec.shutdown=Stop)
+    Note over Operator: timer detects spec.shutdown
+    Operator->>Tekton: patch PipelineRun spec.status (CancelledRunFinally or Cancelled)
+    Operator->>K8sAPI: set phase=Stopping
+    Note over Tekton: cancel tasks, run finally (cleanup)
+    Note over Operator: timer (5s): poll PipelineRun until terminal
+    Tekton-->>Operator: PipelineRun completed
+    Operator->>Kueue: delete Workload (release quota + slots)
+    Operator->>K8sAPI: set phase=Stopped
 ```
 
 
 
-1. **on_create**: Operator validates the spec (cluster exists, at least one of cluster/hardware). Creates a Kueue Workload with `ownerReferences` pointing at the FournosJob and sets `phase=Pending`. Exclusive jobs request all 100 `fournos/cluster-slot` units; normal jobs request 1.
+1. **on_create**: Operator validates the spec (cluster exists, at least one of cluster/hardware). If `spec.shutdown` is set (`Stop` or `Terminate`), immediately sets `phase=Stopped` without creating a Workload. Otherwise creates a Kueue Workload with `ownerReferences` pointing at the FournosJob and sets `phase=Pending`. Exclusive jobs request all 100 `fournos/cluster-slot` units; normal jobs request 1.
 2. **timer (Pending)**: Polls the Workload for Kueue admission. On admission, extracts the assigned cluster and sets `phase=Admitted`.
 3. **timer (Admitted)**: Resolves the kubeconfig Secret, creates the Tekton PipelineRun with `ownerReferences` pointing at the FournosJob, sets `phase=Running`
 4. **timer (Running)**: Polls the PipelineRun for completion. On success/failure, deletes the Workload and sets `phase=Succeeded` or `phase=Failed`
+5. **timer (any non-terminal phase, shutdown)**: If `spec.shutdown` is set (`Stop` or `Terminate`) and the job has a PipelineRun (Admitted/Running), the timer cancels the PipelineRun — `Stop` uses Tekton's `CancelledRunFinally` (runs `finally` tasks), `Terminate` uses `Cancelled` (skips `finally` tasks) — and sets `phase=Stopping`. The Workload is **not** deleted yet — it stays alive to hold the cluster slot while the PipelineRun winds down. If no PipelineRun exists (Pending), the Workload is deleted immediately and the job goes straight to `phase=Stopped`.
+6. **timer (Stopping)**: Polls the PipelineRun until it reaches a terminal state (`succeeded` or `failed`). Once complete, deletes the Workload to release Kueue quota and sets `phase=Stopped`.
 
 Deleting a FournosJob triggers Kubernetes cascade deletion of its owned Workload and PipelineRun via `ownerReferences` — no explicit cleanup handler is needed.
 
@@ -188,7 +202,7 @@ The operator is split across several modules:
 - **`fournos/handlers/`** — phase handler package:
   - `status.py` — condition helpers, `owner_ref`, `create_workload_for_job`, shared constants
   - `lifecycle.py` — `on_create`, `reconcile_pending` (early phases)
-  - `execution.py` — `reconcile_admitted`, `reconcile_running` (PipelineRun management)
+  - `execution.py` — `reconcile_admitted`, `reconcile_running` (PipelineRun management), `handle_shutdown` / `reconcile_stopping` (shutdown flow)
 - **`fournos/state.py`** — shared client instances (`_OperatorState` dataclass with `kueue`, `tekton`, `registry`)
 
 Kopf handlers registered in `operator.py`:
@@ -198,10 +212,10 @@ Kopf handlers registered in `operator.py`:
 | ------------------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | `@kopf.on.startup`                    | Process start                                                  | Load kubeconfig, initialise clients into `state.ctx`, start resource GC thread |
 | `@kopf.on.create` / `@kopf.on.resume` | New or existing CR                                             | Validate spec, create Workload (with ownerRef and cluster-slot request), set `phase=Pending` |
-| `@kopf.timer(interval=5.0)`           | Every 5s while phase ∈ {Pending, Admitted, Running}            | Drive the state machine: poll admission, create PipelineRun (with ownerRef), poll completion |
+| `@kopf.timer(interval=5.0)`           | Every 5s while phase ∈ {Pending, Admitted, Running, Stopping}  | Drive the state machine: Stopping polls PipelineRun for completion; otherwise check for shutdown (`spec.shutdown`), then poll admission, create PipelineRun (with ownerRef), poll completion |
 
 
-The timer's `when` guard ensures it stops firing once the job reaches a terminal phase (`Succeeded` or `Failed`), so completed jobs have zero ongoing overhead.
+The timer's `when` guard ensures it stops firing once the job reaches a terminal phase (`Succeeded`, `Failed`, or `Stopped`), so completed jobs have zero ongoing overhead.
 
 Validation failures (unknown cluster, missing cluster/hardware, `exclusive` without `cluster`) result in immediate `phase=Failed` with a descriptive `message` — no Workload is created.
 
@@ -348,6 +362,7 @@ tests/
   test_lifecycle.py        # Workload cleanup, delete cleanup, list, filter by phase
   test_resource_gc.py      # Stale Workload/PipelineRun garbage collection
   test_exclusive.py        # Exclusive cluster locking (happy path, blocking, occupancy, lock release)
+  test_shutdown.py         # Job shutdown (stop, terminate, at creation, completed no-op)
 Containerfile
 Makefile                   # dev-setup, dev-run, test, dev-teardown, ci-setup, ci-run, ci-stop, lint, format
 pyproject.toml
@@ -367,6 +382,7 @@ README.md
 - **Operator cleans up on completion** — Kueue Workloads are deleted when the PipelineRun reaches a terminal state, releasing quota without relying on external callbacks
 - **ownerReferences for cascade deletion** — Workloads and PipelineRuns carry `ownerReferences` pointing at their FournosJob, so Kubernetes automatically cascade-deletes them when the job is removed
 - **Exclusive locking via Kueue semaphore** — each cluster flavor has 100 `fournos/cluster-slot` units. Normal jobs request 1 slot; exclusive jobs request all 100. Kueue enforces mutual exclusion atomically — no operator-level blocking, labels, or in-memory state needed. Hardware-only jobs are automatically steered to clusters with available slots.
+- **Shutdown via spec field** — the `spec.shutdown` enum supports two modes: `Stop` (Tekton `CancelledRunFinally` — runs `finally` cleanup tasks) and `Terminate` (Tekton `Cancelled` — skips `finally` tasks). Both transition to an intermediate `Stopping` phase while the PipelineRun winds down. The Workload (and its quota) is kept alive until the PipelineRun completes, ensuring the cluster slot is not released prematurely. Only then does the operator delete the Workload and set `phase=Stopped`. The enum is extensible for future shutdown strategies. The FournosJob stays around in `Stopped` phase for inspection, unlike deletion which cascades and removes the record.
 - **Multiple pipelines** — `fournos-full` (prepare → run → cleanup) and `fournos-run-only` (run only), selectable per job
 - **Target clusters need nothing installed** — FORGE runs on the hub cluster inside Tekton Task pods and communicates with targets via remote `oc`/`kubectl` commands through kubeconfig Secrets
 

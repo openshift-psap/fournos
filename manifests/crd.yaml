@@ -120,6 +120,17 @@ spec:
                     Requires 'cluster' to be set.
                 priority:
                   type: string
+                shutdown:
+                  type: string
+                  enum:
+                    - Stop
+                    - Terminate
+                  description: >-
+                    Shutdown action to apply to the job. "Stop" cancels the
+                    PipelineRun gracefully (CancelledRunFinally — runs finally
+                    tasks). "Terminate" cancels immediately (Cancelled — skips
+                    finally tasks). Both wait for the PipelineRun to finish
+                    before releasing Kueue quota.
             status:
               type: object
               properties:
@@ -131,6 +142,8 @@ spec:
                     - Running
                     - Succeeded
                     - Failed
+                    - Stopping
+                    - Stopped
                 cluster:
                   type: string
                 pipelineRun:

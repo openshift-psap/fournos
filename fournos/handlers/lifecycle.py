@@ -42,6 +42,13 @@ def on_create(spec, name, namespace, status, patch, body):
     if status.get("phase"):
         return
 
+    shutdown = spec.get("shutdown")
+    if shutdown is not None:
+        patch.status["phase"] = Phase.STOPPED
+        patch.status["message"] = "Job stopped by user"
+        logger.info("Job %s: created with shutdown=%s, skipping", name, shutdown)
+        return
+
     cluster = spec.get("cluster")
     hardware = spec.get("hardware")
     exclusive = spec.get("exclusive", False)
