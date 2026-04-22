@@ -6,7 +6,7 @@ metadata:
 rules:
   - apiGroups: ["fournos.dev"]
     resources: ["fournosjobs"]
-    verbs: ["create", "get", "list", "watch", "delete"]
+    verbs: ["create", "get", "list", "watch", "delete", "patch"]
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list"]
