@@ -1,6 +1,5 @@
 """Phase handlers package — re-exports for operator.py wiring."""
 
-from fournos.core.constants import SHUTDOWN_MODES
 from .execution import (
     handle_shutdown,
     reconcile_stopping,
@@ -16,5 +15,4 @@ __all__ = [
     "reconcile_running",
     "handle_shutdown",
     "reconcile_stopping",
-    "SHUTDOWN_MODES",
 ]

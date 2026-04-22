@@ -25,6 +25,3 @@ LOCK_HOLDING_PHASES = frozenset({Phase.ADMITTED, Phase.RUNNING, Phase.STOPPING})
 class Shutdown(StrEnum):
     STOP = "Stop"
     TERMINATE = "Terminate"
-
-
-SHUTDOWN_MODES = frozenset(Shutdown)

@@ -99,7 +99,7 @@ def reconcile(spec, name, namespace, status, patch, body, **_):
         return
 
     shutdown = spec.get("shutdown")
-    if shutdown in handlers.SHUTDOWN_MODES:
+    if shutdown is not None:
         handlers.handle_shutdown(name, status, patch, shutdown)
         return
 
