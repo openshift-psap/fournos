@@ -88,18 +88,19 @@ def on_create(spec, name, namespace, status, patch, body, **_):
     interval=5.0,
     when=lambda status, **_: (
         status.get("phase")
-        in (Phase.PENDING, Phase.ADMITTED, Phase.RUNNING, Phase.ABORTING)
+        in (Phase.PENDING, Phase.ADMITTED, Phase.RUNNING, Phase.STOPPING)
     ),
 )
 def reconcile(spec, name, namespace, status, patch, body, **_):
     phase = status.get("phase", "")
 
-    if phase == Phase.ABORTING:
-        handlers.reconcile_aborting(name, status, patch)
+    if phase == Phase.STOPPING:
+        handlers.reconcile_stopping(name, status, patch)
         return
 
-    if spec.get("aborted"):
-        handlers.handle_abort(name, status, patch)
+    shutdown = spec.get("shutdown")
+    if shutdown in handlers.SHUTDOWN_MODES:
+        handlers.handle_shutdown(name, status, patch, shutdown)
         return
 
     if phase == Phase.PENDING:

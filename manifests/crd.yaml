@@ -120,10 +120,17 @@ spec:
                     Requires 'cluster' to be set.
                 priority:
                   type: string
-                aborted:
-                  type: boolean
-                  default: false
-                  description: Set to true to abort a running or pending job.
+                shutdown:
+                  type: string
+                  enum:
+                    - Stop
+                    - Terminate
+                  description: >-
+                    Shutdown action to apply to the job. "Stop" cancels the
+                    PipelineRun gracefully (CancelledRunFinally — runs finally
+                    tasks). "Terminate" cancels immediately (Cancelled — skips
+                    finally tasks). Both wait for the PipelineRun to finish
+                    before releasing Kueue quota.
             status:
               type: object
               properties:
@@ -135,8 +142,8 @@ spec:
                     - Running
                     - Succeeded
                     - Failed
-                    - Aborting
-                    - Aborted
+                    - Stopping
+                    - Stopped
                 cluster:
                   type: string
                 pipelineRun:

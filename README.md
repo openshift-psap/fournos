@@ -60,7 +60,8 @@ spec:
 FOURNOS_NAMESPACE=fournos-$USER-dev
 oc create -f config/forge/samples/job-full.yaml -n $FOURNOS_NAMESPACE     # returns the generated name, e.g. forge-full-sample-x7k2m
 oc get FournosJobs -n $FOURNOS_NAMESPACE -w            # watch status transitions
-oc patch FournosJob <name> -n $FOURNOS_NAMESPACE --type merge -p '{"spec":{"aborted":true}}'  # abort a running job
+oc patch FournosJob <name> -n $FOURNOS_NAMESPACE --type merge -p '{"spec":{"shutdown":"Stop"}}'        # graceful stop (runs finally tasks)
+oc patch FournosJob <name> -n $FOURNOS_NAMESPACE --type merge -p '{"spec":{"shutdown":"Terminate"}}'   # immediate terminate (skips finally tasks)
 oc delete FournosJob -n $FOURNOS_NAMESPACE <name>      # cleanup
 ```
 
@@ -81,7 +82,7 @@ oc delete FournosJob -n $FOURNOS_NAMESPACE <name>      # cleanup
 | `spec.priority` | no | Kueue WorkloadPriorityClass name |
 | `spec.secretRefs` | no | Names of Kubernetes Secrets to mount into the pipeline (references, not values) |
 | `spec.exclusive` | no | If `true`, locks the target cluster so no other FournosJob can run there. Requires `spec.cluster`. |
-| `spec.aborted` | no | Set to `true` to abort a running or pending job. For running jobs, gracefully cancels the PipelineRun (Tekton `CancelledRunFinally`) and waits for cleanup before releasing Kueue quota. |
+| `spec.shutdown` | no | Shutdown action: `Stop` cancels gracefully (Tekton `CancelledRunFinally` — runs `finally` tasks); `Terminate` cancels immediately (Tekton `Cancelled` — skips `finally` tasks). Both wait for the PipelineRun to finish before releasing Kueue quota. |
 
 \* At least one of `spec.cluster` or `spec.hardware` must be provided. Both can be
 set together to pin a hardware request to a specific cluster.
@@ -92,7 +93,7 @@ The operator writes status to `.status`:
 
 | Field | Description |
 |---|---|
-| `phase` | `Pending` → `Admitted` → `Running` → `Succeeded` / `Failed` / `Aborting` → `Aborted` |
+| `phase` | `Pending` → `Admitted` → `Running` → `Succeeded` / `Failed` / `Stopping` → `Stopped` |
 | `cluster` | Cluster assigned by Kueue |
 | `pipelineRun` | Name of the Tekton PipelineRun |
 | `dashboardURL` | Tekton Dashboard link (if configured) |
@@ -243,12 +244,13 @@ The operator runs as a single-replica Deployment using
 4. **Watches** the PipelineRun until completion
 5. **Deletes** the Workload to release Kueue quota
 
-Setting `spec.aborted: true` on a FournosJob gracefully cancels the
-PipelineRun (Tekton's `CancelledRunFinally`, which runs `finally` cleanup
-tasks) and transitions to `phase=Aborting`. The operator keeps the Kueue
-Workload alive while the PipelineRun's cleanup runs, ensuring the cluster
-slot is not released prematurely. Once the PipelineRun completes, the
-Workload is deleted and the job moves to `phase=Aborted`.
+Setting `spec.shutdown` on a FournosJob triggers cancellation of the
+PipelineRun and transitions to `phase=Stopping`. `Stop` uses Tekton's
+`CancelledRunFinally` (runs `finally` cleanup tasks); `Terminate` uses
+`Cancelled` (skips `finally` tasks). In both cases the operator keeps
+the Kueue Workload alive until the PipelineRun finishes, ensuring the
+cluster slot is not released prematurely. Once done, the Workload is
+deleted and the job moves to `phase=Stopped`.
 
 Deleting a FournosJob automatically cascade-deletes its Workload and
 PipelineRun through Kubernetes owner references.

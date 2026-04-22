@@ -15,6 +15,7 @@ from fournos.core.constants import (
     CLUSTER_SLOT_RESOURCE,
     LABEL_EXCLUSIVE_CLUSTER,
     LOCK_HOLDING_PHASES,
+    SHUTDOWN_MODES,
     Phase,
 )
 from fournos.core.kueue import KueueClient
@@ -42,10 +43,11 @@ def on_create(spec, name, namespace, status, patch, body):
     if status.get("phase"):
         return
 
-    if spec.get("aborted"):
-        patch.status["phase"] = Phase.ABORTED
-        patch.status["message"] = "Job aborted by user"
-        logger.info("Job %s: created with aborted=true, skipping", name)
+    shutdown = spec.get("shutdown")
+    if shutdown in SHUTDOWN_MODES:
+        patch.status["phase"] = Phase.STOPPED
+        patch.status["message"] = "Job stopped by user"
+        logger.info("Job %s: created with shutdown=%s, skipping", name, shutdown)
         return
 
     cluster = spec.get("cluster")
