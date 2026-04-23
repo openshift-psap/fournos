@@ -107,9 +107,9 @@ spec:
                   type: array
                   description: >-
                     Vault entry names to mount into the pipeline.  The operator
-                    resolves each name to a Kubernetes Secret via the
-                    fournos.dev/vault-entry label.  Secrets must be synced
-                    from Vault beforehand via sync_vault_secrets script.
+                    looks up each name as a Kubernetes Secret and verifies it
+                    carries the fournos.dev/vault-entry=true label.  Secrets
+                    must be synced from Vault beforehand via sync_vault_secrets.
                   items:
                     type: string
                 exclusive:

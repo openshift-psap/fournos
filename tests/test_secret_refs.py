@@ -71,7 +71,6 @@ def _delete_secret_if_exists(v1, name: str) -> None:
 
 def test_vault_sync_then_fjob(k8s, core_v1):
     """Sync a mocked Vault entry, then verify a FournosJob resolves it."""
-    expected_k8s_name = svs.k8s_name(VAULT_ENTRY)  # vault-e2e-creds
 
     # -- Phase 1: run the sync script with mocked Vault HTTP calls ----------
     with (
@@ -90,8 +89,8 @@ def test_vault_sync_then_fjob(k8s, core_v1):
 
     try:
         # -- Phase 2: verify the K8s Secret was created correctly -----------
-        secret = core_v1.read_namespaced_secret(expected_k8s_name, NAMESPACE)
-        assert secret.metadata.labels[LABEL_VAULT_ENTRY] == VAULT_ENTRY
+        secret = core_v1.read_namespaced_secret(VAULT_ENTRY, NAMESPACE)
+        assert secret.metadata.labels[LABEL_VAULT_ENTRY] == "true"
         assert (
             secret.metadata.labels["app.kubernetes.io/managed-by"]
             == "fournos-vault-sync"
@@ -100,7 +99,7 @@ def test_vault_sync_then_fjob(k8s, core_v1):
             secret.metadata.annotations["fournos.dev/vault-addr"]
             == "https://vault.fake.test"
         )
-        assert "secretsync_target-namespace" not in (secret.data or {}), (
+        assert "secretsync/target-namespace" not in (secret.data or {}), (
             "secretsync/ metadata keys must be filtered out"
         )
 
@@ -125,10 +124,10 @@ def test_vault_sync_then_fjob(k8s, core_v1):
             timeout=30,
         )
 
-        # -- Phase 4: verify the PipelineRun received the resolved name -----
+        # -- Phase 4: verify the PipelineRun received the entry name --------
         refs_param = get_pipelinerun_param("test-e2e-secret", "secret-refs")
-        assert expected_k8s_name in refs_param, (
-            f"PipelineRun secret-refs should contain {expected_k8s_name!r}, "
+        assert VAULT_ENTRY in refs_param, (
+            f"PipelineRun secret-refs should contain {VAULT_ENTRY!r}, "
             f"got {refs_param!r}"
         )
 
@@ -141,7 +140,7 @@ def test_vault_sync_then_fjob(k8s, core_v1):
         assert phase == "Succeeded", job_status_summary(k8s, "test-e2e-secret")
 
     finally:
-        _delete_secret_if_exists(core_v1, expected_k8s_name)
+        _delete_secret_if_exists(core_v1, VAULT_ENTRY)
 
 
 def test_missing_secret_ref_fails(k8s):
@@ -163,7 +162,7 @@ def test_missing_secret_ref_fails(k8s):
         k8s,
         "test-missing-ref",
         terminal={"Failed"},
-        message_substring="No Secret with label",
+        message_substring="not found in namespace",
         timeout=30,
     )
     assert phase == "Failed", job_status_summary(k8s, "test-missing-ref")

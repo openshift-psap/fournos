@@ -40,15 +40,17 @@ import argparse
 import json
 import logging
 import os
+import re
 import urllib.error
 import urllib.request
+
+from fournos.core.constants import LABEL_VAULT_ENTRY
 
 logger = logging.getLogger(__name__)
 
 KV_MOUNT_DEFAULT = "kv"
 
 LABEL_MANAGED_BY = "app.kubernetes.io/managed-by"
-LABEL_VAULT_ENTRY = "fournos.dev/vault-entry"
 ANNOTATION_VAULT_ADDR = "fournos.dev/vault-addr"
 ANNOTATION_VAULT_PATH = "fournos.dev/vault-path"
 MANAGER_VALUE = "fournos-vault-sync"
@@ -122,7 +124,6 @@ def _apply_secret(
     name: str,
     namespace: str,
     data: dict[str, str],
-    vault_entry: str,
     vault_addr: str,
     vault_full_path: str,
 ):
@@ -138,7 +139,7 @@ def _apply_secret(
             namespace=namespace,
             labels={
                 LABEL_MANAGED_BY: MANAGER_VALUE,
-                LABEL_VAULT_ENTRY: vault_entry,
+                LABEL_VAULT_ENTRY: "true",
             },
             annotations={
                 ANNOTATION_VAULT_ADDR: vault_addr,
@@ -170,14 +171,21 @@ def _is_vault_metadata(key: str) -> bool:
     return key.startswith("secretsync/")
 
 
-def _sanitize_k8s_key(key: str) -> str:
-    """Replace characters illegal in Secret data keys with ``_``."""
-    return key.replace("/", "_")
+_SECRET_KEY_RE = re.compile(r"^[-._a-zA-Z0-9]+$")
 
 
-def k8s_name(vault_entry: str) -> str:
-    """Derive a K8s-safe Secret name from a vault entry name."""
-    return "vault-" + vault_entry.replace("/", "-").replace("_", "-").lower()
+def _is_valid_k8s_key(key: str) -> bool:
+    """Return True if *key* is a valid Kubernetes Secret data key."""
+    return bool(key) and len(key) <= 253 and bool(_SECRET_KEY_RE.match(key))
+
+
+_DNS_1123_RE = re.compile(r"^[a-z0-9]([a-z0-9\-]*[a-z0-9])?$")
+_DNS_1123_MAX_LEN = 253
+
+
+def is_valid_k8s_name(name: str) -> bool:
+    """Return True if *name* is a valid DNS-1123 subdomain."""
+    return bool(name) and len(name) <= _DNS_1123_MAX_LEN and _DNS_1123_RE.match(name)
 
 
 def sync(
@@ -202,7 +210,16 @@ def sync(
     errors = 0
     for vault_name in names:
         full_path = f"{secret_path}/{vault_name}"
-        secret_name = k8s_name(vault_name)
+
+        if not is_valid_k8s_name(vault_name):
+            logger.error(
+                "Vault entry %r is not a valid DNS-1123 name, skipping",
+                vault_name,
+            )
+            errors += 1
+            continue
+
+        secret_name = vault_name
 
         try:
             logger.info("Reading %s/%s ...", kv_mount, full_path)
@@ -216,11 +233,19 @@ def sync(
             logger.warning("Vault entry %s is empty, skipping", full_path)
             continue
 
-        safe_data = {
-            _sanitize_k8s_key(k): v
-            for k, v in kv_data.items()
-            if not _is_vault_metadata(k)
-        }
+        safe_data: dict[str, str] = {}
+        for k, v in kv_data.items():
+            if _is_vault_metadata(k):
+                continue
+            if not _is_valid_k8s_key(k):
+                logger.error(
+                    "Key %r in vault entry %s is not a valid K8s Secret key, skipping",
+                    k,
+                    full_path,
+                )
+                errors += 1
+                continue
+            safe_data[k] = v
 
         logger.info(
             "  %d key(s): %s",
@@ -240,7 +265,6 @@ def sync(
                 secret_name,
                 namespace,
                 safe_data,
-                vault_name,
                 vault_addr=vault_addr,
                 vault_full_path=f"{kv_mount}/{full_path}",
             )

@@ -28,24 +28,31 @@ class ClusterRegistry:
             raise
 
     def _resolve_secret_ref(self, ref: str) -> str:
-        """Resolve a single secretRef to its K8s Secret name.
+        """Verify that *ref* is a Vault-synced K8s Secret and return its name.
 
-        Looks for a Secret labelled ``fournos.dev/vault-entry=<ref>``.
-        Raises ``KeyError`` if no matching Secret is found.
+        The Secret name in K8s matches the Vault entry name exactly.
+        The ``fournos.dev/vault-entry=true`` label is checked to
+        confirm the Secret was actually imported from Vault.
+
+        Raises ``KeyError`` if the Secret does not exist or is not
+        a Vault-synced secret.
         """
-        secrets = self._k8s.list_namespaced_secret(
-            settings.namespace,
-            label_selector=f"{LABEL_VAULT_ENTRY}={ref}",
-            limit=1,
-        )
-        if not secrets.items:
+        try:
+            secret = self._k8s.read_namespaced_secret(ref, settings.namespace)
+        except client.exceptions.ApiException as exc:
+            if exc.status == 404:
+                raise KeyError(
+                    f"Secret {ref!r} not found in namespace {settings.namespace}"
+                ) from exc
+            raise
+        labels = secret.metadata.labels or {}
+        if labels.get(LABEL_VAULT_ENTRY) != "true":
             raise KeyError(
-                f"No Secret with label {LABEL_VAULT_ENTRY}={ref} "
-                f"found in namespace {settings.namespace}"
+                f"Secret {ref!r} exists but is not a Vault-synced secret "
+                f"(missing {LABEL_VAULT_ENTRY}=true label)"
             )
-        resolved = secrets.items[0].metadata.name
-        logger.debug("Resolved secretRef %s → %s", ref, resolved)
-        return resolved
+        logger.debug("Validated secretRef %s", ref)
+        return ref
 
     def resolve_secret_refs(self, refs: list[str]) -> list[str]:
         """Resolve a list of secretRefs to their K8s Secret names."""

@@ -80,7 +80,7 @@ oc delete FournosJob -n $FOURNOS_NAMESPACE <name>      # cleanup
 | `spec.displayName` | no | Human-readable job name (defaults to `metadata.name`) |
 | `spec.pipeline` | no | Tekton Pipeline name (default: `fournos-full`) |
 | `spec.priority` | no | Kueue WorkloadPriorityClass name |
-| `spec.secretRefs` | no | Vault entry names to mount into the pipeline. The operator resolves each name to a K8s Secret via the `fournos.dev/vault-entry` label. Secrets must be synced from Vault first (see [Synchronizing secrets from Vault](#synchronizing-secrets-from-vault)). |
+| `spec.secretRefs` | no | Vault entry names to mount into the pipeline. The operator looks up each name as a K8s Secret and verifies it carries the `fournos.dev/vault-entry=true` label. Secrets must be synced from Vault first (see [Synchronizing secrets from Vault](#synchronizing-secrets-from-vault)). |
 | `spec.exclusive` | no | If `true`, locks the target cluster so no other FournosJob can run there. Requires `spec.cluster`. |
 | `spec.shutdown` | no | Shutdown action: `Stop` cancels gracefully (Tekton `CancelledRunFinally` — runs `finally` tasks); `Terminate` cancels immediately (Tekton `Cancelled` — skips `finally` tasks). Both wait for the PipelineRun to finish before releasing Kueue quota. |
 
@@ -222,8 +222,12 @@ secrets originate in a HashiCorp Vault instance. Because there is no permanent
 programmatic access to the vault, secrets are synchronized manually on demand —
 whenever the vault content changes.
 
-The sync script reads vault entries and creates one Opaque Secret per entry
-(named `vault-<entry>`). Existing secrets are updated in-place.
+The sync script reads vault entries and creates one Opaque Secret per entry,
+using the vault entry name directly as the K8s Secret name. Entries whose
+names are not valid DNS-1123 subdomain names are skipped with an error.
+Individual keys within an entry that are not valid K8s Secret data keys
+(allowed: alphanumeric, `-`, `_`, `.`) are also skipped.
+Existing secrets are updated in-place.
 
 ```bash
 # 1. Set the required environment variables
@@ -245,9 +249,10 @@ make sync-vault-secrets              # syncs all entries
 make sync-vault-secrets-dry-run      # preview only
 ```
 
-The synced secrets are labelled `app.kubernetes.io/managed-by=fournos-vault-sync`
-for easy identification. Reference them in a FournosJob using their vault
-entry name — the operator resolves the actual K8s Secret name automatically:
+The synced secrets are labelled `fournos.dev/vault-entry=true` and
+`app.kubernetes.io/managed-by=fournos-vault-sync` for easy identification.
+Reference them in a FournosJob by their vault entry name — the operator
+verifies the Secret exists and was imported from Vault:
 
 ```yaml
 spec:
