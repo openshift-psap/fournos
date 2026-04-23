@@ -1,0 +1,46 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: fournosjobconfigs.fournos.dev
+spec:
+  group: fournos.dev
+  names:
+    kind: FournosJobConfig
+    listKind: FournosJobConfigList
+    plural: fournosjobconfigs
+    singular: fournosjobconfig
+    shortNames:
+      - fjc
+  scope: Namespaced
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                hardware:
+                  type: object
+                  properties:
+                    gpuType:
+                      type: string
+                      pattern: "^[a-z0-9]+$"
+                      description: >-
+                        Short GPU model name (e.g. "a100", "h200").
+                        Must be lowercase alphanumeric.
+                    gpuCount:
+                      type: integer
+                      minimum: 1
+                      description: Number of GPUs required.
+                secretRefs:
+                  type: array
+                  description: >-
+                    Vault entry names to mount into the pipeline.  Each name
+                    must correspond to a Kubernetes Secret with the
+                    fournos.dev/vault-entry=true label.
+                  items:
+                    type: string

@@ -6,6 +6,9 @@ spec:
   owner: perf-team
   displayName: sample-benchmark
   cluster: cluster-1
+  hardware:
+    gpuType: a100
+    gpuCount: 2
   forge:
     project: llm-d
     args:
