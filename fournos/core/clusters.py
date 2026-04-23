@@ -2,6 +2,7 @@ import logging
 
 from kubernetes import client
 
+from fournos.core.constants import LABEL_VAULT_ENTRY
 from fournos.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -25,3 +26,34 @@ class ClusterRegistry:
             if exc.status == 404:
                 return False
             raise
+
+    def _resolve_secret_ref(self, ref: str) -> str:
+        """Verify that *ref* is a Vault-synced K8s Secret and return its name.
+
+        The Secret name in K8s matches the Vault entry name exactly.
+        The ``fournos.dev/vault-entry=true`` label is checked to
+        confirm the Secret was actually imported from Vault.
+
+        Raises ``KeyError`` if the Secret does not exist or is not
+        a Vault-synced secret.
+        """
+        try:
+            secret = self._k8s.read_namespaced_secret(ref, settings.namespace)
+        except client.exceptions.ApiException as exc:
+            if exc.status == 404:
+                raise KeyError(
+                    f"Secret {ref!r} not found in namespace {settings.namespace}"
+                ) from exc
+            raise
+        labels = secret.metadata.labels or {}
+        if labels.get(LABEL_VAULT_ENTRY) != "true":
+            raise KeyError(
+                f"Secret {ref!r} exists but is not a Vault-synced secret "
+                f"(missing {LABEL_VAULT_ENTRY}=true label)"
+            )
+        logger.debug("Validated secretRef %s", ref)
+        return ref
+
+    def resolve_secret_refs(self, refs: list[str]) -> list[str]:
+        """Resolve a list of secretRefs to their K8s Secret names."""
+        return [self._resolve_secret_ref(r) for r in refs]

@@ -46,6 +46,14 @@ deploy: install
 test:
 	FOURNOS_NAMESPACE=$(or $(FOURNOS_NAMESPACE),fournos-local-dev) $(VENV_BIN)pytest -v tests/
 
+##@ Secrets
+
+sync-vault-secrets:
+	$(VENV_BIN)python hacks/sync_vault_secrets.py -n $(FOURNOS_NAMESPACE)
+
+sync-vault-secrets-dry-run:
+	$(VENV_BIN)python hacks/sync_vault_secrets.py -n $(FOURNOS_NAMESPACE) --dry-run
+
 ##@ Local Development
 
 dev-setup:
