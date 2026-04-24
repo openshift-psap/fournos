@@ -61,7 +61,8 @@ def _ensure_resolve_job(spec, name, conditions, patch, body):
         ctx.resolve.create_job(
             name=name,
             forge_project=spec["forge"]["project"],
-            forge_config="TODO",  # TODO: replace with actual config once Forge counterparty is ready
+            forge_config=spec["forge"],
+            env=spec.get("env", {}),
             owner_ref=owner_ref(body),
         )
     except client.exceptions.ApiException as exc:

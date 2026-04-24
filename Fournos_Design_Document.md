@@ -60,7 +60,7 @@ Jobs are submitted as `FournosJob` custom resources ([manifests/crd.yaml](manife
 | `spec.shutdown`              | no           | Shutdown action: `Stop` (graceful, runs finally tasks) or `Terminate` (immediate, skips finally tasks). Both wait for the PipelineRun to finish before releasing Kueue quota. |
 
 
-`spec.cluster` and `spec.hardware` are both optional. If neither is provided, Forge resolves hardware requirements during the mandatory Resolving phase. Both can be set together to pin a hardware request to a specific cluster.
+`spec.cluster` and `spec.hardware` are both optional. Every job passes through the mandatory Resolving phase, which populates `FournosJobConfig.spec.hardware`. When `spec.hardware` is provided it takes precedence over the resolved values. `spec.cluster` can be set alongside `spec.hardware` to pin a hardware request to a specific cluster.
 
 `metadata.name` is the unique identifier for the job. Use `metadata.generateName` for auto-generated unique names (e.g. `generateName: nightly-benchmark-` produces `nightly-benchmark-x7k2m`). `spec.displayName` is a human-readable label for external correlation — it does not need to be unique and is passed to the pipeline as `job-name`.
 
@@ -351,8 +351,9 @@ All settings via environment variables with `FOURNOS_` prefix ([fournos/settings
 | `FOURNOS_GPU_RESOURCE_PREFIX`       | `fournos/gpu-`         | Virtual resource name prefix   |
 | `FOURNOS_LOG_LEVEL`                 | `INFO`                 | Logging level                  |
 | `FOURNOS_GC_INTERVAL_SEC`           | `300`                  | Resource GC interval (seconds) |
-| `FOURNOS_FORGE_RESOLVE_IMAGE`       | `image-registry.openshift-image-registry.svc:5000/{namespace}/forge-core:main` | Container image for the Forge resolve Job (`{namespace}` is substituted at runtime) |
-| `FOURNOS_FORGE_RESOLVE_DEADLINE_SEC` | `300`                 | Deadline for the Forge resolve Job (seconds) |
+| `FOURNOS_RESOLVE_IMAGE`              | `image-registry.openshift-image-registry.svc:5000/{namespace}/forge-core:main` | Container image for the resolve Job (`{namespace}` is substituted at runtime) |
+| `FOURNOS_RESOLVE_DEADLINE_SEC`       | `300`                 | Deadline for the resolve Job (seconds) |
+| `FOURNOS_RESOLVE_JOB_TEMPLATE`       | `config/forge/resolve_job.yaml` | Path (relative to project root) to the Job YAML template for the resolve step |
 
 
 ## 12. Project structure
@@ -387,7 +388,7 @@ dev/
   setup.sh                 # kind cluster setup (Tekton + Kueue + CRDs + mock resources + mock resolve image)
   mock-kueue-config.yaml   # Dev Kueue config (mock clusters, quotas)
   mock-pipelines/          # Echo/sleep Tekton Tasks and Pipelines for kind only
-  mock-resolve/            # Mock Forge resolve image (Dockerfile + resolve.sh) for local dev/CI
+  mock-resolve/            # Mock Forge resolve image (Dockerfile + resolve.sh + resolve_job.yaml template) for local dev/CI
   sample-job.yaml          # Example FournosJob CR for testing
 tests/
   conftest.py              # Fixtures (kubernetes client, helpers, cleanup)

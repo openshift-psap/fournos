@@ -20,6 +20,21 @@ TEKTON_PIPELINE_RUN_PLURAL = "pipelineruns"
 _ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
+def serialize_env(env: dict) -> str:
+    """Serialize env dict as ``KEY=quoted_value`` lines for ``source``.
+
+    Keys are validated as shell identifiers so they cannot inject
+    shell syntax.  Values are wrapped with :func:`shlex.quote` so
+    ``source`` treats them as literals (no expansion or substitution).
+    """
+    lines: list[str] = []
+    for key, value in env.items():
+        if not _ENV_KEY_RE.match(key):
+            raise ValueError(f"Invalid environment variable name: {key!r}")
+        lines.append(f"{key}={shlex.quote(str(value))}\n")
+    return "".join(lines)
+
+
 class TektonClient:
     def __init__(self, k8s_client: client.CustomObjectsApi) -> None:
         self._k8s = k8s_client
@@ -74,7 +89,7 @@ class TektonClient:
                     },
                     {
                         "name": "env",
-                        "value": self._serialize_env(env),
+                        "value": serialize_env(env),
                     },
                     {"name": "kubeconfig-secret", "value": kubeconfig_secret},
                     {"name": "gpu-count", "value": str(gpu_count)},
@@ -91,21 +106,6 @@ class TektonClient:
         )
         logger.info("Created PipelineRun %s", name)
         return result
-
-    @staticmethod
-    def _serialize_env(env: dict) -> str:
-        """Serialize env dict as ``KEY=quoted_value`` lines for ``source``.
-
-        Keys are validated as shell identifiers so they cannot inject
-        shell syntax.  Values are wrapped with :func:`shlex.quote` so
-        ``source`` treats them as literals (no expansion or substitution).
-        """
-        lines: list[str] = []
-        for key, value in env.items():
-            if not _ENV_KEY_RE.match(key):
-                raise ValueError(f"Invalid environment variable name: {key!r}")
-            lines.append(f"{key}={shlex.quote(str(value))}\n")
-        return "".join(lines)
 
     def get_pipeline_run(self, name: str) -> dict:
         return self._k8s.get_namespaced_custom_object(

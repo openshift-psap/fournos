@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import copy
 import logging
+from pathlib import Path
 
 import yaml
 from kubernetes import client
 
 from fournos.core.constants import LABEL_JOB_NAME, LABEL_MANAGED_BY
+from fournos.core.tekton import serialize_env
 from fournos.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -16,9 +19,30 @@ FJOBCONFIG_GROUP = "fournos.dev"
 FJOBCONFIG_VERSION = "v1"
 FJOBCONFIG_PLURAL = "fournosjobconfigs"
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def _load_job_template() -> dict:
+    path = _PROJECT_ROOT / settings.resolve_job_template
+    return yaml.safe_load(path.read_text())
+
+
+_RESOLVE_JOB_TEMPLATE: dict = _load_job_template()
+
 
 def _resolve_job_name(name: str) -> str:
     return f"resolve-{name}"
+
+
+def _make_owner_ref(ref: dict) -> dict:
+    return {
+        "apiVersion": ref["apiVersion"],
+        "kind": ref["kind"],
+        "name": ref["name"],
+        "uid": ref["uid"],
+        "controller": ref.get("controller", True),
+        "blockOwnerDeletion": ref.get("blockOwnerDeletion", True),
+    }
 
 
 class ResolveClient:
@@ -46,16 +70,7 @@ class ResolveClient:
                     LABEL_MANAGED_BY: "fournos",
                     LABEL_JOB_NAME: name,
                 },
-                "ownerReferences": [
-                    {
-                        "apiVersion": owner_ref["apiVersion"],
-                        "kind": owner_ref["kind"],
-                        "name": owner_ref["name"],
-                        "uid": owner_ref["uid"],
-                        "controller": owner_ref.get("controller", True),
-                        "blockOwnerDeletion": owner_ref.get("blockOwnerDeletion", True),
-                    }
-                ],
+                "ownerReferences": [_make_owner_ref(owner_ref)],
             },
             "spec": {},
         }
@@ -82,81 +97,40 @@ class ResolveClient:
         name: str,
         forge_project: str,
         forge_config: dict,
+        env: dict,
         owner_ref: dict,
     ) -> dict:
         job_name = _resolve_job_name(name)
-        body = client.V1Job(
-            api_version="batch/v1",
-            kind="Job",
-            metadata=client.V1ObjectMeta(
-                name=job_name,
-                namespace=settings.namespace,
-                labels={
-                    LABEL_MANAGED_BY: "fournos",
-                    LABEL_JOB_NAME: name,
-                },
-                owner_references=[
-                    client.V1OwnerReference(
-                        api_version=owner_ref["apiVersion"],
-                        kind=owner_ref["kind"],
-                        name=owner_ref["name"],
-                        uid=owner_ref["uid"],
-                        controller=owner_ref.get("controller", True),
-                        block_owner_deletion=owner_ref.get("blockOwnerDeletion", True),
-                    ),
-                ],
-            ),
-            spec=client.V1JobSpec(
-                backoff_limit=0,
-                active_deadline_seconds=settings.forge_resolve_deadline_sec,
-                template=client.V1PodTemplateSpec(
-                    metadata=client.V1ObjectMeta(
-                        labels={
-                            LABEL_MANAGED_BY: "fournos",
-                            LABEL_JOB_NAME: name,
-                        },
-                    ),
-                    spec=client.V1PodSpec(
-                        service_account_name="fournos",
-                        restart_policy="Never",
-                        containers=[
-                            client.V1Container(
-                                name="resolve",
-                                image=settings.forge_resolve_image.format(
-                                    namespace=settings.namespace,
-                                ),
-                                image_pull_policy="IfNotPresent",
-                                env=[
-                                    client.V1EnvVar(
-                                        name="FOURNOS_JOB_NAME",
-                                        value=name,
-                                    ),
-                                    client.V1EnvVar(
-                                        name="FOURNOS_NAMESPACE",
-                                        value=settings.namespace,
-                                    ),
-                                    client.V1EnvVar(
-                                        name="FOURNOS_CONFIG_NAME",
-                                        value=_resolve_job_name(name),
-                                    ),
-                                    client.V1EnvVar(
-                                        name="FORGE_PROJECT",
-                                        value=forge_project,
-                                    ),
-                                    client.V1EnvVar(
-                                        name="FORGE_CONFIG",
-                                        value=yaml.dump(
-                                            forge_config,
-                                            default_flow_style=False,
-                                        ),
-                                    ),
-                                ],
-                            ),
-                        ],
-                    ),
-                ),
-            ),
+        labels = {LABEL_MANAGED_BY: "fournos", LABEL_JOB_NAME: name}
+
+        body = copy.deepcopy(_RESOLVE_JOB_TEMPLATE)
+        body["metadata"] = {
+            "name": job_name,
+            "namespace": settings.namespace,
+            "labels": labels,
+            "ownerReferences": [_make_owner_ref(owner_ref)],
+        }
+        body["spec"]["activeDeadlineSeconds"] = settings.resolve_deadline_sec
+        body["spec"]["template"]["metadata"] = {"labels": labels}
+
+        container = body["spec"]["template"]["spec"]["containers"][0]
+        container["image"] = settings.resolve_image.format(
+            namespace=settings.namespace,
         )
+
+        env_values = {
+            "FOURNOS_JOB_NAME": name,
+            "FOURNOS_NAMESPACE": settings.namespace,
+            "FOURNOS_CONFIG_NAME": _resolve_job_name(name),
+            "FORGE_PROJECT": forge_project,
+            "FORGE_CONFIG": yaml.dump(forge_config, default_flow_style=False),
+            "FOURNOS_ENV": serialize_env(env),
+        }
+        for env_var in container["env"]:
+            if env_var["name"] not in env_values:
+                continue
+            env_var["value"] = env_values[env_var["name"]]
+
         result = self._batch.create_namespaced_job(
             namespace=settings.namespace,
             body=body,
