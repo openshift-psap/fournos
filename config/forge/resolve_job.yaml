@@ -1,0 +1,67 @@
+# Template for the resolve K8s Job (currently Forge).
+#
+# The operator loads this at startup, deep-copies it per job, and injects
+# dynamic values (metadata, image, env-var values, ownerReferences, deadline).
+#
+# The container setup mirrors config/forge/workflows/tasks.yaml (forge-step)
+# so the same forge-core image runs through the identical bootstrap sequence.
+# The only difference is that no kubeconfig volume is mounted — the resolve
+# step runs on the hub cluster and does not need remote-cluster access.
+apiVersion: batch/v1
+kind: Job
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: fournos
+      restartPolicy: Never
+      containers:
+        - name: resolve
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: FOURNOS_JOB_NAME
+            - name: FOURNOS_NAMESPACE
+            - name: FOURNOS_CONFIG_NAME
+            - name: FORGE_PROJECT
+            - name: FORGE_CONFIG
+            - name: FOURNOS_ENV
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -o pipefail
+              set -o errexit
+              set -o nounset
+              set -o errtrace
+
+              export ARTIFACT_DIR=/tmp/artifacts
+              mkdir -p "${ARTIFACT_DIR}"
+
+              exec &> >(tee -a "$ARTIFACT_DIR/run.log")
+
+              cat > $ARTIFACT_DIR/forge_config.yaml <<< "$FORGE_CONFIG"
+
+              cat > $ARTIFACT_DIR/forge_config.env <<< "$FOURNOS_ENV"
+
+              if grep -q '^PULL_BASE_SHA=' $ARTIFACT_DIR/forge_config.env; then
+                export PULL_BASE_SHA=$(cat $ARTIFACT_DIR/forge_config.env | grep '^PULL_BASE_SHA=' | cut -d'=' -f2)
+              fi
+
+              if grep -q '^PULL_PULL_SHA=' $ARTIFACT_DIR/forge_config.env; then
+                export PULL_PULL_SHA=$(cat $ARTIFACT_DIR/forge_config.env | grep '^PULL_PULL_SHA=' | cut -d'=' -f2)
+              fi
+
+              if [[ "${PULL_PULL_SHA:-}" ]]; then
+              echo
+                echo "Updating to PULL_PULL_SHA=$PULL_PULL_SHA ..."
+
+                git -C "$FORGE_HOME" fetch --quiet origin "$PULL_PULL_SHA"
+                git -C "$FORGE_HOME" reset --hard FETCH_HEAD
+              else
+                echo "No PULL_PULL_SHA, using the image commit"
+              fi
+
+              git show --quiet
+
+              export FOURNOS_CI=true
+
+              exec bin/run_ci "$FORGE_PROJECT" ci resolve_fournos_config

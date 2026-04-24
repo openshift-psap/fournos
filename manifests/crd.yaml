@@ -103,15 +103,6 @@ spec:
                   description: Environment variables used to identify the test run.
                   additionalProperties:
                     type: string
-                secretRefs:
-                  type: array
-                  description: >-
-                    Vault entry names to mount into the pipeline.  The operator
-                    looks up each name as a Kubernetes Secret and verifies it
-                    carries the fournos.dev/vault-entry=true label.  Secrets
-                    must be synced from Vault beforehand via sync_vault_secrets.
-                  items:
-                    type: string
                 exclusive:
                   type: boolean
                   default: false
@@ -139,6 +130,7 @@ spec:
                 phase:
                   type: string
                   enum:
+                    - Resolving
                     - Pending
                     - Admitted
                     - Running

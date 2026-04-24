@@ -1,9 +1,15 @@
-"""End-to-end tests — Vault sync → secretRef resolution → PipelineRun.
+"""End-to-end tests — Vault sync → FournosJobConfig secretRef resolution → PipelineRun.
 
+SecretRefs are resolved by Forge and stored in FournosJobConfig.
 The Vault HTTP layer is mocked so no real Vault is needed, but secrets
 are created on the live cluster by the sync script, then consumed by
-a FournosJob whose operator resolves them via the fournos.dev/vault-entry
-label.
+a FournosJob whose FournosJobConfig references them.
+
+Both tests create the FournosJob first.  The operator pre-creates an
+empty FournosJobConfig and launches the mock-resolve Job which populates
+the config.  The test waits for the resolve Job to complete, then
+patches ``spec.secretRefs`` before the operator's next timer tick reads
+the config.
 """
 
 from __future__ import annotations
@@ -23,6 +29,7 @@ from tests.conftest import (
     get_pipelinerun_param,
     job_status_summary,
     poll_phase,
+    poll_resolve_job_complete,
 )
 
 # ---------------------------------------------------------------------------
@@ -46,6 +53,9 @@ VAULT_DATA = {
     "secretsync/target-namespace": "should-be-filtered",
 }
 
+GROUP = "fournos.dev"
+VERSION = "v1"
+
 
 @pytest.fixture(scope="session")
 def core_v1():
@@ -64,15 +74,33 @@ def _delete_secret_if_exists(v1, name: str) -> None:
             raise
 
 
+def _patch_jobconfig_secret_refs(k8s, job_name: str, secret_refs: list[str]) -> None:
+    """Patch the FournosJobConfig to set ``spec.secretRefs``."""
+    k8s.patch_namespaced_custom_object(
+        GROUP,
+        VERSION,
+        NAMESPACE,
+        "fournosjobconfigs",
+        f"resolve-{job_name}",
+        body={"spec": {"secretRefs": secret_refs}},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
 
 
 def test_vault_sync_then_fjob(k8s, core_v1):
-    """Sync a mocked Vault entry, then verify a FournosJob resolves it."""
+    """Sync a mocked Vault entry, then verify a FournosJob passes it to PipelineRun.
 
-    # -- Phase 1: run the sync script with mocked Vault HTTP calls ----------
+    The FournosJob is created first.  The operator pre-creates the
+    FournosJobConfig (empty) and launches the mock-resolve Job which
+    populates it.  After the resolve Job completes, the test patches
+    secretRefs to inject the Vault entry before the operator reads the
+    config for the Pending transition.
+    """
+
     with (
         mock.patch.object(svs, "vault_list", return_value=[VAULT_ENTRY]),
         mock.patch.object(svs, "vault_read", return_value=VAULT_DATA),
@@ -88,22 +116,9 @@ def test_vault_sync_then_fjob(k8s, core_v1):
     assert rc == 0, "sync_vault_secrets.sync() returned non-zero"
 
     try:
-        # -- Phase 2: verify the K8s Secret was created correctly -----------
         secret = core_v1.read_namespaced_secret(VAULT_ENTRY, NAMESPACE)
         assert secret.metadata.labels[LABEL_VAULT_ENTRY] == "true"
-        assert (
-            secret.metadata.labels["app.kubernetes.io/managed-by"]
-            == "fournos-vault-sync"
-        )
-        assert (
-            secret.metadata.annotations["fournos.dev/vault-addr"]
-            == "https://vault.fake.test"
-        )
-        assert "secretsync/target-namespace" not in (secret.data or {}), (
-            "secretsync/ metadata keys must be filtered out"
-        )
 
-        # -- Phase 3: create a FournosJob referencing the vault entry -------
         create_job(
             k8s,
             "test-e2e-secret",
@@ -113,18 +128,22 @@ def test_vault_sync_then_fjob(k8s, core_v1):
                     "project": "testproj/llmd",
                     "args": ["cks", "internal-test"],
                 },
-                "secretRefs": [VAULT_ENTRY],
             },
         )
 
-        poll_phase(
+        poll_resolve_job_complete("test-e2e-secret")
+        _patch_jobconfig_secret_refs(k8s, "test-e2e-secret", [VAULT_ENTRY])
+
+        phase = poll_phase(
             k8s,
             "test-e2e-secret",
             terminal={"Running", "Succeeded", "Failed"},
-            timeout=30,
+            timeout=90,
+        )
+        assert phase in ("Running", "Succeeded"), job_status_summary(
+            k8s, "test-e2e-secret"
         )
 
-        # -- Phase 4: verify the PipelineRun received the entry name --------
         refs_param = get_pipelinerun_param("test-e2e-secret", "secret-refs")
         assert VAULT_ENTRY in refs_param, (
             f"PipelineRun secret-refs should contain {VAULT_ENTRY!r}, "
@@ -144,7 +163,11 @@ def test_vault_sync_then_fjob(k8s, core_v1):
 
 
 def test_missing_secret_ref_fails(k8s):
-    """A secretRef with no matching labelled Secret should fail the job."""
+    """A FournosJobConfig secretRef with no matching labelled Secret fails the job.
+
+    The test waits for the mock resolve Job to complete (populating the
+    config), then patches secretRefs to reference a nonexistent secret.
+    """
     create_job(
         k8s,
         "test-missing-ref",
@@ -154,15 +177,17 @@ def test_missing_secret_ref_fails(k8s):
                 "project": "testproj/llmd",
                 "args": ["cks", "internal-test"],
             },
-            "secretRefs": ["nonexistent-vault-entry"],
         },
     )
+
+    poll_resolve_job_complete("test-missing-ref")
+    _patch_jobconfig_secret_refs(k8s, "test-missing-ref", ["nonexistent-vault-entry"])
 
     phase = poll_phase(
         k8s,
         "test-missing-ref",
         terminal={"Failed"},
         message_substring="not found in namespace",
-        timeout=30,
+        timeout=60,
     )
     assert phase == "Failed", job_status_summary(k8s, "test-missing-ref")

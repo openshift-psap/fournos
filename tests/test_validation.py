@@ -1,4 +1,9 @@
-"""Validation tests — spec validation catches invalid configurations early."""
+"""Validation tests — spec validation catches invalid configurations early.
+
+Tests cover on_create rejections (unknown cluster, exclusive without cluster)
+and admission-phase errors (no flavor assigned).  Resolving-phase validation
+(GPU type, Forge failures) lives in test_resolving.py.
+"""
 
 import json
 import subprocess
@@ -13,31 +18,6 @@ from tests.conftest import (
     poll_resource_gone,
     workload_exists,
 )
-
-
-def test_neither_cluster_nor_hardware(k8s):
-    """Missing both cluster and hardware → immediate Failed with message."""
-    create_job(
-        k8s,
-        "test-no-target",
-        {
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
-        },
-    )
-
-    phase = poll_phase(
-        k8s,
-        "test-no-target",
-        terminal={Phase.FAILED},
-        timeout=15,
-    )
-    assert phase == Phase.FAILED, job_status_summary(k8s, "test-no-target")
-
-    job = get_job(k8s, "test-no-target")
-    msg = job["status"]["message"].lower()
-    assert "cluster" in msg or "hardware" in msg, (
-        f"Failure message should mention 'cluster' or 'hardware', got: {msg!r}"
-    )
 
 
 def test_unknown_cluster(k8s):
@@ -66,35 +46,6 @@ def test_unknown_cluster(k8s):
     )
 
 
-def test_unknown_gpu_type(k8s):
-    """Requesting a GPU type with no quota in any ClusterQueue → immediate Failed."""
-    create_job(
-        k8s,
-        "test-bad-gpu",
-        {
-            "hardware": {"gpuType": "acbd1234", "gpuCount": 2},
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
-        },
-    )
-
-    phase = poll_phase(
-        k8s,
-        "test-bad-gpu",
-        terminal={Phase.FAILED},
-        timeout=15,
-    )
-    assert phase == Phase.FAILED, job_status_summary(k8s, "test-bad-gpu")
-
-    job = get_job(k8s, "test-bad-gpu")
-    msg = job["status"]["message"]
-    assert "acbd1234" in msg.lower(), (
-        f"Failure message should mention the GPU type 'acbd1234', got: {msg!r}"
-    )
-    assert "not available" in msg.lower(), (
-        f"Failure message should say 'not available', got: {msg!r}"
-    )
-
-
 def test_admitted_without_flavor(k8s):
     """Workload admitted but no flavor in podSetAssignments → Failed."""
     create_job(
@@ -106,7 +57,7 @@ def test_admitted_without_flavor(k8s):
         },
     )
 
-    poll_phase(k8s, "test-no-flavor", terminal={Phase.PENDING}, timeout=15)
+    poll_phase(k8s, "test-no-flavor", terminal={Phase.PENDING}, timeout=45)
 
     patch = {
         "status": {

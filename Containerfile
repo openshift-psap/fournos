@@ -11,6 +11,7 @@ RUN mkdir -p fournos && touch fournos/__init__.py \
 
 # Layer 2 – application source (rebuilt on every code change)
 COPY fournos/ fournos/
+COPY config/ config/
 RUN pip install --no-cache-dir --no-deps .
 
 USER 1001

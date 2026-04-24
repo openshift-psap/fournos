@@ -7,6 +7,7 @@ import datetime
 CRD_GROUP = "fournos.dev"
 CRD_VERSION = "v1"
 
+COND_RESOLVED = "Resolved"
 COND_WORKLOAD_ADMITTED = "WorkloadAdmitted"
 COND_PIPELINE_RUN_READY = "PipelineRunReady"
 
