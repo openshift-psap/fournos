@@ -40,7 +40,6 @@ spec:
                       description: Number of GPUs required.
                 secretRefs:
                   type: array
-                  uniqueItems: true
                   description: >-
                     Vault entry names to mount into the pipeline.  Each name
                     must correspond to a Kubernetes Secret with the
