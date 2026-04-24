@@ -11,6 +11,8 @@ spec:
     singular: fournosjobconfig
     shortNames:
       - fjc
+      - fjconfig
+      - fjconfigs
   scope: Namespaced
   versions:
     - name: v1

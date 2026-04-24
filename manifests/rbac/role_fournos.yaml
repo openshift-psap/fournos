@@ -9,7 +9,7 @@ rules:
     verbs: ["get", "list", "watch", "patch", "update"]
   - apiGroups: ["fournos.dev"]
     resources: ["fournosjobconfigs"]
-    verbs: ["create", "get", "list", "watch", "delete"]
+    verbs: ["create", "get", "list", "watch", "patch", "delete"]
   - apiGroups: ["kueue.x-k8s.io"]
     resources: ["workloads"]
     verbs: ["create", "get", "list", "watch", "patch", "delete"]

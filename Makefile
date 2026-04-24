@@ -29,6 +29,7 @@ docker-push:
 
 install:
 	kubectl apply -f manifests/crd.yaml
+	kubectl apply -f manifests/crd-jobconfig.yaml
 
 deploy: install
 	for rbac_file in manifests/rbac/*.yaml; do \
@@ -63,7 +64,10 @@ dev-setup:
 	 bash dev/setup.sh
 
 dev-run:
-	FOURNOS_GC_INTERVAL_SEC=5 FOURNOS_NAMESPACE=$(or $(FOURNOS_NAMESPACE),fournos-local-dev) $(VENV_BIN)python -m fournos
+	FOURNOS_GC_INTERVAL_SEC=5 \
+	FOURNOS_NAMESPACE=$(or $(FOURNOS_NAMESPACE),fournos-local-dev) \
+	FOURNOS_FORGE_RESOLVE_IMAGE=fournos-mock-resolve:dev \
+	$(VENV_BIN)python -m fournos
 
 dev-teardown:
 	KIND_EXPERIMENTAL_PROVIDER=$(KIND_EXPERIMENTAL_PROVIDER) kind delete cluster --name $(KIND_CLUSTER_NAME)
@@ -77,7 +81,9 @@ ci-setup:
 	 bash dev/setup.sh
 
 ci-run:
-	FOURNOS_GC_INTERVAL_SEC=5 FOURNOS_NAMESPACE=$(or $(FOURNOS_NAMESPACE),psap-automation-ci-test) \
+	FOURNOS_GC_INTERVAL_SEC=5 \
+	FOURNOS_NAMESPACE=$(or $(FOURNOS_NAMESPACE),psap-automation-ci-test) \
+	FOURNOS_FORGE_RESOLVE_IMAGE=fournos-mock-resolve:dev \
 	  $(VENV_BIN)python -m fournos \
 	  --liveness=http://0.0.0.0:8080/healthz > fournos.log 2>&1 & \
 	echo $$! > fournos.pid; \
