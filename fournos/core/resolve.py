@@ -19,11 +19,11 @@ FJOBCONFIG_GROUP = "fournos.dev"
 FJOBCONFIG_VERSION = "v1"
 FJOBCONFIG_PLURAL = "fournosjobconfigs"
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-
 
 def _load_job_template() -> dict:
-    path = _PROJECT_ROOT / settings.resolve_job_template
+    path = Path(settings.resolve_job_template)
+    if not path.is_absolute():
+        path = Path.cwd() / path
     return yaml.safe_load(path.read_text())
 
 
