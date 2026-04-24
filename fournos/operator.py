@@ -16,6 +16,7 @@ from kubernetes import client, config
 from fournos.core.clusters import ClusterRegistry
 from fournos.core.constants import LABEL_JOB_NAME, Phase
 from fournos.core.kueue import KueueClient
+from fournos.core.resolve import ResolveClient
 from fournos.core.tekton import TektonClient
 from fournos import __version__, handlers
 from fournos.settings import settings
@@ -57,6 +58,7 @@ def startup(**_):
     ctx.kueue = KueueClient(custom_objects)
     ctx.tekton = TektonClient(custom_objects)
     ctx.registry = ClusterRegistry(client.CoreV1Api())
+    ctx.resolve = ResolveClient(client.BatchV1Api(), custom_objects)
 
     logger.info("Operating in namespace %s", settings.namespace)
 
@@ -88,7 +90,13 @@ def on_create(spec, name, namespace, status, patch, body, **_):
     interval=5.0,
     when=lambda status, **_: (
         status.get("phase")
-        in (Phase.PENDING, Phase.ADMITTED, Phase.RUNNING, Phase.STOPPING)
+        in (
+            Phase.RESOLVING,
+            Phase.PENDING,
+            Phase.ADMITTED,
+            Phase.RUNNING,
+            Phase.STOPPING,
+        )
     ),
 )
 def reconcile(spec, name, namespace, status, patch, body, **_):
@@ -103,7 +111,9 @@ def reconcile(spec, name, namespace, status, patch, body, **_):
         handlers.handle_shutdown(name, status, patch, shutdown)
         return
 
-    if phase == Phase.PENDING:
+    if phase == Phase.RESOLVING:
+        handlers.reconcile_resolving(spec, name, status, patch, body)
+    elif phase == Phase.PENDING:
         handlers.reconcile_pending(spec, name, status, patch, body)
     elif phase == Phase.ADMITTED:
         handlers.reconcile_admitted(spec, name, namespace, status, patch, body)

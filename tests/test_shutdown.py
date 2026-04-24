@@ -46,7 +46,7 @@ def test_stop_pending_job(k8s):
         },
     )
 
-    poll_phase(k8s, "test-stop-pending", terminal={Phase.PENDING}, timeout=15)
+    poll_phase(k8s, "test-stop-pending", terminal={Phase.PENDING}, timeout=45)
     assert workload_exists("test-stop-pending"), "Workload should exist while Pending"
 
     _set_shutdown(k8s, "test-stop-pending", "Stop")

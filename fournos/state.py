@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from fournos.core.clusters import ClusterRegistry
 from fournos.core.kueue import KueueClient
+from fournos.core.resolve import ResolveClient
 from fournos.core.tekton import TektonClient
 
 
@@ -14,6 +15,7 @@ class _OperatorState:
     kueue: KueueClient | None = None
     tekton: TektonClient | None = None
     registry: ClusterRegistry | None = None
+    resolve: ResolveClient | None = None
 
 
 ctx = _OperatorState()

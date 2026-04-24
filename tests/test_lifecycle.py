@@ -33,7 +33,7 @@ def test_workload_cleaned_after_completion(k8s):
         k8s,
         "test-wl-cleanup",
         terminal={Phase.SUCCEEDED, Phase.FAILED},
-        timeout=60,
+        timeout=90,
     )
     assert phase == Phase.SUCCEEDED, job_status_summary(k8s, "test-wl-cleanup")
 
@@ -71,7 +71,7 @@ def test_delete_cleans_up_resources(k8s):
         k8s,
         "test-delete",
         terminal={Phase.RUNNING, Phase.SUCCEEDED, Phase.FAILED},
-        timeout=30,
+        timeout=60,
     )
     assert pipelinerun_exists("test-delete"), (
         "PipelineRun test-delete should exist before job deletion"
@@ -138,9 +138,15 @@ def test_filter_jobs_by_phase(k8s):
 
     poll_phase(
         k8s,
+        "test-filter-stuck",
+        terminal={Phase.PENDING},
+        timeout=45,
+    )
+    poll_phase(
+        k8s,
         "test-filter-ok",
         terminal={Phase.ADMITTED, Phase.RUNNING, Phase.SUCCEEDED, Phase.FAILED},
-        timeout=30,
+        timeout=60,
     )
     time.sleep(3)
 

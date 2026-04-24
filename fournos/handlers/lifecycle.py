@@ -25,9 +25,7 @@ from .status import (
     CRD_GROUP,
     CRD_VERSION,
     COND_WORKLOAD_ADMITTED,
-    create_workload_for_job,
     set_condition,
-    utcnow,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,13 +48,7 @@ def on_create(spec, name, namespace, status, patch, body):
         return
 
     cluster = spec.get("cluster")
-    hardware = spec.get("hardware")
     exclusive = spec.get("exclusive", False)
-
-    if not cluster and not hardware:
-        patch.status["phase"] = Phase.FAILED
-        patch.status["message"] = "Must specify 'cluster', 'hardware', or both"
-        return
 
     if exclusive and not cluster:
         patch.status["phase"] = Phase.FAILED
@@ -76,56 +68,12 @@ def on_create(spec, name, namespace, status, patch, body):
             patch.status["message"] = f"Cluster '{cluster}' not found"
             return
 
-    if hardware and hardware.get("gpuType"):
-        gpu_type = hardware["gpuType"]
-        try:
-            known_gpu_types = ctx.kueue.list_gpu_types()
-        except client.exceptions.ApiException as exc:
-            patch.status["phase"] = Phase.FAILED
-            patch.status["message"] = f"Failed to list GPU types: {exc.reason}"
-            logger.error("Job %s: list_gpu_types failed: %s", name, exc.reason)
-            return
-        if not known_gpu_types:
-            patch.status["phase"] = Phase.FAILED
-            patch.status["message"] = "No GPU types configured"
-            logger.error("Job %s: no GPU types found in any ClusterQueue", name)
-            return
-        if gpu_type not in known_gpu_types:
-            patch.status["phase"] = Phase.FAILED
-            patch.status["message"] = (
-                f"GPU type '{gpu_type}' not available. "
-                f"Valid types: {', '.join(sorted(known_gpu_types))}"
-            )
-            return
-
     if exclusive:
         patch.meta.setdefault("labels", {})[LABEL_EXCLUSIVE_CLUSTER] = cluster
 
-    try:
-        create_workload_for_job(spec, name, body)
-    except client.exceptions.ApiException as exc:
-        if exc.status == 409:
-            pass
-        else:
-            patch.status["phase"] = Phase.FAILED
-            patch.status["message"] = f"Failed to create Workload: {exc.reason}"
-            logger.error(
-                "Job %s: Workload creation failed: %s\n%s", name, exc.reason, exc.body
-            )
-            return
-
-    patch.status["phase"] = Phase.PENDING
-    patch.status["message"] = "Workload created, waiting for Kueue admission"
-    patch.status["conditions"] = [
-        {
-            "type": COND_WORKLOAD_ADMITTED,
-            "status": "False",
-            "reason": "Pending",
-            "message": "Workload created, waiting for Kueue admission",
-            "lastTransitionTime": utcnow(),
-        }
-    ]
-    logger.info("Job %s: created Workload, phase=Pending", name)
+    patch.status["phase"] = Phase.RESOLVING
+    patch.status["message"] = "Resolving job requirements via Forge"
+    logger.info("Job %s: phase=Resolving", name)
 
 
 # ---------------------------------------------------------------------------

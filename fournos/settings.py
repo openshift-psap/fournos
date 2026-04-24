@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     gpu_resource_prefix: str = "fournos/gpu-"
     gc_interval_sec: float = Field(default=300.0, gt=0)
     log_level: str = "INFO"
+    forge_resolve_image: str = (
+        "image-registry.openshift-image-registry.svc:5000/{namespace}/forge-core:main"
+    )
+    forge_resolve_deadline_sec: int = Field(default=300, gt=0)
 
 
 settings = Settings()

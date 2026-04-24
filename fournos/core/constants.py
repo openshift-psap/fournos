@@ -10,6 +10,7 @@ MAX_CLUSTER_SLOTS = 100
 
 
 class Phase(StrEnum):
+    RESOLVING = "Resolving"
     PENDING = "Pending"
     ADMITTED = "Admitted"
     RUNNING = "Running"
