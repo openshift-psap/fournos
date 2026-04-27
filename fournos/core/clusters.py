@@ -1,11 +1,23 @@
+from __future__ import annotations
+
 import logging
+from dataclasses import dataclass
 
 from kubernetes import client
 
-from fournos.core.constants import LABEL_VAULT_ENTRY
+from fournos.core.constants import LABEL_MANAGED_BY, LABEL_VAULT_ENTRY
 from fournos.settings import settings
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ResolvedSecret:
+    """A secret that has been copied into the pod namespace."""
+
+    name: str
+    original_name: str
+    keys: list[str]
 
 
 class ClusterRegistry:
@@ -30,8 +42,7 @@ class ClusterRegistry:
     def _resolve_secret_ref(self, ref: str) -> str:
         """Verify that *ref* is a Vault-synced K8s Secret and return its name.
 
-        Vault-synced secrets use a ``vault-`` prefix: the K8s Secret
-        name is ``vault-<vault-entry-name>``.  The
+        The Secret is read from ``secrets_namespace``.  The
         ``fournos.dev/vault-entry=true`` label is checked to confirm
         the Secret was actually imported from Vault.
 
@@ -59,3 +70,60 @@ class ClusterRegistry:
     def resolve_secret_refs(self, refs: list[str]) -> list[str]:
         """Resolve a list of secretRefs to their K8s Secret names."""
         return [self._resolve_secret_ref(r) for r in refs]
+
+    def copy_secret(self, ref: str, fjob_name: str, owner_ref: dict) -> ResolvedSecret:
+        """Copy a Vault-synced Secret from the secrets namespace into the pod namespace.
+
+        The copy is named ``<fjob_name>-<ref>`` and carries an ownerReference
+        back to the FournosJob so K8s GC cleans it up automatically.
+        Idempotent: a 409 (AlreadyExists) is silently ignored.
+        """
+        source = self._k8s.read_namespaced_secret(ref, settings.secrets_namespace)
+
+        keys = sorted((source.data or {}).keys())
+        copied_name = f"{fjob_name}-{ref}"
+
+        copy_body = client.V1Secret(
+            metadata=client.V1ObjectMeta(
+                name=copied_name,
+                namespace=settings.namespace,
+                labels={
+                    LABEL_MANAGED_BY: "fournos",
+                    LABEL_VAULT_ENTRY: "true",
+                },
+                owner_references=[
+                    client.V1OwnerReference(
+                        api_version=owner_ref["apiVersion"],
+                        kind=owner_ref["kind"],
+                        name=owner_ref["name"],
+                        uid=owner_ref["uid"],
+                        controller=False,
+                        block_owner_deletion=True,
+                    )
+                ],
+            ),
+            type=source.type,
+            data=source.data,
+        )
+
+        try:
+            self._k8s.create_namespaced_secret(settings.namespace, copy_body)
+            logger.info(
+                "Copied secret %s from %s as %s",
+                ref,
+                settings.secrets_namespace,
+                copied_name,
+            )
+        except client.exceptions.ApiException as exc:
+            if exc.status == 409:
+                logger.debug("Secret copy %s already exists (409)", copied_name)
+            else:
+                raise
+
+        return ResolvedSecret(name=copied_name, original_name=ref, keys=keys)
+
+    def copy_secrets(
+        self, refs: list[str], fjob_name: str, owner_ref: dict
+    ) -> list[ResolvedSecret]:
+        """Copy all *refs* and return the resolved list."""
+        return [self.copy_secret(r, fjob_name, owner_ref) for r in refs]

@@ -278,6 +278,17 @@ def get_pipelinerun_param(name: str, param_name: str) -> Any:
     return None
 
 
+def get_pipelinerun_volumes(name: str) -> list[dict]:
+    """Return the podTemplate volumes from the PipelineRun's taskRunTemplate."""
+    pr = get_k8s_resource("pipelinerun", name)
+    return (
+        pr.get("spec", {})
+        .get("taskRunTemplate", {})
+        .get("podTemplate", {})
+        .get("volumes", [])
+    )
+
+
 def resolve_job_exists(name: str) -> bool:
     """Check whether the resolve Job for *name* exists."""
     result = subprocess.run(

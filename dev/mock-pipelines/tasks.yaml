@@ -51,6 +51,10 @@ spec:
               name: fournos-mock-config
               key: sleep
               optional: true
+      volumeMounts:
+        - name: vault-secrets
+          mountPath: /workspace/vault-secrets
+          readOnly: true
       script: |
         #!/bin/sh
         MOCK_SLEEP="${MOCK_SLEEP:-3}"
@@ -61,6 +65,8 @@ spec:
         echo "$(params.env)" | sed 's/^/  /'
         echo "[mock-run] gpu-count=$(params.gpu-count)"
         echo "[mock-run] job=$(params.job-name)"
+        echo "[mock-run] vault-secrets:"
+        find /workspace/vault-secrets -type f 2>/dev/null | sort | while read f; do echo "  $f"; done
         echo "[mock-run] simulating workload (${MOCK_SLEEP}s)..."
         sleep "$MOCK_SLEEP"
         echo "[mock-run] done"

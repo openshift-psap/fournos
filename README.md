@@ -85,7 +85,7 @@ oc delete FournosJob -n $FOURNOS_NAMESPACE <name>      # cleanup
 | `spec.displayName` | no | Human-readable job name (defaults to `metadata.name`) |
 | `spec.pipeline` | no | Tekton Pipeline name (default: `fournos-full`) |
 | `spec.priority` | no | Kueue WorkloadPriorityClass name |
-| `spec.secretRefs` | no | Vault-synced K8s Secret names (prefixed with `vault-`) to mount into the pipeline. Populated by Forge during the Resolving phase. The operator verifies each name as a K8s Secret with the `fournos.dev/vault-entry=true` label. |
+| `spec.secretRefs` | no | Vault-synced K8s Secret names (prefixed with `vault-`) to mount into the pipeline. Populated by Forge during the Resolving phase. The operator validates each name in `FOURNOS_SECRETS_NAMESPACE`, copies the secrets into the operator namespace, and mounts them as a projected volume at `/workspace/vault-secrets/<entry-name>/`. |
 | `spec.exclusive` | no | If `true`, locks the target cluster so no other FournosJob can run there. Requires `spec.cluster`. |
 | `spec.shutdown` | no | Shutdown action: `Stop` cancels gracefully (Tekton `CancelledRunFinally` — runs `finally` tasks); `Terminate` cancels immediately (Tekton `Cancelled` — skips `finally` tasks). Both wait for the PipelineRun to finish before releasing Kueue quota. |
 
@@ -269,9 +269,25 @@ make sync-vault-secrets-dry-run      # preview only
 The synced secrets are labelled `fournos.dev/vault-entry=true` and
 `app.kubernetes.io/managed-by=fournos-vault-sync` for easy identification.
 Secret references are populated by Forge during the Resolving phase directly
-on the FournosJob `spec.secretRefs` field. The operator verifies each
+on the FournosJob `spec.secretRefs` field. The operator validates each
 referenced Secret exists in the secrets namespace and carries the vault
-label before proceeding.
+label during the Resolving phase, then copies them into the operator
+namespace during the Admitted phase and mounts them as a projected volume
+into the PipelineRun pods. Each secret's keys are placed under a
+subdirectory matching the original name:
+
+```
+/workspace/vault-secrets/
+  vault-my-creds/
+    username
+    password
+  vault-other-creds/
+    token
+```
+
+Copied secrets are named `<fjob-name>-<secret-name>` and carry
+`ownerReferences` back to the FournosJob, so Kubernetes garbage-collects
+them automatically when the job is deleted.
 
 ## Configuration
 
@@ -304,7 +320,7 @@ The operator runs as a single-replica Deployment using
 1. **Resolves** job requirements by launching a Forge K8s Job that populates the FournosJob spec with GPU type/count and secret references
 2. **Creates** a Kueue Workload with the resolved GPU resources (owned by the FournosJob via `ownerReferences`)
 3. **Polls** (5 s timer) for Kueue admission and assigned cluster
-4. **Launches** a Tekton PipelineRun with FORGE parameters (owned by the FournosJob via `ownerReferences`)
+4. **Copies** referenced Vault secrets from the secrets namespace into the operator namespace (per-job copies with `ownerReferences` for automatic cleanup) and **launches** a Tekton PipelineRun with FORGE parameters and the secrets mounted as a projected volume at `/workspace/vault-secrets/` (owned by the FournosJob via `ownerReferences`)
 5. **Watches** the PipelineRun until completion
 6. **Deletes** the Workload to release Kueue quota
 

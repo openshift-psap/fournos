@@ -36,6 +36,9 @@ spec:
         - name: kubeconfig
           mountPath: /workspace/kubeconfig
           readOnly: true
+        - name: vault-secrets
+          mountPath: /workspace/vault-secrets
+          readOnly: true
       script: |
         #!/usr/bin/env bash
 
