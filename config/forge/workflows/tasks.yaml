@@ -23,6 +23,7 @@ spec:
   steps:
     - name: forge
       image: image-registry.openshift-image-registry.svc:5000/$(context.taskRun.namespace)/forge-core:main
+      imagePullPolicy: Always
       env:
       - name: KUBECONFIG
         value: /workspace/kubeconfig/kubeconfig
