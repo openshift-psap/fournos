@@ -295,7 +295,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "-n",
         "--namespace",
-        default=os.environ.get("FOURNOS_SECRETS_NAMESPACE", "psap-secrets"),
+        default=settings.secrets_namespace,
         help="Target Kubernetes namespace (default: $FOURNOS_SECRETS_NAMESPACE or psap-secrets).",
     )
     parser.add_argument(
