@@ -73,7 +73,6 @@ def _clean_before_test(k8s):
     _kubectl_delete_all("pipelineruns.tekton.dev")
     _kubectl_delete_all("workloads.kueue.x-k8s.io")
     _kubectl_delete_all("jobs.batch")
-    _kubectl_delete_all("fournosjobconfigs.fournos.dev")
 
 
 # ---------------------------------------------------------------------------
@@ -323,22 +322,13 @@ def poll_resolve_job_complete(
     )
 
 
-def jobconfig_exists(name: str) -> bool:
-    """Check whether the FournosJobConfig for *name* exists."""
-    result = subprocess.run(
-        ["kubectl", "get", "fournosjobconfig", f"resolve-{name}", "-n", NAMESPACE],
-        capture_output=True,
-    )
-    return result.returncode == 0
-
-
 def create_failing_resolve_job(name: str) -> None:
     """Create a resolve Job that immediately fails (exit code 1)."""
     _create_resolve_job(name, command=["false"])
 
 
 def create_noop_resolve_job(name: str) -> None:
-    """Create a resolve Job that succeeds but does NOT create a FournosJobConfig."""
+    """Create a resolve Job that succeeds without patching the FournosJob spec."""
     _create_resolve_job(name, command=["true"])
 
 

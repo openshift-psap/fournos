@@ -75,7 +75,6 @@ kubectl label ns/$FOURNOS_NAMESPACE fournos.dev/queue-access=true
 echo ""
 echo "Applying FournosJob CRD..."
 kubectl apply -f manifests/crd.yaml -n $FOURNOS_NAMESPACE
-kubectl apply -f manifests/crd-jobconfig.yaml -n $FOURNOS_NAMESPACE
 
 # ---------------------------------------------------------------
 # 5. Apply Fournos Kubernetes manifests

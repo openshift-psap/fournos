@@ -29,7 +29,6 @@ docker-push:
 
 install:
 	kubectl apply -f manifests/crd.yaml
-	kubectl apply -f manifests/crd-jobconfig.yaml
 
 deploy: install
 	for rbac_file in manifests/rbac/*.yaml; do \

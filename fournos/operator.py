@@ -58,7 +58,7 @@ def startup(**_):
     ctx.kueue = KueueClient(custom_objects)
     ctx.tekton = TektonClient(custom_objects)
     ctx.registry = ClusterRegistry(client.CoreV1Api())
-    ctx.resolve = ResolveClient(client.BatchV1Api(), custom_objects)
+    ctx.resolve = ResolveClient(client.BatchV1Api())
 
     logger.info("Operating in namespace %s", settings.namespace)
 

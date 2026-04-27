@@ -21,7 +21,6 @@ spec:
           env:
             - name: FOURNOS_JOB_NAME
             - name: FOURNOS_NAMESPACE
-            - name: FOURNOS_CONFIG_NAME
             - name: FORGE_PROJECT
             - name: FORGE_CONFIG
             - name: FOURNOS_ENV

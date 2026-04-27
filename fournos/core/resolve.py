@@ -1,4 +1,4 @@
-"""Resolve client — manages Forge resolve K8s Jobs and FournosJobConfig CRs."""
+"""Resolve client — manages Forge resolve K8s Jobs."""
 
 from __future__ import annotations
 
@@ -14,10 +14,6 @@ from fournos.core.tekton import serialize_env
 from fournos.settings import settings
 
 logger = logging.getLogger(__name__)
-
-FJOBCONFIG_GROUP = "fournos.dev"
-FJOBCONFIG_VERSION = "v1"
-FJOBCONFIG_PLURAL = "fournosjobconfigs"
 
 
 def _load_job_template() -> dict:
@@ -46,50 +42,8 @@ def _make_owner_ref(ref: dict) -> dict:
 
 
 class ResolveClient:
-    def __init__(
-        self,
-        batch_client: client.BatchV1Api,
-        custom_client: client.CustomObjectsApi,
-    ) -> None:
+    def __init__(self, batch_client: client.BatchV1Api) -> None:
         self._batch = batch_client
-        self._custom = custom_client
-
-    def create_fournos_job_config(self, *, name: str, owner_ref: dict) -> None:
-        """Create an empty FournosJobConfig for Forge to populate.
-
-        Idempotent: a 409 (AlreadyExists) is silently ignored.
-        """
-        config_name = _resolve_job_name(name)
-        body = {
-            "apiVersion": f"{FJOBCONFIG_GROUP}/{FJOBCONFIG_VERSION}",
-            "kind": "FournosJobConfig",
-            "metadata": {
-                "name": config_name,
-                "namespace": settings.namespace,
-                "labels": {
-                    LABEL_MANAGED_BY: "fournos",
-                    LABEL_JOB_NAME: name,
-                },
-                "ownerReferences": [_make_owner_ref(owner_ref)],
-            },
-            "spec": {},
-        }
-        try:
-            self._custom.create_namespaced_custom_object(
-                group=FJOBCONFIG_GROUP,
-                version=FJOBCONFIG_VERSION,
-                namespace=settings.namespace,
-                plural=FJOBCONFIG_PLURAL,
-                body=body,
-            )
-            logger.info(
-                "Created empty FournosJobConfig %s for job %s", config_name, name
-            )
-        except client.exceptions.ApiException as exc:
-            if exc.status == 409:
-                logger.debug("FournosJobConfig %s already exists (409)", config_name)
-            else:
-                raise
 
     def create_job(
         self,
@@ -121,7 +75,6 @@ class ResolveClient:
         env_values = {
             "FOURNOS_JOB_NAME": name,
             "FOURNOS_NAMESPACE": settings.namespace,
-            "FOURNOS_CONFIG_NAME": _resolve_job_name(name),
             "FORGE_PROJECT": forge_project,
             "FORGE_CONFIG": yaml.dump(forge_config, default_flow_style=False),
             "FOURNOS_ENV": serialize_env(env),
@@ -172,20 +125,3 @@ class ResolveClient:
             if c.get("type") == "Failed" and c.get("message"):
                 return c["message"]
         return ""
-
-    def read_job_config(self, name: str) -> dict | None:
-        """Read a FournosJobConfig CR. Returns spec dict or None."""
-        config_name = _resolve_job_name(name)
-        try:
-            result = self._custom.get_namespaced_custom_object(
-                group=FJOBCONFIG_GROUP,
-                version=FJOBCONFIG_VERSION,
-                namespace=settings.namespace,
-                plural=FJOBCONFIG_PLURAL,
-                name=config_name,
-            )
-            return result.get("spec", {})
-        except client.exceptions.ApiException as exc:
-            if exc.status == 404:
-                return None
-            raise

@@ -1,8 +1,8 @@
 """Resolving handler — reconcile_resolving.
 
-Covers the Resolving phase: launching a Forge resolve Job, reading
-its FournosJobConfig output, validating the results, and creating
-the Kueue Workload to transition into Pending.
+Covers the Resolving phase: launching a Forge resolve Job that patches
+the FournosJob spec with hardware and secretRefs, validating the results,
+and creating the Kueue Workload to transition into Pending.
 """
 
 from __future__ import annotations
@@ -119,50 +119,26 @@ def _check_job_finished(job, name, conditions, patch):
     return True
 
 
-def _read_config(name, conditions, patch):
-    """Read the FournosJobConfig after a successful resolve Job.
+def _resolve_hardware(spec, name, conditions, patch):
+    """Determine and validate GPU requirements from the FournosJob spec.
 
-    Returns the config ``spec`` dict, or ``None`` if the config is missing
-    (patch already set to Failed).
-    """
-    config = ctx.resolve.read_job_config(name)
-    if config is None:
-        _resolve_failed(
-            patch,
-            conditions,
-            name,
-            "FournosJobConfig not found (may have been deleted externally)",
-            reason="ConfigMissing",
-            cond_message="FournosJobConfig not found after resolve Job succeeded",
-        )
-    return config
-
-
-def _resolve_hardware(spec, config, name, conditions, patch):
-    """Determine and validate GPU requirements from spec or config.
-
-    User-provided ``spec.hardware`` takes precedence.  The GPU type is
-    always validated against Kueue regardless of source.
+    Forge populates ``spec.hardware`` when absent.  The GPU type is
+    always validated against Kueue.
 
     Returns ``(gpu_type, gpu_count)`` on success, or ``None`` if
     validation failed (patch already set to Failed).
     """
-    hardware = spec.get("hardware")
-    if hardware:
-        gpu_type = hardware.get("gpuType")
-        gpu_count = hardware.get("gpuCount", 0)
-    else:
-        config_hw = config.get("hardware") or {}
-        gpu_type = config_hw.get("gpuType")
-        gpu_count = config_hw.get("gpuCount", 0)
+    hardware = spec.get("hardware") or {}
+    gpu_type = hardware.get("gpuType")
+    gpu_count = hardware.get("gpuCount", 0)
 
     if not gpu_type or not gpu_count:
         _resolve_failed(
             patch,
             conditions,
             name,
-            "No hardware requirements: neither spec.hardware nor "
-            "FournosJobConfig provides gpuType and gpuCount",
+            "No hardware requirements: spec.hardware not populated "
+            "after Forge resolution",
             reason="NoHardware",
             cond_message="No hardware requirements found",
         )
@@ -206,13 +182,13 @@ def _resolve_hardware(spec, config, name, conditions, patch):
     return gpu_type, gpu_count
 
 
-def _validate_secret_refs(config, name, conditions, patch):
-    """Validate secretRefs from the FournosJobConfig against Vault secrets.
+def _validate_secret_refs(spec, name, conditions, patch):
+    """Validate secretRefs from the FournosJob spec against Vault secrets.
 
     Returns ``True`` on success (including when there are no secretRefs),
     or ``False`` if validation failed (patch already set to Failed).
     """
-    secret_refs = config.get("secretRefs") or []
+    secret_refs = spec.get("secretRefs") or []
     if not secret_refs:
         return True
 
@@ -289,8 +265,6 @@ def _create_workload_and_transition(
 def reconcile_resolving(spec, name, status, patch, body):
     conditions = list(status.get("conditions") or [])
 
-    ctx.resolve.create_fournos_job_config(name=name, owner_ref=owner_ref(body))
-
     job = _ensure_resolve_job(spec, name, conditions, patch, body)
     if job is None or job is False:
         return
@@ -298,15 +272,11 @@ def reconcile_resolving(spec, name, status, patch, body):
     if not _check_job_finished(job, name, conditions, patch):
         return
 
-    config = _read_config(name, conditions, patch)
-    if config is None:
-        return
-
-    hw = _resolve_hardware(spec, config, name, conditions, patch)
+    hw = _resolve_hardware(spec, name, conditions, patch)
     if hw is None:
         return
 
-    if not _validate_secret_refs(config, name, conditions, patch):
+    if not _validate_secret_refs(spec, name, conditions, patch):
         return
 
     gpu_type, gpu_count = hw

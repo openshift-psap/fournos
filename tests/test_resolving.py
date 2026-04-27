@@ -1,4 +1,4 @@
-"""Resolving phase tests — Forge resolution via K8s Jobs and FournosJobConfig.
+"""Resolving phase tests — Forge resolution via K8s Jobs.
 
 Tests cover the happy path (with and without user-provided hardware),
 hardware validation (invalid GPU type, missing hardware), Forge Job
@@ -17,7 +17,6 @@ from tests.conftest import (
     get_job,
     get_workload_gpu_request,
     job_status_summary,
-    jobconfig_exists,
     poll_phase,
     poll_resource_gone,
     resolve_job_exists,
@@ -36,7 +35,7 @@ def _set_shutdown(k8s, name: str, mode: str) -> None:
 
 
 def test_happy_path_with_hardware(k8s):
-    """Job with spec.hardware: spec values take precedence over FournosJobConfig."""
+    """Job with spec.hardware: user-provided values take precedence over Forge."""
     create_job(
         k8s,
         "test-resolve-hw",
@@ -67,8 +66,7 @@ def test_happy_path_with_hardware(k8s):
 
     gpu_req = get_workload_gpu_request("test-resolve-hw", "h200")
     assert gpu_req == 4, (
-        f"Workload should request 4 GPUs from spec.hardware, not 2 from "
-        f"FournosJobConfig; got {gpu_req}"
+        f"Workload should request 4 GPUs from spec.hardware; got {gpu_req}"
     )
 
     phase = poll_phase(
@@ -90,7 +88,7 @@ def test_happy_path_with_hardware(k8s):
 
 
 def test_happy_path_without_hardware(k8s):
-    """Job without spec.hardware: Forge provides hardware via FournosJobConfig."""
+    """Job without spec.hardware: Forge populates it during resolution."""
     create_job(
         k8s,
         "test-resolve-nohw",
@@ -115,7 +113,7 @@ def test_happy_path_without_hardware(k8s):
 
     gpu_req = get_workload_gpu_request("test-resolve-nohw", "a100")
     assert gpu_req == 2, (
-        f"Workload should request 2 a100 GPUs from FournosJobConfig; got {gpu_req}"
+        f"Workload should request 2 a100 GPUs from Forge-resolved spec; got {gpu_req}"
     )
 
     phase = poll_phase(
@@ -150,7 +148,7 @@ def test_cluster_pin_without_hardware(k8s):
 
     gpu_req = get_workload_gpu_request("test-resolve-pin", "a100")
     assert gpu_req == 2, (
-        f"Workload should request 2 a100 GPUs from FournosJobConfig; got {gpu_req}"
+        f"Workload should request 2 a100 GPUs from Forge-resolved spec; got {gpu_req}"
     )
 
     phase = poll_phase(
@@ -164,29 +162,6 @@ def test_cluster_pin_without_hardware(k8s):
     job = get_job(k8s, "test-resolve-pin")
     assert job["status"]["cluster"] == "cluster-1", (
         f"Expected cluster-1, got {job['status'].get('cluster')!r}"
-    )
-
-
-def test_resolving_creates_jobconfig(k8s):
-    """After resolution, a FournosJobConfig CR should exist."""
-    create_job(
-        k8s,
-        "test-resolve-config",
-        {
-            "cluster": "cluster-1",
-            "hardware": {"gpuType": "a100", "gpuCount": 2},
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
-        },
-    )
-
-    poll_phase(
-        k8s,
-        "test-resolve-config",
-        terminal={Phase.PENDING, Phase.ADMITTED, Phase.RUNNING},
-        timeout=60,
-    )
-    assert jobconfig_exists("test-resolve-config"), (
-        "FournosJobConfig should exist after successful resolution"
     )
 
 
@@ -257,7 +232,7 @@ def test_delete_during_resolving_cleans_up(k8s):
 
 
 def test_unknown_gpu_type(k8s):
-    """Requesting a GPU type with no quota in any ClusterQueue → Failed."""
+    """Requesting a GPU type with no quota in any ClusterQueue -> Failed."""
     create_job(
         k8s,
         "test-bad-gpu",
@@ -285,8 +260,8 @@ def test_unknown_gpu_type(k8s):
     )
 
 
-def test_forge_resolve_job_failure(k8s):
-    """Forge resolve Job fails → FournosJob transitions to Failed.
+def test_resolve_job_failure(k8s):
+    """Forge resolve Job fails -> FournosJob transitions to Failed.
 
     A pre-created resolve Job that immediately exits with code 1 simulates
     a Forge failure.  The operator should detect the failure and set
@@ -331,13 +306,12 @@ def test_forge_resolve_job_failure(k8s):
     )
 
 
-def test_forge_resolve_empty_hw_config(k8s):
-    """Resolve Job succeeds but doesn't populate the FournosJobConfig → Failed.
+def test_resolve_empty_hw(k8s):
+    """Resolve Job succeeds but doesn't populate spec.hardware -> Failed.
 
     A pre-created noop resolve Job exits successfully without patching
-    the config.  The operator pre-creates the config (empty spec), so
-    after the Job completes the config has no hardware — the job should
-    fail with 'No hardware requirements'.
+    the FournosJob spec.  Since no hardware was provided by the user
+    either, the job should fail with 'No hardware requirements'.
     """
     create_noop_resolve_job("test-resolve-noconfig")
 

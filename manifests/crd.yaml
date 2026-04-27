@@ -98,6 +98,17 @@ spec:
                       type: object
                       description: Overrides passed to the test framework as YAML.
                       x-kubernetes-preserve-unknown-fields: true
+                secretRefs:
+                  type: array
+                  description: >-
+                    Vault entry names to mount into the pipeline.  Each name
+                    must correspond to a Kubernetes Secret with the
+                    fournos.dev/vault-entry=true label.
+                    Populated by Forge during the Resolving phase when not
+                    provided by the user.
+                  items:
+                    type: string
+                    pattern: "^[a-z0-9]([a-z0-9\\-]{0,61}[a-z0-9])?$"
                 env:
                   type: object
                   description: Environment variables used to identify the test run.

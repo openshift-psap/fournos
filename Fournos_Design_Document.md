@@ -15,13 +15,12 @@ flowchart LR
         K8sAPI["Kubernetes API"]
         Operator["Fournos Operator\n(kopf)"]
         ForgeResolve["Forge Resolve\n(K8s Job)"]
-        FJC["FournosJobConfig"]
         Kueue["Kueue"]
         Tekton["Tekton Pipelines"]
         FORGE["FORGE\n(in Tekton Tasks)"]
         K8sAPI --> Operator
         Operator --> ForgeResolve
-        ForgeResolve --> FJC
+        ForgeResolve -->|"patches FournosJob spec"| K8sAPI
         Operator --> Kueue
         Operator --> Tekton
         Tekton --> FORGE
@@ -56,11 +55,12 @@ Jobs are submitted as `FournosJob` custom resources ([manifests/crd.yaml](manife
 | `spec.displayName`           | no           | Human-readable job name (defaults to `metadata.name`)                                            |
 | `spec.pipeline`              | no           | Tekton Pipeline name (default: `fournos-full`)                                                   |
 | `spec.priority`              | no           | Kueue WorkloadPriorityClass name                                                                 |
+| `spec.secretRefs`            | no           | Vault entry names to mount into the pipeline. Populated by Forge during the Resolving phase. Each must be a K8s Secret with `fournos.dev/vault-entry=true`. |
 | `spec.exclusive`             | no           | If `true`, locks the target cluster so no other FournosJob can run there. Requires `spec.cluster`. |
 | `spec.shutdown`              | no           | Shutdown action: `Stop` (graceful, runs finally tasks) or `Terminate` (immediate, skips finally tasks). Both wait for the PipelineRun to finish before releasing Kueue quota. |
 
 
-`spec.cluster` and `spec.hardware` are both optional. Every job passes through the mandatory Resolving phase, which populates `FournosJobConfig.spec.hardware`. When `spec.hardware` is provided it takes precedence over the resolved values. `spec.cluster` can be set alongside `spec.hardware` to pin a hardware request to a specific cluster.
+`spec.cluster` and `spec.hardware` are both optional. Every job passes through the mandatory Resolving phase where Forge populates `spec.hardware` (if not already set) and `spec.secretRefs` directly on the FournosJob. `spec.cluster` can be set alongside `spec.hardware` to pin a hardware request to a specific cluster.
 
 `metadata.name` is the unique identifier for the job. Use `metadata.generateName` for auto-generated unique names (e.g. `generateName: nightly-benchmark-` produces `nightly-benchmark-x7k2m`). `spec.displayName` is a human-readable label for external correlation — it does not need to be unique and is passed to the pipeline as `job-name`.
 
@@ -107,16 +107,6 @@ kubectl get fournosjobs -w           # watch status transitions
 kubectl delete fournosjob <name>     # cleanup
 ```
 
-### FournosJobConfig CRD
-
-The `FournosJobConfig` CR ([manifests/crd-jobconfig.yaml](manifests/crd-jobconfig.yaml)) stores resolved job requirements populated by Forge during the Resolving phase. The operator pre-creates an empty instance (owned by the FournosJob) and the Forge resolve Job patches it with the resolved values.
-
-| Field                   | Description                                                                                  |
-| ----------------------- | -------------------------------------------------------------------------------------------- |
-| `spec.hardware.gpuType` | Short GPU model name (e.g. `a100`, `h200`). Overridden by `FournosJob.spec.hardware` if set. |
-| `spec.hardware.gpuCount`| Number of GPUs required. Overridden by `FournosJob.spec.hardware` if set.                    |
-| `spec.secretRefs`       | Vault entry names to mount into the pipeline. Each name must correspond to a K8s Secret with the `fournos.dev/vault-entry=true` label. |
-
 ## 4. Scheduling
 
 All jobs flow through Kueue — there is one scheduling path with different constraint levels:
@@ -162,12 +152,11 @@ sequenceDiagram
     Operator->>Operator: validate spec
     Operator->>K8sAPI: set phase=Resolving
 
-    Note over Operator,Forge: timer (5s): create FournosJobConfig + resolve Job
-    Operator->>K8sAPI: create empty FournosJobConfig (ownerRef → FournosJob)
+    Note over Operator,Forge: timer (5s): create resolve Job
     Operator->>Forge: create resolve K8s Job (ownerRef → FournosJob)
-    Forge->>K8sAPI: patch FournosJobConfig with gpuType, gpuCount, secretRefs
+    Forge->>K8sAPI: patch FournosJob spec with hardware, secretRefs
     Forge-->>Operator: Job completed
-    Operator->>Operator: read FournosJobConfig, validate hardware + secretRefs
+    Operator->>Operator: read FournosJob spec, validate hardware + secretRefs
 
     Operator->>Kueue: create Workload (cluster-slot=1 or 100)
     Operator->>K8sAPI: set phase=Pending
@@ -201,9 +190,9 @@ sequenceDiagram
 
 
 1. **on_create**: Operator validates the spec (cluster exists if specified, `exclusive` requires `cluster`). If `spec.shutdown` is set (`Stop` or `Terminate`), immediately sets `phase=Stopped`. Otherwise sets `phase=Resolving`.
-2. **timer (Resolving)**: Creates an empty `FournosJobConfig` CR (owned by the FournosJob), then launches a Forge resolve K8s Job that populates the config with `gpuType`, `gpuCount`, and `secretRefs`. Polls the Job for completion. On success, reads the `FournosJobConfig`, validates hardware (user-provided `spec.hardware` takes precedence over config values; GPU type checked against Kueue), validates `secretRefs` against Vault secrets, creates the Kueue Workload (exclusive jobs request all 100 `fournos/cluster-slot` units; normal jobs request 1), and sets `phase=Pending`. Failed resolve Jobs are preserved for debugging.
+2. **timer (Resolving)**: Launches a Forge resolve K8s Job that patches the FournosJob spec with `hardware` (if not user-provided) and `secretRefs`. Polls the Job for completion. On success, reads the FournosJob spec, validates hardware (GPU type checked against Kueue), validates `secretRefs` against Vault secrets, creates the Kueue Workload (exclusive jobs request all 100 `fournos/cluster-slot` units; normal jobs request 1), and sets `phase=Pending`. Failed resolve Jobs are preserved for debugging.
 3. **timer (Pending)**: Polls the Workload for Kueue admission. On admission, extracts the assigned cluster and sets `phase=Admitted`.
-4. **timer (Admitted)**: Reads `secretRefs` from the `FournosJobConfig`, resolves the kubeconfig Secret, creates the Tekton PipelineRun with `ownerReferences` pointing at the FournosJob, sets `phase=Running`.
+4. **timer (Admitted)**: Reads `secretRefs` from the FournosJob spec, resolves the kubeconfig Secret, creates the Tekton PipelineRun with `ownerReferences` pointing at the FournosJob, sets `phase=Running`.
 5. **timer (Running)**: Polls the PipelineRun for completion. On success/failure, deletes the Workload and sets `phase=Succeeded` or `phase=Failed`.
 6. **timer (any non-terminal phase, shutdown)**: If `spec.shutdown` is set (`Stop` or `Terminate`) and the job has a PipelineRun (Admitted/Running), the timer cancels the PipelineRun — `Stop` uses Tekton's `CancelledRunFinally` (runs `finally` tasks), `Terminate` uses `Cancelled` (skips `finally` tasks) — and sets `phase=Stopping`. The Workload is **not** deleted yet — it stays alive to hold the cluster slot while the PipelineRun winds down. If no PipelineRun exists (Pending), the Workload is deleted immediately and the job goes straight to `phase=Stopped`.
 7. **timer (Stopping)**: Polls the PipelineRun until it reaches a terminal state (`succeeded` or `failed`). Once complete, deletes the Workload to release Kueue quota and sets `phase=Stopped`.
@@ -225,9 +214,9 @@ The operator is split across several modules:
 - **`fournos/handlers/`** — phase handler package:
   - `status.py` — condition helpers, `owner_ref`, `create_workload_for_job`, shared constants
   - `lifecycle.py` — `on_create`, `reconcile_pending` (early phases)
-  - `resolving.py` — `reconcile_resolving` (Forge resolve Job management, FournosJobConfig validation, Workload creation)
+  - `resolving.py` — `reconcile_resolving` (Forge resolve Job management, spec validation, Workload creation)
   - `execution.py` — `reconcile_admitted`, `reconcile_running` (PipelineRun management), `handle_shutdown` / `reconcile_stopping` (shutdown flow)
-- **`fournos/core/resolve.py`** — `ResolveClient` for managing Forge resolve K8s Jobs and `FournosJobConfig` CRs (create, read, status)
+- **`fournos/core/resolve.py`** — `ResolveClient` for managing Forge resolve K8s Jobs (create, status)
 - **`fournos/state.py`** — shared client instances (`_OperatorState` dataclass with `kueue`, `tekton`, `registry`, `resolve`)
 
 Kopf handlers registered in `operator.py`:
@@ -237,7 +226,7 @@ Kopf handlers registered in `operator.py`:
 | ------------------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | `@kopf.on.startup`                    | Process start                                                  | Load kubeconfig, initialise clients into `state.ctx`, start resource GC thread |
 | `@kopf.on.create` / `@kopf.on.resume` | New or existing CR                                             | Validate spec, set `phase=Resolving` |
-| `@kopf.timer(interval=5.0)`           | Every 5s while phase ∈ {Resolving, Pending, Admitted, Running, Stopping}  | Drive the state machine: Resolving creates FournosJobConfig + Forge Job, validates results, creates Workload; Pending polls admission; Admitted creates PipelineRun; Running polls completion; Stopping polls PipelineRun for completion. Shutdown is checked in every non-terminal phase. |
+| `@kopf.timer(interval=5.0)`           | Every 5s while phase ∈ {Resolving, Pending, Admitted, Running, Stopping}  | Drive the state machine: Resolving creates Forge Job (which patches FournosJob spec), validates results, creates Workload; Pending polls admission; Admitted creates PipelineRun; Running polls completion; Stopping polls PipelineRun for completion. Shutdown is checked in every non-terminal phase. |
 
 
 The timer's `when` guard ensures it stops firing once the job reaches a terminal phase (`Succeeded`, `Failed`, or `Stopped`), so completed jobs have zero ongoing overhead.
@@ -252,8 +241,7 @@ A background daemon thread runs a garbage collection loop at a configurable inte
 
 Job state is stored entirely in Kubernetes resources — no in-memory store:
 
-- **FournosJob CRs**: the primary user-facing resource; `.status` tracks phase, assigned cluster, PipelineRun name, dashboard URL
-- **FournosJobConfig CRs**: resolved hardware requirements and secret references, populated by the Forge resolve Job during the Resolving phase
+- **FournosJob CRs**: the primary user-facing resource; `.spec` includes hardware and secretRefs (populated by Forge during Resolving if not user-provided); `.status` tracks phase, assigned cluster, PipelineRun name, dashboard URL
 - **Kueue Workloads**: carry job name as labels; admission state from conditions and `status.admission.podSetAssignments`
 - **Tekton PipelineRuns**: carry job name as labels; execution status from conditions
 
@@ -321,14 +309,12 @@ Completion detection is handled by the operator's timer polling PipelineRun cond
 Namespace-scoped tenant on a shared OpenShift management cluster:
 
 - [manifests/crd.yaml](manifests/crd.yaml) — FournosJob CustomResourceDefinition
-- [manifests/crd-jobconfig.yaml](manifests/crd-jobconfig.yaml) — FournosJobConfig CustomResourceDefinition
-- [manifests/rbac](manifests/rbac) — ClusterRole + ClusterRoleBinding for Kueue cluster resources; Role + RoleBinding for FournosJob, FournosJobConfig, PipelineRun, Job, Secret access
+- [manifests/rbac](manifests/rbac) — ClusterRole + ClusterRoleBinding for Kueue cluster resources; Role + RoleBinding for FournosJob, PipelineRun, Job, Secret access
 - [manifests/deployment.yaml](manifests/deployment.yaml) — Deployment in `psap-automation` with liveness probe
 - [Containerfile](Containerfile) — Python base image, pip install, `kopf run` entrypoint with liveness endpoint
 
 ```bash
 kubectl apply -f manifests/crd.yaml
-kubectl apply -f manifests/crd-jobconfig.yaml
 for rbac_file in manifests/rbac/*.yaml; do
   cat "$rbac_file" | NAMESPACE=$FOURNOS_NAMESPACE envsubst | oc apply -f- -n $FOURNOS_NAMESPACE
 done
@@ -367,17 +353,16 @@ fournos/
     __init__.py            # Re-exports for operator.py
     status.py              # Condition helpers, owner_ref, create_workload_for_job
     lifecycle.py           # on_create, reconcile_pending
-    resolving.py           # reconcile_resolving (Forge resolve Job, FournosJobConfig validation, Workload creation)
+    resolving.py           # reconcile_resolving (Forge resolve Job, spec validation, Workload creation)
     execution.py           # reconcile_admitted, reconcile_running
   core/
     constants.py           # Shared label keys, Phase enum, cluster-slot constants
     clusters.py            # ClusterRegistry (kubeconfig lookup, secretRef resolution)
-    resolve.py             # ResolveClient (Forge resolve Job + FournosJobConfig CRUD)
+    resolve.py             # ResolveClient (Forge resolve Job management)
     tekton.py              # TektonClient (PipelineRun CRUD)
     kueue.py               # KueueClient (Workload CRUD, admission checks, cluster-slot requests)
 manifests/
   crd.yaml                 # FournosJob CustomResourceDefinition
-  crd-jobconfig.yaml       # FournosJobConfig CustomResourceDefinition
   rbac/                    # Role, ClusterRole, RoleBinding, ClusterRoleBinding, ServiceAccount
   deployment.yaml          # Deployment
 config/
@@ -422,8 +407,8 @@ README.md
 - **ownerReferences for cascade deletion** — Workloads and PipelineRuns carry `ownerReferences` pointing at their FournosJob, so Kubernetes automatically cascade-deletes them when the job is removed
 - **Exclusive locking via Kueue semaphore** — each cluster flavor has 100 `fournos/cluster-slot` units. Normal jobs request 1 slot; exclusive jobs request all 100. Kueue enforces mutual exclusion atomically — no operator-level blocking, labels, or in-memory state needed. Hardware-only jobs are automatically steered to clusters with available slots.
 - **Shutdown via spec field** — the `spec.shutdown` enum supports two modes: `Stop` (Tekton `CancelledRunFinally` — runs `finally` cleanup tasks) and `Terminate` (Tekton `Cancelled` — skips `finally` tasks). Both transition to an intermediate `Stopping` phase while the PipelineRun winds down. The Workload (and its quota) is kept alive until the PipelineRun completes, ensuring the cluster slot is not released prematurely. Only then does the operator delete the Workload and set `phase=Stopped`. The enum is extensible for future shutdown strategies. The FournosJob stays around in `Stopped` phase for inspection, unlike deletion which cascades and removes the record.
-- **Mandatory Resolving phase with FournosJobConfig** — every job passes through a `Resolving` phase before entering `Pending`. During this phase, a Forge K8s Job runs to determine hardware requirements (`gpuType`, `gpuCount`) and secret references (`secretRefs`). Results are written to a dedicated `FournosJobConfig` CR (owned by the FournosJob via `ownerReferences`). The operator pre-creates an empty `FournosJobConfig` and passes its name to the Forge Job. User-provided `spec.hardware` takes precedence over Forge-resolved values. The `FournosJob` spec is never mutated by the operator — resolved data always lives in the separate `FournosJobConfig`. Failed resolve Jobs are preserved for debugging.
-- **Vault-based secret management** — pipeline secrets originate in a HashiCorp Vault and are synced to K8s Secrets on demand via `hacks/sync_vault_secrets.py`. The K8s Secret name matches the Vault entry name exactly (entries that are not valid DNS-1123 names are rejected during sync). Each synced Secret carries a `fournos.dev/vault-entry=true` label. Secret references are resolved by Forge during the Resolving phase and stored in `FournosJobConfig.spec.secretRefs`. The operator validates them against Vault secrets before creating the Workload (during Resolving) and again before creating the PipelineRun (during Admitted). Missing or non-vault refs fail the job immediately rather than creating a broken PipelineRun.
+- **Mandatory Resolving phase** — every job passes through a `Resolving` phase before entering `Pending`. During this phase, a Forge K8s Job runs to determine hardware requirements (`gpuType`, `gpuCount`) and secret references (`secretRefs`). Forge patches these values directly into the FournosJob spec (hardware only when not already user-provided). The operator validates them after the Job completes. Failed resolve Jobs are preserved for debugging.
+- **Vault-based secret management** — pipeline secrets originate in a HashiCorp Vault and are synced to K8s Secrets on demand via `hacks/sync_vault_secrets.py`. The K8s Secret name matches the Vault entry name exactly (entries that are not valid DNS-1123 names are rejected during sync). Each synced Secret carries a `fournos.dev/vault-entry=true` label. Secret references are populated by Forge during the Resolving phase on `spec.secretRefs`. The operator validates them against Vault secrets before creating the Workload (during Resolving) and reads them from spec when creating the PipelineRun (during Admitted). Missing or non-vault refs fail the job immediately rather than creating a broken PipelineRun.
 - **Multiple pipelines** — `fournos-full` (prepare → run → cleanup) and `fournos-run-only` (run only), selectable per job
 - **Target clusters need nothing installed** — FORGE runs on the hub cluster inside Tekton Task pods and communicates with targets via remote `oc`/`kubectl` commands through kubeconfig Secrets
 

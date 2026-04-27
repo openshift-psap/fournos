@@ -8,8 +8,8 @@ Fournos is a Kubernetes operator that schedules benchmark jobs via
 FORGE framework.
 
 Jobs are submitted as `FournosJob` custom resources. Every job first
-passes through a mandatory **Resolving** phase where a Forge Job resolves
-GPU requirements and secret references into a `FournosJobConfig` CR. The
+passes through a mandatory **Resolving** phase where a Forge Job populates
+GPU requirements and secret references directly on the FournosJob spec. The
 operator then creates a Kueue Workload for quota management, waits for
 admission, and launches the corresponding Tekton PipelineRun.
 
@@ -85,12 +85,13 @@ oc delete FournosJob -n $FOURNOS_NAMESPACE <name>      # cleanup
 | `spec.displayName` | no | Human-readable job name (defaults to `metadata.name`) |
 | `spec.pipeline` | no | Tekton Pipeline name (default: `fournos-full`) |
 | `spec.priority` | no | Kueue WorkloadPriorityClass name |
+| `spec.secretRefs` | no | Vault entry names to mount into the pipeline. Populated by Forge during the Resolving phase. The operator verifies each name as a K8s Secret with the `fournos.dev/vault-entry=true` label. |
 | `spec.exclusive` | no | If `true`, locks the target cluster so no other FournosJob can run there. Requires `spec.cluster`. |
 | `spec.shutdown` | no | Shutdown action: `Stop` cancels gracefully (Tekton `CancelledRunFinally` — runs `finally` tasks); `Terminate` cancels immediately (Tekton `Cancelled` — skips `finally` tasks). Both wait for the PipelineRun to finish before releasing Kueue quota. |
 
 \* `spec.cluster` and `spec.hardware` are both optional. Every job passes
-through the Resolving phase, which populates `FournosJobConfig.spec.hardware`.
-When `spec.hardware` is provided it takes precedence over the resolved values.
+through the Resolving phase where Forge populates `spec.hardware` (if not
+already set) and `spec.secretRefs` directly on the FournosJob.
 `spec.cluster` can be set alongside `spec.hardware` to pin a hardware request
 to a specific cluster.
 
@@ -157,7 +158,6 @@ Deploy the operator:
 
 ```bash
 oc apply -n $FOURNOS_NAMESPACE -f manifests/crd.yaml
-oc apply -n $FOURNOS_NAMESPACE -f manifests/crd-jobconfig.yaml
 for rbac_file in manifests/rbac/*.yaml; do
   cat $rbac_file | NAMESPACE=$FOURNOS_NAMESPACE envsubst | oc apply -f- -n $FOURNOS_NAMESPACE
 done
@@ -259,9 +259,9 @@ make sync-vault-secrets-dry-run      # preview only
 
 The synced secrets are labelled `fournos.dev/vault-entry=true` and
 `app.kubernetes.io/managed-by=fournos-vault-sync` for easy identification.
-Secret references are provided via the `FournosJobConfig` CR (populated by
-Forge during the Resolving phase). The operator verifies each referenced
-Secret exists and carries the vault label before creating the PipelineRun.
+Secret references are populated by Forge during the Resolving phase directly
+on the FournosJob `spec.secretRefs` field. The operator verifies each
+referenced Secret exists and carries the vault label before proceeding.
 
 ## Configuration
 
@@ -283,13 +283,13 @@ All settings are read from environment variables with the `FOURNOS_` prefix:
 ## Architecture
 
 ```
-FournosJob CR ──→ Operator ──→ Forge Resolve Job ──→ FournosJobConfig ──→ Kueue Workload ──→ (admission) ──→ Tekton PipelineRun ──→ FORGE ──→ target cluster
+FournosJob CR ──→ Operator ──→ Forge Resolve Job (patches FournosJob spec) ──→ Kueue Workload ──→ (admission) ──→ Tekton PipelineRun ──→ FORGE ──→ target cluster
 ```
 
 The operator runs as a single-replica Deployment using
 [kopf](https://kopf.dev/). On each `FournosJob`, it:
 
-1. **Resolves** job requirements by launching a Forge K8s Job that populates a `FournosJobConfig` CR with GPU type/count and secret references
+1. **Resolves** job requirements by launching a Forge K8s Job that populates the FournosJob spec with GPU type/count and secret references
 2. **Creates** a Kueue Workload with the resolved GPU resources (owned by the FournosJob via `ownerReferences`)
 3. **Polls** (5 s timer) for Kueue admission and assigned cluster
 4. **Launches** a Tekton PipelineRun with FORGE parameters (owned by the FournosJob via `ownerReferences`)

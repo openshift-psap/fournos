@@ -149,33 +149,10 @@ def reconcile_admitted(spec, name, namespace, status, patch, body):
         cluster = status.get("cluster", "")
         secret = ctx.registry.resolve_kubeconfig_secret(cluster)
 
-        config = ctx.resolve.read_job_config(name)
-        if config is None:
-            patch.status["phase"] = Phase.FAILED
-            patch.status["message"] = (
-                "FournosJobConfig not found (may have been deleted externally)"
-            )
-            set_condition(
-                patch,
-                conditions,
-                COND_PIPELINE_RUN_READY,
-                "False",
-                "ConfigMissing",
-                "FournosJobConfig not found during PipelineRun creation",
-            )
-            ctx.kueue.delete_workload(name)
-            logger.error("Job %s: FournosJobConfig missing in Admitted phase", name)
-            return
+        hardware = spec.get("hardware") or {}
+        gpu_count = hardware.get("gpuCount", 0)
 
-        hardware = spec.get("hardware")
-        if hardware:
-            gpu_count = hardware.get("gpuCount", 0)
-        elif config.get("hardware"):
-            gpu_count = config["hardware"].get("gpuCount", 0)
-        else:
-            gpu_count = 0
-
-        secret_refs_raw = config.get("secretRefs") or []
+        secret_refs_raw = spec.get("secretRefs") or []
         try:
             resolved_refs = ctx.registry.resolve_secret_refs(secret_refs_raw)
         except KeyError as exc:
