@@ -72,6 +72,7 @@ def _clean_before_test(k8s):
 
     _kubectl_delete_all("pipelineruns.tekton.dev")
     _kubectl_delete_all("workloads.kueue.x-k8s.io")
+    _kubectl_delete_all("jobs.batch")
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +245,19 @@ def get_workload_cluster_slots(name: str) -> int:
     return int(requests.get("fournos/cluster-slot", "0"))
 
 
+def get_workload_gpu_request(name: str, gpu_type: str) -> int:
+    """Return the GPU request count for *gpu_type* from the Workload."""
+    wl = get_k8s_resource("workload", name)
+    pod_sets = wl.get("spec", {}).get("podSets", [])
+    if not pod_sets:
+        return 0
+    containers = pod_sets[0].get("template", {}).get("spec", {}).get("containers", [])
+    if not containers:
+        return 0
+    requests = containers[0].get("resources", {}).get("requests", {})
+    return int(requests.get(f"fournos/gpu-{gpu_type}", "0"))
+
+
 def get_workload_flavor(name: str) -> str | None:
     """Return the ResourceFlavor Kueue assigned to the Workload."""
     wl = get_k8s_resource("workload", name)
@@ -261,6 +275,106 @@ def get_pipelinerun_param(name: str, param_name: str) -> Any:
         if p["name"] == param_name:
             return p["value"]
     return None
+
+
+def resolve_job_exists(name: str) -> bool:
+    """Check whether the resolve Job for *name* exists."""
+    result = subprocess.run(
+        ["kubectl", "get", "job", f"resolve-{name}", "-n", NAMESPACE],
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
+def poll_resolve_job_complete(
+    name: str,
+    *,
+    interval: float = 2.0,
+    timeout: float = 60.0,
+) -> None:
+    """Poll until the resolve Job for *name* has completed (succeeded or failed)."""
+    resolve_name = f"resolve-{name}"
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not resolve_job_exists(name):
+            time.sleep(interval)
+            continue
+        result = subprocess.run(
+            [
+                "kubectl",
+                "get",
+                "job",
+                resolve_name,
+                "-n",
+                NAMESPACE,
+                "-o",
+                "jsonpath={.status.conditions[*].type}",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        conditions = result.stdout.strip()
+        if "Complete" in conditions or "Failed" in conditions:
+            return
+        time.sleep(interval)
+    raise AssertionError(
+        f"Resolve Job {resolve_name} did not complete within {timeout}s"
+    )
+
+
+def create_failing_resolve_job(name: str) -> None:
+    """Create a resolve Job that immediately fails (exit code 1)."""
+    _create_resolve_job(name, command=["false"])
+
+
+def create_noop_resolve_job(name: str) -> None:
+    """Create a resolve Job that succeeds without patching the FournosJob spec."""
+    _create_resolve_job(name, command=["true"])
+
+
+def _create_resolve_job(name: str, *, command: list[str]) -> None:
+    body = json.dumps(
+        {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "metadata": {
+                "name": f"resolve-{name}",
+                "namespace": NAMESPACE,
+                "labels": {
+                    "app.kubernetes.io/managed-by": "fournos",
+                    "fournos.dev/job-name": name,
+                },
+            },
+            "spec": {
+                "backoffLimit": 0,
+                "template": {
+                    "metadata": {
+                        "labels": {
+                            "app.kubernetes.io/managed-by": "fournos",
+                            "fournos.dev/job-name": name,
+                        },
+                    },
+                    "spec": {
+                        "restartPolicy": "Never",
+                        "containers": [
+                            {
+                                "name": "mock",
+                                "image": "busybox:1.36",
+                                "command": command,
+                            }
+                        ],
+                    },
+                },
+            },
+        }
+    )
+    subprocess.run(
+        ["kubectl", "apply", "-f", "-", "-n", NAMESPACE],
+        input=body,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
 
 def create_stale_workload(k8s, name: str) -> None:

@@ -171,6 +171,12 @@ def test_inadmissible_stays_pending(k8s):
         },
     )
 
+    poll_phase(
+        k8s,
+        "test-inadmissible",
+        terminal={Phase.PENDING},
+        timeout=45,
+    )
     phase = poll_phase(
         k8s,
         "test-inadmissible",
@@ -217,6 +223,12 @@ def test_cluster_without_required_gpu_stays_pending(k8s):
         },
     )
 
+    poll_phase(
+        k8s,
+        "test-wrong-gpu",
+        terminal={Phase.PENDING},
+        timeout=45,
+    )
     phase = poll_phase(
         k8s,
         "test-wrong-gpu",

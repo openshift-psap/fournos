@@ -112,7 +112,7 @@ def test_exclusive_workload_requests_all_slots(k8s):
         k8s,
         "test-excl-slots",
         terminal={Phase.PENDING, Phase.ADMITTED, Phase.RUNNING},
-        timeout=15,
+        timeout=45,
     )
 
     slots = get_workload_cluster_slots("test-excl-slots")
@@ -135,7 +135,7 @@ def test_normal_workload_requests_one_slot(k8s):
         k8s,
         "test-normal-slots",
         terminal={Phase.PENDING, Phase.ADMITTED, Phase.RUNNING},
-        timeout=15,
+        timeout=45,
     )
 
     slots = get_workload_cluster_slots("test-normal-slots")

@@ -148,13 +148,13 @@ def reconcile_admitted(spec, name, namespace, status, patch, body):
     if pr is None:
         cluster = status.get("cluster", "")
         secret = ctx.registry.resolve_kubeconfig_secret(cluster)
-        hardware = spec.get("hardware")
-        gpu_count = hardware.get("gpuCount", 0) if hardware else 0
 
-        display_name = spec.get("displayName") or name
+        hardware = spec.get("hardware") or {}
+        gpu_count = hardware.get("gpuCount", 0)
 
+        secret_refs_raw = spec.get("secretRefs") or []
         try:
-            resolved_refs = ctx.registry.resolve_secret_refs(spec.get("secretRefs", []))
+            resolved_refs = ctx.registry.resolve_secret_refs(secret_refs_raw)
         except KeyError as exc:
             patch.status["phase"] = Phase.FAILED
             patch.status["message"] = str(exc).strip("'\"")
@@ -169,6 +169,8 @@ def reconcile_admitted(spec, name, namespace, status, patch, body):
             ctx.kueue.delete_workload(name)
             logger.error("Job %s: %s", name, exc)
             return
+
+        display_name = spec.get("displayName") or name
 
         try:
             ctx.tekton.create_pipeline_run(

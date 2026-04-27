@@ -92,6 +92,28 @@ echo ""
 echo "Applying mock resources..."
 kubectl apply -f dev/mock-kueue-config.yaml -n $FOURNOS_NAMESPACE
 kubectl apply -f dev/mock-pipelines -n $FOURNOS_NAMESPACE
+
+# ---------------------------------------------------------------
+# 7. Build and load mock resolve image
+# ---------------------------------------------------------------
+echo ""
+MOCK_RESOLVE_IMAGE="fournos-mock-resolve:dev"
+CONTAINER_RUNTIME="${KIND_EXPERIMENTAL_PROVIDER:-podman}"
+echo "Building mock resolve image ($CONTAINER_RUNTIME)..."
+"$CONTAINER_RUNTIME" build -t "$MOCK_RESOLVE_IMAGE" dev/mock-resolve/
+echo "Loading mock resolve image into kind..."
+ARCHIVE=$(mktemp /tmp/fournos-mock-resolve-XXXXXX.tar)
+if [ "$CONTAINER_RUNTIME" = "podman" ]; then
+  # Podman stores images as localhost/<name>; containerd resolves bare
+  # names to docker.io/library/<name>.  Re-tag so the archive carries
+  # the name containerd will look up.
+  "$CONTAINER_RUNTIME" tag "$MOCK_RESOLVE_IMAGE" "docker.io/library/$MOCK_RESOLVE_IMAGE"
+  "$CONTAINER_RUNTIME" save -o "$ARCHIVE" "docker.io/library/$MOCK_RESOLVE_IMAGE"
+else
+  "$CONTAINER_RUNTIME" save -o "$ARCHIVE" "$MOCK_RESOLVE_IMAGE"
+fi
+kind load image-archive "$ARCHIVE" --name "${CLUSTER_NAME}"
+rm -f "$ARCHIVE"
 # ---------------------------------------------------------------
 # Done
 # ---------------------------------------------------------------
