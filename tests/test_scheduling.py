@@ -43,8 +43,8 @@ def test_cluster_pinned(k8s):
     flavor = get_workload_flavor("test-cluster")
     assert flavor == "cluster-2", f"Workload flavor should be cluster-2, got {flavor!r}"
     secret = get_pipelinerun_param("test-cluster", "kubeconfig-secret")
-    assert secret == "cluster-2-kubeconfig", (
-        f"PipelineRun kubeconfig-secret should be cluster-2-kubeconfig, got {secret!r}"
+    assert secret == "kubeconfig-cluster-2", (
+        f"PipelineRun kubeconfig-secret should be kubeconfig-cluster-2, got {secret!r}"
     )
 
     phase = poll_phase(
@@ -115,8 +115,8 @@ def test_cluster_and_hardware(k8s):
     flavor = get_workload_flavor("test-cluster-hw")
     assert flavor == "cluster-4", f"Workload flavor should be cluster-4, got {flavor!r}"
     secret = get_pipelinerun_param("test-cluster-hw", "kubeconfig-secret")
-    assert secret == "cluster-4-kubeconfig", (
-        f"PipelineRun kubeconfig-secret should be cluster-4-kubeconfig, got {secret!r}"
+    assert secret == "kubeconfig-cluster-4", (
+        f"PipelineRun kubeconfig-secret should be kubeconfig-cluster-4, got {secret!r}"
     )
 
     phase = poll_phase(

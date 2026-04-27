@@ -85,7 +85,7 @@ oc delete FournosJob -n $FOURNOS_NAMESPACE <name>      # cleanup
 | `spec.displayName` | no | Human-readable job name (defaults to `metadata.name`) |
 | `spec.pipeline` | no | Tekton Pipeline name (default: `fournos-full`) |
 | `spec.priority` | no | Kueue WorkloadPriorityClass name |
-| `spec.secretRefs` | no | Vault entry names to mount into the pipeline. Populated by Forge during the Resolving phase. The operator verifies each name as a K8s Secret with the `fournos.dev/vault-entry=true` label. |
+| `spec.secretRefs` | no | Vault-synced K8s Secret names (prefixed with `vault-`) to mount into the pipeline. Populated by Forge during the Resolving phase. The operator verifies each name as a K8s Secret with the `fournos.dev/vault-entry=true` label. |
 | `spec.exclusive` | no | If `true`, locks the target cluster so no other FournosJob can run there. Requires `spec.cluster`. |
 | `spec.shutdown` | no | Shutdown action: `Stop` cancels gracefully (Tekton `CancelledRunFinally` — runs `finally` tasks); `Terminate` cancels immediately (Tekton `Cancelled` — skips `finally` tasks). Both wait for the PipelineRun to finish before releasing Kueue quota. |
 
@@ -134,7 +134,8 @@ make dev-teardown # deletes the kind cluster
 cluster, but substitutes lightweight mock Tasks (echo + sleep) in place of the
 real FORGE runner. The dev environment uses its own Kueue config
 (`dev/mock-kueue-config.yaml`) with four mock clusters and synthetic GPU quotas,
-plus matching kubeconfig Secrets (`cluster-{1..4}-kubeconfig`).
+plus matching kubeconfig Secrets (`kubeconfig-cluster-{1..4}`) in the dedicated
+secrets namespace (`psap-secrets`).
 
 ### Before opening a PR
 
@@ -147,11 +148,13 @@ make test                        # integration tests (operator must be running)
 
 **FORGE on the hub:** [`config/forge/`](config/forge/) is the real OpenShift configuration for this repo—ImageStreams, Builds, Tekton Tasks and Pipelines, and sample jobs you apply to a cluster. It is **not** the same as the lightweight stand-ins under [`dev/mock-pipelines/`](dev/mock-pipelines/), which [`make dev-setup`](#local-development) installs on kind for local testing only.
 
-Prepare the namespace
+Prepare the namespaces
 ```bash
 FOURNOS_NAMESPACE=fournos-$USER-dev
+FOURNOS_SECRETS_NAMESPACE=psap-secrets
 oc create ns $FOURNOS_NAMESPACE
 oc label ns/$FOURNOS_NAMESPACE fournos.dev/queue-access=true
+oc create ns $FOURNOS_SECRETS_NAMESPACE
 ```
 
 Deploy the operator:
@@ -161,6 +164,9 @@ oc apply -n $FOURNOS_NAMESPACE -f manifests/crd.yaml
 for rbac_file in manifests/rbac/*.yaml; do
   cat $rbac_file | NAMESPACE=$FOURNOS_NAMESPACE envsubst | oc apply -f- -n $FOURNOS_NAMESPACE
 done
+cat manifests/secrets-ns-rbac.yaml \
+  | NAMESPACE=$FOURNOS_NAMESPACE SECRETS_NAMESPACE=$FOURNOS_SECRETS_NAMESPACE envsubst \
+  | oc apply -f-
 oc apply -n $FOURNOS_NAMESPACE -f manifests/deployment.yaml
 ```
 
@@ -168,18 +174,19 @@ oc apply -n $FOURNOS_NAMESPACE -f manifests/deployment.yaml
 
 Three things are needed to make a target cluster available to Fournos:
 
-1. **Create a kubeconfig Secret** so the operator can reach the cluster:
+1. **Create a kubeconfig Secret** in the dedicated secrets namespace:
 
 ```bash
-FOURNOS_NAMESPACE=fournos-$USER-dev
+FOURNOS_SECRETS_NAMESPACE=psap-secrets
 CLUSTER_NAME=<name>
-oc create secret generic ${CLUSTER_NAME}-kubeconfig \
+oc create secret generic kubeconfig-${CLUSTER_NAME} \
   --from-file=kubeconfig=/path/to/auth/kubeconfig \
-  -n $FOURNOS_NAMESPACE
+  -n $FOURNOS_SECRETS_NAMESPACE
 ```
 
 The secret name must match the `FOURNOS_KUBECONFIG_SECRET_PATTERN` (default
-`{cluster}-kubeconfig`).
+`kubeconfig-{cluster}`). Secrets are stored in the dedicated namespace
+(`FOURNOS_SECRETS_NAMESPACE`, default `psap-secrets`).
 
 2. **Add a ResourceFlavor and quota** in `config/kueue-config.yaml`. Add a
    new `ResourceFlavor` with a matching `fournos.dev/cluster` nodeLabel, and
@@ -230,12 +237,14 @@ secrets originate in a HashiCorp Vault instance. Because there is no permanent
 programmatic access to the vault, secrets are synchronized manually on demand —
 whenever the vault content changes.
 
-The sync script reads vault entries and creates one Opaque Secret per entry,
-using the vault entry name directly as the K8s Secret name. Entries whose
-names are not valid DNS-1123 subdomain names are skipped with an error.
-Individual keys within an entry that are not valid K8s Secret data keys
-(allowed: alphanumeric, `-`, `_`, `.`) are also skipped.
-Existing secrets are updated in-place.
+The sync script reads vault entries and creates one Opaque Secret per entry
+in the dedicated secrets namespace (`FOURNOS_SECRETS_NAMESPACE`, default
+`psap-secrets`), using a `vault-` prefix followed by the vault entry name as
+the K8s Secret name (e.g. vault entry `my-creds` becomes Secret
+`vault-my-creds`). Entries whose names are not valid DNS-1123 subdomain
+names are skipped with an error. Individual keys within an entry that are
+not valid K8s Secret data keys (allowed: alphanumeric, `-`, `_`, `.`) are
+also skipped. Existing secrets are updated in-place.
 
 ```bash
 # 1. Set the required environment variables
@@ -244,10 +253,10 @@ export VAULT_TOKEN="s.xxxxx"                     # your short-lived token
 export VAULT_SECRET_PATH="path/to/secrets"       # directory path within the KV engine
 
 # 2. Sync all vault entries under the configured path
-python hacks/sync_vault_secrets.py -n $FOURNOS_NAMESPACE
+python hacks/sync_vault_secrets.py -n psap-secrets
 
 # 3. Preview without touching the cluster
-python hacks/sync_vault_secrets.py -n $FOURNOS_NAMESPACE --dry-run
+python hacks/sync_vault_secrets.py -n psap-secrets --dry-run
 ```
 
 Makefile shortcuts (`VAULT_ADDR`, `VAULT_TOKEN`, and `VAULT_SECRET_PATH` must be set):
@@ -261,7 +270,8 @@ The synced secrets are labelled `fournos.dev/vault-entry=true` and
 `app.kubernetes.io/managed-by=fournos-vault-sync` for easy identification.
 Secret references are populated by Forge during the Resolving phase directly
 on the FournosJob `spec.secretRefs` field. The operator verifies each
-referenced Secret exists and carries the vault label before proceeding.
+referenced Secret exists in the secrets namespace and carries the vault
+label before proceeding.
 
 ## Configuration
 
@@ -270,8 +280,10 @@ All settings are read from environment variables with the `FOURNOS_` prefix:
 | Variable | Default | Description |
 |---|---|---|
 | `FOURNOS_NAMESPACE` | **required** | Kubernetes namespace |
+| `FOURNOS_SECRETS_NAMESPACE` | `psap-secrets` | Namespace where kubeconfig and vault-synced secrets are stored |
 | `FOURNOS_TEKTON_DASHBOARD_URL` | | Tekton Dashboard base URL |
-| `FOURNOS_KUBECONFIG_SECRET_PATTERN` | `{cluster}-kubeconfig` | Pattern for resolving cluster names to Secret names |
+| `FOURNOS_KUBECONFIG_SECRET_PATTERN` | `kubeconfig-{cluster}` | Pattern for resolving cluster names to Secret names |
+| `FOURNOS_VAULT_SECRET_PATTERN` | `vault-{entry}` | Pattern for naming vault-synced Secrets |
 | `FOURNOS_KUEUE_LOCAL_QUEUE_NAME` | `fournos-queue` | Kueue LocalQueue name |
 | `FOURNOS_GPU_RESOURCE_PREFIX` | `fournos/gpu-` | Resource name prefix for GPU types |
 | `FOURNOS_LOG_LEVEL` | `INFO` | Logging level |

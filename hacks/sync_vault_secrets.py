@@ -2,7 +2,8 @@
 """Synchronize secrets from a HashiCorp Vault to Kubernetes.
 
 Reads entries from a Vault KV v2 engine and creates one Kubernetes
-Opaque Secret per vault entry.  Existing secrets are updated in-place.
+Opaque Secret per vault entry in the dedicated secrets namespace.
+Existing secrets are updated in-place.
 
 Required environment variables
 ------------------------------
@@ -13,7 +14,8 @@ Required environment variables
 Optional environment variables
 ------------------------------
 * ``VAULT_KV_MOUNT`` — KV v2 engine mount point (default: ``kv``)
-* ``FOURNOS_NAMESPACE`` — target Kubernetes namespace (can also use ``-n``)
+* ``FOURNOS_SECRETS_NAMESPACE`` — target Kubernetes namespace (can also
+  use ``-n``).  Defaults to ``psap-secrets``.
 
 Prerequisites
 -------------
@@ -27,11 +29,11 @@ Sync all vault entries under the configured path::
     export VAULT_ADDR="https://vault.example.com"
     export VAULT_TOKEN="s.xxxxx"
     export VAULT_SECRET_PATH="path/to/secrets"
-    python hacks/sync_vault_secrets.py -n my-namespace
+    python hacks/sync_vault_secrets.py -n psap-secrets
 
 Preview without touching the cluster::
 
-    python hacks/sync_vault_secrets.py -n my-namespace --dry-run
+    python hacks/sync_vault_secrets.py -n psap-secrets --dry-run
 """
 
 from __future__ import annotations
@@ -45,6 +47,7 @@ import urllib.error
 import urllib.request
 
 from fournos.core.constants import LABEL_VAULT_ENTRY
+from fournos.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -219,7 +222,7 @@ def sync(
             errors += 1
             continue
 
-        secret_name = vault_name
+        secret_name = settings.vault_secret_pattern.format(entry=vault_name)
 
         try:
             logger.info("Reading %s/%s ...", kv_mount, full_path)
@@ -292,8 +295,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "-n",
         "--namespace",
-        default=os.environ.get("FOURNOS_NAMESPACE", ""),
-        help="Target Kubernetes namespace (default: $FOURNOS_NAMESPACE).",
+        default=os.environ.get("FOURNOS_SECRETS_NAMESPACE", "psap-secrets"),
+        help="Target Kubernetes namespace (default: $FOURNOS_SECRETS_NAMESPACE or psap-secrets).",
     )
     parser.add_argument(
         "--vault-addr",

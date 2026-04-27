@@ -12,6 +12,7 @@ from kubernetes import client, config
 from fournos.settings import settings
 
 NAMESPACE = settings.namespace
+SECRETS_NAMESPACE = settings.secrets_namespace
 GROUP = "fournos.dev"
 VERSION = "v1"
 PLURAL = "fournosjobs"
@@ -452,7 +453,7 @@ def create_stale_pipelinerun(k8s, name: str) -> None:
                     """),
                 },
                 {"name": "env", "value": ""},
-                {"name": "kubeconfig-secret", "value": "cluster-1-kubeconfig"},
+                {"name": "kubeconfig-secret", "value": "kubeconfig-cluster-1"},
                 {"name": "gpu-count", "value": "0"},
             ],
         },
