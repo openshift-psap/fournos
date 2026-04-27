@@ -2,6 +2,7 @@
 set -euo pipefail
 
 CLUSTER_NAME="${KIND_CLUSTER_NAME:-fournos-dev}"
+SECRETS_NAMESPACE="${FOURNOS_SECRETS_NAMESPACE:-psap-secrets}"
 
 echo "=== Fournos local dev setup ==="
 
@@ -68,6 +69,7 @@ done
 : "${FOURNOS_NAMESPACE:?FOURNOS_NAMESPACE must be set}"
 kubectl create ns "$FOURNOS_NAMESPACE" --dry-run -oyaml | kubectl apply -f-
 kubectl label ns/$FOURNOS_NAMESPACE fournos.dev/queue-access=true
+kubectl create ns "$SECRETS_NAMESPACE" --dry-run -oyaml | kubectl apply -f-
 
 # ---------------------------------------------------------------
 # 4. Apply FournosJob CRD
@@ -84,6 +86,9 @@ echo "Applying Fournos manifests..."
 for rbac_file in manifests/rbac/*.yaml; do
   cat "$rbac_file" | NAMESPACE=$FOURNOS_NAMESPACE envsubst | kubectl apply -f- -n $FOURNOS_NAMESPACE
 done
+cat manifests/secrets-ns-rbac.yaml \
+  | NAMESPACE=$FOURNOS_NAMESPACE SECRETS_NAMESPACE=$SECRETS_NAMESPACE envsubst \
+  | kubectl apply -f-
 
 # ---------------------------------------------------------------
 # 6. Apply mock resources (overrides real Tasks, adds fake secrets, kueues ...)
@@ -92,6 +97,7 @@ echo ""
 echo "Applying mock resources..."
 kubectl apply -f dev/mock-kueue-config.yaml -n $FOURNOS_NAMESPACE
 kubectl apply -f dev/mock-pipelines -n $FOURNOS_NAMESPACE
+kubectl apply -f dev/mock-secrets.yaml -n $SECRETS_NAMESPACE
 
 # ---------------------------------------------------------------
 # 7. Build and load mock resolve image

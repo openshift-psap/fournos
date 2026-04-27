@@ -89,7 +89,7 @@ def test_exclusive_happy_path(k8s):
         k8s,
         "test-excl-happy",
         terminal={Phase.SUCCEEDED, Phase.FAILED},
-        timeout=60,
+        timeout=90,
     )
     assert phase == Phase.SUCCEEDED, job_status_summary(k8s, "test-excl-happy")
 

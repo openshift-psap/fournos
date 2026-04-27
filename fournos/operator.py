@@ -61,6 +61,7 @@ def startup(**_):
     ctx.resolve = ResolveClient(client.BatchV1Api())
 
     logger.info("Operating in namespace %s", settings.namespace)
+    logger.info("Secrets namespace: %s", settings.secrets_namespace)
 
     gc_thread = threading.Thread(target=_gc_loop, daemon=True)
     gc_thread.start()

@@ -55,7 +55,7 @@ Jobs are submitted as `FournosJob` custom resources ([manifests/crd.yaml](manife
 | `spec.displayName`           | no           | Human-readable job name (defaults to `metadata.name`)                                            |
 | `spec.pipeline`              | no           | Tekton Pipeline name (default: `fournos-full`)                                                   |
 | `spec.priority`              | no           | Kueue WorkloadPriorityClass name                                                                 |
-| `spec.secretRefs`            | no           | Vault entry names to mount into the pipeline. Populated by Forge during the Resolving phase. Each must be a K8s Secret with `fournos.dev/vault-entry=true`. |
+| `spec.secretRefs`            | no           | Vault-synced K8s Secret names (`vault-<entry>`) to mount into the pipeline. Populated by Forge during the Resolving phase. Each must be a K8s Secret with `fournos.dev/vault-entry=true`. |
 | `spec.exclusive`             | no           | If `true`, locks the target cluster so no other FournosJob can run there. Requires `spec.cluster`. |
 | `spec.shutdown`              | no           | Shutdown action: `Stop` (graceful, runs finally tasks) or `Terminate` (immediate, skips finally tasks). Both wait for the PipelineRun to finish before releasing Kueue quota. |
 
@@ -331,8 +331,10 @@ All settings via environment variables with `FOURNOS_` prefix ([fournos/settings
 | Variable                            | Default                | Description                    |
 | ----------------------------------- | ---------------------- | ------------------------------ |
 | `FOURNOS_NAMESPACE`                 | `psap-automation`      | Kubernetes namespace           |
+| `FOURNOS_SECRETS_NAMESPACE`         | `psap-secrets`         | Dedicated namespace for secrets |
 | `FOURNOS_TEKTON_DASHBOARD_URL`      | *(empty)*              | Tekton Dashboard base URL      |
-| `FOURNOS_KUBECONFIG_SECRET_PATTERN` | `{cluster}-kubeconfig` | Secret name pattern            |
+| `FOURNOS_KUBECONFIG_SECRET_PATTERN` | `kubeconfig-{cluster}` | Secret name pattern            |
+| `FOURNOS_VAULT_SECRET_PATTERN`      | `vault-{entry}`        | Vault-synced Secret name pattern |
 | `FOURNOS_KUEUE_LOCAL_QUEUE_NAME`    | `fournos-queue`        | Kueue LocalQueue name          |
 | `FOURNOS_GPU_RESOURCE_PREFIX`       | `fournos/gpu-`         | Virtual resource name prefix   |
 | `FOURNOS_LOG_LEVEL`                 | `INFO`                 | Logging level                  |
@@ -408,7 +410,7 @@ README.md
 - **Exclusive locking via Kueue semaphore** — each cluster flavor has 100 `fournos/cluster-slot` units. Normal jobs request 1 slot; exclusive jobs request all 100. Kueue enforces mutual exclusion atomically — no operator-level blocking, labels, or in-memory state needed. Hardware-only jobs are automatically steered to clusters with available slots.
 - **Shutdown via spec field** — the `spec.shutdown` enum supports two modes: `Stop` (Tekton `CancelledRunFinally` — runs `finally` cleanup tasks) and `Terminate` (Tekton `Cancelled` — skips `finally` tasks). Both transition to an intermediate `Stopping` phase while the PipelineRun winds down. The Workload (and its quota) is kept alive until the PipelineRun completes, ensuring the cluster slot is not released prematurely. Only then does the operator delete the Workload and set `phase=Stopped`. The enum is extensible for future shutdown strategies. The FournosJob stays around in `Stopped` phase for inspection, unlike deletion which cascades and removes the record.
 - **Mandatory Resolving phase** — every job passes through a `Resolving` phase before entering `Pending`. During this phase, a Forge K8s Job runs to determine hardware requirements (`gpuType`, `gpuCount`) and secret references (`secretRefs`). Forge patches these values directly into the FournosJob spec (hardware only when not already user-provided). The operator validates them after the Job completes. Failed resolve Jobs are preserved for debugging.
-- **Vault-based secret management** — pipeline secrets originate in a HashiCorp Vault and are synced to K8s Secrets on demand via `hacks/sync_vault_secrets.py`. The K8s Secret name matches the Vault entry name exactly (entries that are not valid DNS-1123 names are rejected during sync). Each synced Secret carries a `fournos.dev/vault-entry=true` label. Secret references are populated by Forge during the Resolving phase on `spec.secretRefs`. The operator validates them against Vault secrets before creating the Workload (during Resolving) and reads them from spec when creating the PipelineRun (during Admitted). Missing or non-vault refs fail the job immediately rather than creating a broken PipelineRun.
+- **Vault-based secret management** — pipeline secrets originate in a HashiCorp Vault and are synced to K8s Secrets on demand via `hacks/sync_vault_secrets.py` into a dedicated secrets namespace (`FOURNOS_SECRETS_NAMESPACE`, default `psap-secrets`). The K8s Secret name uses a `vault-` prefix followed by the Vault entry name (e.g. `vault-my-creds`); entries that are not valid DNS-1123 names are rejected during sync. Each synced Secret carries a `fournos.dev/vault-entry=true` label. Secret references are populated by Forge during the Resolving phase on `spec.secretRefs`. The operator validates them in the secrets namespace before creating the Workload (during Resolving) and reads them from spec when creating the PipelineRun (during Admitted). Missing or non-vault refs fail the job immediately rather than creating a broken PipelineRun.
 - **Multiple pipelines** — `fournos-full` (prepare → run → cleanup) and `fournos-run-only` (run only), selectable per job
-- **Target clusters need nothing installed** — FORGE runs on the hub cluster inside Tekton Task pods and communicates with targets via remote `oc`/`kubectl` commands through kubeconfig Secrets
+- **Target clusters need nothing installed** — FORGE runs on the hub cluster inside Tekton Task pods and communicates with targets via remote `oc`/`kubectl` commands through kubeconfig Secrets (stored in the dedicated secrets namespace)
 

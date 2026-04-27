@@ -23,6 +23,7 @@ from kubernetes import client, config
 from fournos.core.constants import LABEL_VAULT_ENTRY
 from tests.conftest import (
     NAMESPACE,
+    SECRETS_NAMESPACE,
     create_job,
     get_pipelinerun_param,
     job_status_summary,
@@ -45,6 +46,7 @@ _spec.loader.exec_module(svs)
 # Fake Vault data: one entry named "e2e-creds" with two keys
 # (plus a secretsync/ metadata key that should be filtered out).
 VAULT_ENTRY = "e2e-creds"
+VAULT_SECRET = f"vault-{VAULT_ENTRY}"
 VAULT_DATA = {
     "username": "admin",
     "password": "s3cret",
@@ -64,9 +66,9 @@ def core_v1():
     return client.CoreV1Api()
 
 
-def _delete_secret_if_exists(v1, name: str) -> None:
+def _delete_secret_if_exists(v1, name: str, namespace: str = SECRETS_NAMESPACE) -> None:
     try:
-        v1.delete_namespaced_secret(name, NAMESPACE)
+        v1.delete_namespaced_secret(name, namespace)
     except client.exceptions.ApiException as exc:
         if exc.status != 404:
             raise
@@ -107,13 +109,13 @@ def test_vault_sync_then_fjob(k8s, core_v1):
             vault_token="s.fake",
             kv_mount="kv",
             secret_path="selfservice/e2e",
-            namespace=NAMESPACE,
+            namespace=SECRETS_NAMESPACE,
             dry_run=False,
         )
     assert rc == 0, "sync_vault_secrets.sync() returned non-zero"
 
     try:
-        secret = core_v1.read_namespaced_secret(VAULT_ENTRY, NAMESPACE)
+        secret = core_v1.read_namespaced_secret(VAULT_SECRET, SECRETS_NAMESPACE)
         assert secret.metadata.labels[LABEL_VAULT_ENTRY] == "true"
 
         create_job(
@@ -129,7 +131,7 @@ def test_vault_sync_then_fjob(k8s, core_v1):
         )
 
         poll_resolve_job_complete("test-e2e-secret")
-        _patch_fjob_secret_refs(k8s, "test-e2e-secret", [VAULT_ENTRY])
+        _patch_fjob_secret_refs(k8s, "test-e2e-secret", [VAULT_SECRET])
 
         phase = poll_phase(
             k8s,
@@ -142,8 +144,8 @@ def test_vault_sync_then_fjob(k8s, core_v1):
         )
 
         refs_param = get_pipelinerun_param("test-e2e-secret", "secret-refs")
-        assert VAULT_ENTRY in refs_param, (
-            f"PipelineRun secret-refs should contain {VAULT_ENTRY!r}, "
+        assert VAULT_SECRET in refs_param, (
+            f"PipelineRun secret-refs should contain {VAULT_SECRET!r}, "
             f"got {refs_param!r}"
         )
 
@@ -156,7 +158,7 @@ def test_vault_sync_then_fjob(k8s, core_v1):
         assert phase == "Succeeded", job_status_summary(k8s, "test-e2e-secret")
 
     finally:
-        _delete_secret_if_exists(core_v1, VAULT_ENTRY)
+        _delete_secret_if_exists(core_v1, VAULT_SECRET)
 
 
 def test_missing_secret_ref_fails(k8s):

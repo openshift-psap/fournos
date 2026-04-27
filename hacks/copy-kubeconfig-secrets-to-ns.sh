@@ -9,10 +9,10 @@ set -o errtrace
 TARGET_NS=${1:-$(oc project -q)}
 SOURCE_NS="psap-automation"
 
-echo "Copying *-kubeconfig secrets from $SOURCE_NS to $TARGET_NS..."
+echo "Copying kubeconfig-* secrets from $SOURCE_NS to $TARGET_NS..."
 
 # Loop through filtered secrets
-for SECRET_NAME in $(oc get secrets -n $SOURCE_NS -o name | grep "\-kubeconfig"); do
+for SECRET_NAME in $(oc get secrets -n $SOURCE_NS -o name | grep "^secret/kubeconfig-"); do
     # Extract from source and create in target
     # 1. Fetch the secret in JSON
     # 2. Use jq to delete all the "junk" metadata
