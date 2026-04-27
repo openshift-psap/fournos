@@ -350,7 +350,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if not args.namespace:
-        logger.error("--namespace is required (or set FOURNOS_NAMESPACE)")
+        logger.error("--namespace is required (or set FOURNOS_SECRETS_NAMESPACE)")
         return 1
 
     return sync(
