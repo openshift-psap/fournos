@@ -17,13 +17,15 @@ spec:
       restartPolicy: Never
       containers:
         - name: resolve
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           env:
             - name: FOURNOS_JOB_NAME
             - name: FOURNOS_NAMESPACE
             - name: FORGE_PROJECT
             - name: FORGE_CONFIG
             - name: FOURNOS_ENV
+            - name: FOURNOS_STEP
+              value: resolve-fournos-config
           command: ["/bin/bash", "-c"]
           args:
             - |
@@ -63,4 +65,4 @@ spec:
 
               export FOURNOS_CI=true
 
-              exec bin/run_ci "$FORGE_PROJECT" ci resolve_fournos_config
+              exec bin/run_ci "$FORGE_PROJECT" ci "$FOURNOS_STEP"
