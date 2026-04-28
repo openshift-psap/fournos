@@ -226,7 +226,7 @@ def _create_workload_and_transition(
         # The 409 in that case means that the Workload already exists in Kueue.
         # This may happen when the reconciliation loop re-enters this function for a FJob that has been already processed in a previous iteration:
         # the Workload was created, but the status patch (setting phase=Pending) may have not been persisted yet.
-        # Passing on 409 allows to the execution to proceed to phase setting, which applies the correct status in an idempotent way.
+        # Passing on 409 allows the execution to proceed to phase setting, which applies the correct status in an idempotent way.
         # This is essentially a create-if-not-exists pattern: the first creation wins, subsequent attempts skip the API call and just ensure the status is set correctly.
         if exc.status == 409:
             pass
