@@ -128,7 +128,8 @@ def _resolve_hardware(
     """Determine and validate GPU requirements from the FournosJob spec.
 
     Forge populates ``spec.hardware`` when absent.  The GPU type is
-    always validated against Kueue.
+    validated against Kueue unless this is an exclusive cluster-lock
+    job with no hardware requirements.
 
     Exclusive jobs pinned to a cluster may omit hardware — the Workload
     only needs cluster-slot resources for locking.
