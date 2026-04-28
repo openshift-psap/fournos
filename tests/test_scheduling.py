@@ -61,6 +61,11 @@ def test_cluster_pinned(k8s):
         "Copied kubeconfig should be in the operator namespace"
     )
 
+    refs = get_pipelinerun_param("test-cluster", "secret-refs")
+    assert refs == ["placeholder"], (
+        f"Mock resolver should set secret-refs to ['placeholder'], got {refs!r}"
+    )
+
     phase = poll_phase(
         k8s,
         "test-cluster",

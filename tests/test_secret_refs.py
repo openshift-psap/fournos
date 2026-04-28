@@ -5,9 +5,8 @@ the Resolving phase.  The Vault HTTP layer is mocked so no real Vault is
 needed, but secrets are created on the live cluster by the sync script,
 then consumed by a FournosJob whose spec.secretRefs references them.
 
-Both tests create the FournosJob first.  The operator launches a resolve
-Job; after it completes the test patches ``spec.secretRefs`` on the
-FournosJob before the operator's next timer tick validates them.
+Both tests use a noop resolve Job to avoid races with the mock resolver,
+and supply ``secretRefs`` directly in the FournosJob spec.
 """
 
 from __future__ import annotations
@@ -25,11 +24,11 @@ from tests.conftest import (
     NAMESPACE,
     SECRETS_NAMESPACE,
     create_job,
+    create_noop_resolve_job,
     get_pipelinerun_param,
     get_pipelinerun_volumes,
     job_status_summary,
     poll_phase,
-    poll_resolve_job_complete,
 )
 
 # ---------------------------------------------------------------------------
@@ -54,9 +53,6 @@ VAULT_DATA = {
     "secretsync/target-namespace": "should-be-filtered",
 }
 
-GROUP = "fournos.dev"
-VERSION = "v1"
-
 
 @pytest.fixture(scope="session")
 def core_v1():
@@ -75,18 +71,6 @@ def _delete_secret_if_exists(v1, name: str, namespace: str = SECRETS_NAMESPACE) 
             raise
 
 
-def _patch_fjob_secret_refs(k8s, job_name: str, secret_refs: list[str]) -> None:
-    """Patch the FournosJob to set ``spec.secretRefs``."""
-    k8s.patch_namespaced_custom_object(
-        GROUP,
-        VERSION,
-        NAMESPACE,
-        "fournosjobs",
-        job_name,
-        body={"spec": {"secretRefs": secret_refs}},
-    )
-
-
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -95,10 +79,9 @@ def _patch_fjob_secret_refs(k8s, job_name: str, secret_refs: list[str]) -> None:
 def test_vault_sync_then_fjob(k8s, core_v1):
     """Sync a mocked Vault entry, then verify a FournosJob passes it to PipelineRun.
 
-    The FournosJob is created first.  The operator launches the resolve
-    Job.  After the resolve Job completes, the test patches secretRefs
-    on the FournosJob before the operator reads the spec for the Pending
-    transition.
+    A noop resolve Job is pre-created so the mock resolver doesn't
+    overwrite ``secretRefs``.  The FournosJob carries ``secretRefs``
+    directly in its spec, avoiding any race with the resolver.
     """
 
     with (
@@ -121,20 +104,20 @@ def test_vault_sync_then_fjob(k8s, core_v1):
         secret = core_v1.read_namespaced_secret(VAULT_SECRET, SECRETS_NAMESPACE)
         assert secret.metadata.labels[LABEL_VAULT_ENTRY] == "true"
 
+        create_noop_resolve_job("test-e2e-secret")
+
         create_job(
             k8s,
             "test-e2e-secret",
             {
                 "cluster": "cluster-1",
+                "secretRefs": [VAULT_ENTRY],
                 "forge": {
                     "project": "testproj/llmd",
                     "args": ["cks", "internal-test"],
                 },
             },
         )
-
-        poll_resolve_job_complete("test-e2e-secret")
-        _patch_fjob_secret_refs(k8s, "test-e2e-secret", [VAULT_ENTRY])
 
         phase = poll_phase(
             k8s,
@@ -147,9 +130,8 @@ def test_vault_sync_then_fjob(k8s, core_v1):
         )
 
         refs_param = get_pipelinerun_param("test-e2e-secret", "secret-refs")
-        assert VAULT_ENTRY in refs_param, (
-            f"PipelineRun secret-refs should contain {VAULT_ENTRY!r}, "
-            f"got {refs_param!r}"
+        assert refs_param == [VAULT_ENTRY], (
+            f"PipelineRun secret-refs should be {[VAULT_ENTRY]!r}, got {refs_param!r}"
         )
 
         volumes = get_pipelinerun_volumes("test-e2e-secret")
@@ -189,23 +171,24 @@ def test_vault_sync_then_fjob(k8s, core_v1):
 def test_missing_secret_ref_fails(k8s):
     """A secretRef with no matching labelled Secret fails the job.
 
-    The test waits for the resolve Job to complete, then patches
-    secretRefs on the FournosJob to reference a nonexistent secret.
+    A noop resolve Job is pre-created so the mock resolver doesn't
+    inject valid secretRefs.  The FournosJob carries a nonexistent ref
+    directly in its spec.
     """
+    create_noop_resolve_job("test-missing-ref")
+
     create_job(
         k8s,
         "test-missing-ref",
         {
             "cluster": "cluster-1",
+            "secretRefs": ["nonexistent-vault-entry"],
             "forge": {
                 "project": "testproj/llmd",
                 "args": ["cks", "internal-test"],
             },
         },
     )
-
-    poll_resolve_job_complete("test-missing-ref")
-    _patch_fjob_secret_refs(k8s, "test-missing-ref", ["nonexistent-vault-entry"])
 
     phase = poll_phase(
         k8s,

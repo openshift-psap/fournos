@@ -140,17 +140,10 @@ class ClusterRegistry:
         back to the FournosJob so K8s GC cleans it up automatically.
         Idempotent: a 409 (AlreadyExists) is silently ignored.
         """
-        secret_name = self._vault_secret_name(ref)
+        secret_name = self._resolve_secret_ref(ref)
         source = self._k8s.read_namespaced_secret(
             secret_name, settings.secrets_namespace
         )
-
-        labels = source.metadata.labels or {}
-        if labels.get(LABEL_VAULT_ENTRY) != "true":
-            raise KeyError(
-                f"Secret {secret_name!r} in {settings.secrets_namespace} is not a "
-                f"Vault-synced secret (missing {LABEL_VAULT_ENTRY}=true label)"
-            )
 
         keys = sorted((source.data or {}).keys())
         copied_name = f"{fjob_name}-{ref}"
