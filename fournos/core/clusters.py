@@ -28,6 +28,57 @@ class ClusterRegistry:
         """Return the Secret name that holds the kubeconfig for *cluster_name*."""
         return settings.kubeconfig_secret_pattern.format(cluster=cluster_name)
 
+    def copy_kubeconfig_secret(
+        self, cluster_name: str, fjob_name: str, owner_ref: dict
+    ) -> str:
+        """Copy the kubeconfig Secret for *cluster_name* into the operator namespace.
+
+        Returns the name of the copied Secret (``<fjob_name>-kubeconfig``).
+        Idempotent: a 409 (AlreadyExists) is silently ignored.
+        """
+        source_name = self.resolve_kubeconfig_secret(cluster_name)
+        source = self._k8s.read_namespaced_secret(
+            source_name, settings.secrets_namespace
+        )
+
+        copied_name = f"{fjob_name}-kubeconfig"
+
+        copy_body = client.V1Secret(
+            metadata=client.V1ObjectMeta(
+                name=copied_name,
+                namespace=settings.namespace,
+                labels={LABEL_MANAGED_BY: "fournos"},
+                owner_references=[
+                    client.V1OwnerReference(
+                        api_version=owner_ref["apiVersion"],
+                        kind=owner_ref["kind"],
+                        name=owner_ref["name"],
+                        uid=owner_ref["uid"],
+                        controller=False,
+                        block_owner_deletion=True,
+                    )
+                ],
+            ),
+            type=source.type,
+            data=source.data,
+        )
+
+        try:
+            self._k8s.create_namespaced_secret(settings.namespace, copy_body)
+            logger.info(
+                "Copied kubeconfig %s from %s as %s",
+                source_name,
+                settings.secrets_namespace,
+                copied_name,
+            )
+        except client.exceptions.ApiException as exc:
+            if exc.status == 409:
+                logger.debug("Kubeconfig copy %s already exists (409)", copied_name)
+            else:
+                raise
+
+        return copied_name
+
     def cluster_exists(self, cluster_name: str) -> bool:
         """Return True if the kubeconfig Secret for *cluster_name* exists."""
         secret_name = self.resolve_kubeconfig_secret(cluster_name)
@@ -39,33 +90,43 @@ class ClusterRegistry:
                 return False
             raise
 
+    @staticmethod
+    def _vault_secret_name(ref: str) -> str:
+        """Apply the vault secret naming pattern to a user-supplied ref."""
+        return settings.vault_secret_pattern.format(entry=ref)
+
     def _resolve_secret_ref(self, ref: str) -> str:
         """Verify that *ref* is a Vault-synced K8s Secret and return its name.
 
-        The Secret is read from ``secrets_namespace``.  The
-        ``fournos.dev/vault-entry=true`` label is checked to confirm
+        Users supply refs without the ``vault-`` prefix; the pattern from
+        ``settings.vault_secret_pattern`` is applied to derive the real
+        Secret name.  The Secret is read from ``secrets_namespace``.
+        The ``fournos.dev/vault-entry=true`` label is checked to confirm
         the Secret was actually imported from Vault.
 
         Raises ``KeyError`` if the Secret does not exist or is not
         a Vault-synced secret.
         """
+        secret_name = self._vault_secret_name(ref)
         try:
-            secret = self._k8s.read_namespaced_secret(ref, settings.secrets_namespace)
+            secret = self._k8s.read_namespaced_secret(
+                secret_name, settings.secrets_namespace
+            )
         except client.exceptions.ApiException as exc:
             if exc.status == 404:
                 raise KeyError(
-                    f"Secret {ref!r} not found in namespace "
-                    f"{settings.secrets_namespace}"
+                    f"Secret {secret_name!r} (ref {ref!r}) not found in "
+                    f"namespace {settings.secrets_namespace}"
                 ) from exc
             raise
         labels = secret.metadata.labels or {}
         if labels.get(LABEL_VAULT_ENTRY) != "true":
             raise KeyError(
-                f"Secret {ref!r} exists but is not a Vault-synced secret "
+                f"Secret {secret_name!r} exists but is not a Vault-synced secret "
                 f"(missing {LABEL_VAULT_ENTRY}=true label)"
             )
-        logger.debug("Validated secretRef %s", ref)
-        return ref
+        logger.debug("Validated secretRef %s -> %s", ref, secret_name)
+        return secret_name
 
     def resolve_secret_refs(self, refs: list[str]) -> list[str]:
         """Resolve a list of secretRefs to their K8s Secret names."""
@@ -74,16 +135,20 @@ class ClusterRegistry:
     def copy_secret(self, ref: str, fjob_name: str, owner_ref: dict) -> ResolvedSecret:
         """Copy a Vault-synced Secret from the secrets namespace into the pod namespace.
 
+        *ref* is the user-supplied name (without ``vault-`` prefix).
         The copy is named ``<fjob_name>-<ref>`` and carries an ownerReference
         back to the FournosJob so K8s GC cleans it up automatically.
         Idempotent: a 409 (AlreadyExists) is silently ignored.
         """
-        source = self._k8s.read_namespaced_secret(ref, settings.secrets_namespace)
+        secret_name = self._vault_secret_name(ref)
+        source = self._k8s.read_namespaced_secret(
+            secret_name, settings.secrets_namespace
+        )
 
         labels = source.metadata.labels or {}
         if labels.get(LABEL_VAULT_ENTRY) != "true":
             raise KeyError(
-                f"Secret {ref!r} in {settings.secrets_namespace} is not a "
+                f"Secret {secret_name!r} in {settings.secrets_namespace} is not a "
                 f"Vault-synced secret (missing {LABEL_VAULT_ENTRY}=true label)"
             )
 
@@ -116,7 +181,8 @@ class ClusterRegistry:
         try:
             self._k8s.create_namespaced_secret(settings.namespace, copy_body)
             logger.info(
-                "Copied secret %s from %s as %s",
+                "Copied secret %s (ref %s) from %s as %s",
+                secret_name,
                 ref,
                 settings.secrets_namespace,
                 copied_name,

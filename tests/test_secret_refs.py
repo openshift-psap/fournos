@@ -115,7 +115,7 @@ def test_vault_sync_then_fjob(k8s, core_v1):
         )
     assert rc == 0, "sync_vault_secrets.sync() returned non-zero"
 
-    expected_copy = f"test-e2e-secret-{VAULT_SECRET}"
+    expected_copy = f"test-e2e-secret-{VAULT_ENTRY}"
 
     try:
         secret = core_v1.read_namespaced_secret(VAULT_SECRET, SECRETS_NAMESPACE)
@@ -134,7 +134,7 @@ def test_vault_sync_then_fjob(k8s, core_v1):
         )
 
         poll_resolve_job_complete("test-e2e-secret")
-        _patch_fjob_secret_refs(k8s, "test-e2e-secret", [VAULT_SECRET])
+        _patch_fjob_secret_refs(k8s, "test-e2e-secret", [VAULT_ENTRY])
 
         phase = poll_phase(
             k8s,
@@ -147,8 +147,8 @@ def test_vault_sync_then_fjob(k8s, core_v1):
         )
 
         refs_param = get_pipelinerun_param("test-e2e-secret", "secret-refs")
-        assert VAULT_SECRET in refs_param, (
-            f"PipelineRun secret-refs should contain {VAULT_SECRET!r}, "
+        assert VAULT_ENTRY in refs_param, (
+            f"PipelineRun secret-refs should contain {VAULT_ENTRY!r}, "
             f"got {refs_param!r}"
         )
 

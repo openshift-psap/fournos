@@ -101,11 +101,12 @@ spec:
                 secretRefs:
                   type: array
                   description: >-
-                    Vault-synced K8s Secret names (vault-<entry>) to mount
-                    into the pipeline.  Each name must correspond to a
-                    Kubernetes Secret with the fournos.dev/vault-entry=true
-                    label.  Populated by Forge during the Resolving phase
-                    when not provided by the user.
+                    Vault entry names (without the vault- prefix) to mount
+                    into the pipeline.  The operator prepends vault- to
+                    look up the corresponding K8s Secret (which must carry
+                    the fournos.dev/vault-entry=true label) in the secrets
+                    namespace.  Populated by Forge during the Resolving
+                    phase when not provided by the user.
                   items:
                     type: string
                     pattern: "^[a-z0-9]([a-z0-9\\-]{0,61}[a-z0-9])?$"

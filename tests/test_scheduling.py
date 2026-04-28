@@ -4,6 +4,7 @@ import yaml
 
 from fournos.core.constants import Phase
 from tests.conftest import (
+    NAMESPACE,
     create_job,
     get_job,
     get_k8s_resource,
@@ -43,8 +44,21 @@ def test_cluster_pinned(k8s):
     flavor = get_workload_flavor("test-cluster")
     assert flavor == "cluster-2", f"Workload flavor should be cluster-2, got {flavor!r}"
     secret = get_pipelinerun_param("test-cluster", "kubeconfig-secret")
-    assert secret == "kubeconfig-cluster-2", (
-        f"PipelineRun kubeconfig-secret should be kubeconfig-cluster-2, got {secret!r}"
+    assert secret == "test-cluster-kubeconfig", (
+        f"PipelineRun kubeconfig-secret should be test-cluster-kubeconfig, got {secret!r}"
+    )
+
+    kc = get_k8s_resource("secret", "test-cluster-kubeconfig")
+    assert "kubeconfig" in (kc.get("data") or {}), (
+        f"Copied kubeconfig secret should have a 'kubeconfig' key, got {list((kc.get('data') or {}).keys())}"
+    )
+    kc_owners = kc.get("metadata", {}).get("ownerReferences", [])
+    assert any(
+        o.get("kind") == "FournosJob" and o.get("name") == "test-cluster"
+        for o in kc_owners
+    ), f"Copied kubeconfig should have FournosJob ownerRef, got {kc_owners!r}"
+    assert kc.get("metadata", {}).get("namespace") == NAMESPACE, (
+        "Copied kubeconfig should be in the operator namespace"
     )
 
     phase = poll_phase(
@@ -115,8 +129,8 @@ def test_cluster_and_hardware(k8s):
     flavor = get_workload_flavor("test-cluster-hw")
     assert flavor == "cluster-4", f"Workload flavor should be cluster-4, got {flavor!r}"
     secret = get_pipelinerun_param("test-cluster-hw", "kubeconfig-secret")
-    assert secret == "kubeconfig-cluster-4", (
-        f"PipelineRun kubeconfig-secret should be kubeconfig-cluster-4, got {secret!r}"
+    assert secret == "test-cluster-hw-kubeconfig", (
+        f"PipelineRun kubeconfig-secret should be test-cluster-hw-kubeconfig, got {secret!r}"
     )
 
     phase = poll_phase(

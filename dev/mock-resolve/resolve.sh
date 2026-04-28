@@ -33,6 +33,6 @@ echo "[mock-resolve] setting secretRefs"
 kubectl patch fournosjob "${FOURNOS_JOB_NAME}" \
   -n "${FOURNOS_NAMESPACE}" \
   --type=merge \
-  -p '{"spec":{"secretRefs":["vault-placeholder"]}}'
+  -p '{"spec":{"secretRefs":["placeholder"]}}'
 
 echo "[mock-resolve] done"

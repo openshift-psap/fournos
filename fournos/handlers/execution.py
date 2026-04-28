@@ -147,7 +147,25 @@ def reconcile_admitted(spec, name, namespace, status, patch, body):
 
     if pr is None:
         cluster = status.get("cluster", "")
-        secret = ctx.registry.resolve_kubeconfig_secret(cluster)
+
+        try:
+            kubeconfig_secret = ctx.registry.copy_kubeconfig_secret(
+                cluster, name, owner_ref(body)
+            )
+        except client.exceptions.ApiException as exc:
+            patch.status["phase"] = Phase.FAILED
+            patch.status["message"] = f"Failed to copy kubeconfig: {exc.reason}"
+            set_condition(
+                patch,
+                conditions,
+                COND_PIPELINE_RUN_READY,
+                "False",
+                "KubeconfigNotFound",
+                f"Failed to copy kubeconfig: {exc.reason}",
+            )
+            ctx.kueue.delete_workload(name)
+            logger.error("Job %s: kubeconfig copy failed: %s", name, exc)
+            return
 
         hardware = spec.get("hardware") or {}
         gpu_count = hardware.get("gpuCount", 0)
@@ -183,7 +201,7 @@ def reconcile_admitted(spec, name, namespace, status, patch, body):
                 forge_project=spec["forge"]["project"],
                 forge_config=spec["forge"],
                 env=spec.get("env", {}),
-                kubeconfig_secret=secret,
+                kubeconfig_secret=kubeconfig_secret,
                 gpu_count=gpu_count,
                 resolved_secrets=resolved_secrets,
                 cluster=cluster,
