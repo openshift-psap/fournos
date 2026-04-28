@@ -16,10 +16,10 @@ spec:
       image: bitnami/kubectl:latest
       env:
         - name: KUBECONFIG
-          value: /workspace/kubeconfig/kubeconfig
+          value: /var/run/secrets/fournos-kubeconfig/kubeconfig
       volumeMounts:
         - name: kubeconfig
-          mountPath: /workspace/kubeconfig
+          mountPath: /var/run/secrets/fournos-kubeconfig
           readOnly: true
       script: |
         #!/usr/bin/env bash

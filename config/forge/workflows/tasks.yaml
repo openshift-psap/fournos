@@ -26,7 +26,7 @@ spec:
       imagePullPolicy: Always
       env:
       - name: KUBECONFIG
-        value: /workspace/kubeconfig/kubeconfig
+        value: /var/run/secrets/fournos-kubeconfig/kubeconfig
       - name: FORGE_CONFIG
         value: "$(params.forge-config)"
       - name: FOURNOS_ENV
@@ -35,7 +35,10 @@ spec:
         value: "$(params.job-step)"
       volumeMounts:
         - name: kubeconfig
-          mountPath: /workspace/kubeconfig
+          mountPath: /var/run/secrets/fournos-kubeconfig
+          readOnly: true
+        - name: vault-secrets
+          mountPath: /var/run/secrets/fournos
           readOnly: true
       script: |
         #!/usr/bin/env bash

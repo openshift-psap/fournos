@@ -8,6 +8,7 @@ import yaml
 
 from kubernetes import client
 
+from fournos.core.clusters import ResolvedSecret
 from fournos.core.constants import LABEL_JOB_NAME, LABEL_MANAGED_BY
 from fournos.settings import settings
 
@@ -35,6 +36,31 @@ def serialize_env(env: dict) -> str:
     return "".join(lines)
 
 
+def _build_secrets_volume(resolved: list[ResolvedSecret]) -> dict:
+    """Build a single projected volume combining all per-job secret copies.
+
+    Always returns a valid volume spec -- when *resolved* is empty the
+    ``sources`` list is empty, which produces an empty directory so
+    static volumeMounts in Task YAMLs remain valid.
+    """
+    return {
+        "name": "vault-secrets",
+        "projected": {
+            "sources": [
+                {
+                    "secret": {
+                        "name": r.name,
+                        "items": [
+                            {"key": k, "path": f"{r.original_name}/{k}"} for k in r.keys
+                        ],
+                    },
+                }
+                for r in resolved
+            ],
+        },
+    }
+
+
 class TektonClient:
     def __init__(self, k8s_client: client.CustomObjectsApi) -> None:
         self._k8s = k8s_client
@@ -50,7 +76,7 @@ class TektonClient:
         env: dict,
         kubeconfig_secret: str,
         gpu_count: int,
-        secret_refs: list[str],
+        resolved_secrets: list[ResolvedSecret],
         cluster: str,
         owner_ref: dict | None = None,
     ) -> dict:
@@ -69,6 +95,8 @@ class TektonClient:
         if owner_ref:
             metadata["ownerReferences"] = [owner_ref]
 
+        secret_ref_names = [r.original_name for r in resolved_secrets]
+
         body = {
             "apiVersion": f"{TEKTON_GROUP}/{TEKTON_VERSION}",
             "kind": "PipelineRun",
@@ -78,6 +106,9 @@ class TektonClient:
                 "taskRunTemplate": {
                     "metadata": {
                         "labels": labels,
+                    },
+                    "podTemplate": {
+                        "volumes": [_build_secrets_volume(resolved_secrets)],
                     },
                 },
                 "params": [
@@ -93,7 +124,7 @@ class TektonClient:
                     },
                     {"name": "kubeconfig-secret", "value": kubeconfig_secret},
                     {"name": "gpu-count", "value": str(gpu_count)},
-                    {"name": "secret-refs", "value": secret_refs},
+                    {"name": "secret-refs", "value": secret_ref_names},
                 ],
             },
         }

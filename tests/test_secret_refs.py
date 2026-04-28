@@ -26,6 +26,7 @@ from tests.conftest import (
     SECRETS_NAMESPACE,
     create_job,
     get_pipelinerun_param,
+    get_pipelinerun_volumes,
     job_status_summary,
     poll_phase,
     poll_resolve_job_complete,
@@ -114,6 +115,8 @@ def test_vault_sync_then_fjob(k8s, core_v1):
         )
     assert rc == 0, "sync_vault_secrets.sync() returned non-zero"
 
+    expected_copy = f"test-e2e-secret-{VAULT_SECRET}"
+
     try:
         secret = core_v1.read_namespaced_secret(VAULT_SECRET, SECRETS_NAMESPACE)
         assert secret.metadata.labels[LABEL_VAULT_ENTRY] == "true"
@@ -149,6 +152,27 @@ def test_vault_sync_then_fjob(k8s, core_v1):
             f"got {refs_param!r}"
         )
 
+        volumes = get_pipelinerun_volumes("test-e2e-secret")
+        vault_vol = next((v for v in volumes if v.get("name") == "vault-secrets"), None)
+        assert vault_vol is not None, (
+            f"Expected a 'vault-secrets' projected volume, got {volumes!r}"
+        )
+        sources = vault_vol.get("projected", {}).get("sources", [])
+        source_names = [s.get("secret", {}).get("name", "") for s in sources]
+        assert expected_copy in source_names, (
+            f"Projected volume should reference copied secret {expected_copy!r}, "
+            f"got sources: {source_names!r}"
+        )
+
+        copied = core_v1.read_namespaced_secret(expected_copy, NAMESPACE)
+        owner_refs = copied.metadata.owner_references or []
+        assert any(
+            o.kind == "FournosJob" and o.name == "test-e2e-secret" for o in owner_refs
+        ), f"Copied secret should have FournosJob ownerRef, got {owner_refs!r}"
+        assert sorted(copied.data.keys()) == ["password", "username"], (
+            f"Copied secret data keys mismatch: {sorted(copied.data.keys())}"
+        )
+
         phase = poll_phase(
             k8s,
             "test-e2e-secret",
@@ -159,6 +183,7 @@ def test_vault_sync_then_fjob(k8s, core_v1):
 
     finally:
         _delete_secret_if_exists(core_v1, VAULT_SECRET)
+        _delete_secret_if_exists(core_v1, expected_copy, namespace=NAMESPACE)
 
 
 def test_missing_secret_ref_fails(k8s):

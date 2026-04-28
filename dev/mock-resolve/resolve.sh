@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Mock Forge resolve script — patches the FournosJob spec with resolved values.
 #
-# Forge writes hardware (only when not user-provided) and secretRefs
-# directly into the FournosJob spec.
+# In production, Forge determines hardware requirements and secret
+# references by inspecting the project.  This mock sets hard-coded
+# defaults for hardware only when the user hasn't provided them, and
+# always sets secretRefs.
 #
 # Expected env vars (set by the operator):
 #   FOURNOS_JOB_NAME    — FournosJob name to patch
@@ -22,25 +24,15 @@ if [[ -z "${EXISTING_HW}" ]]; then
   kubectl patch fournosjob "${FOURNOS_JOB_NAME}" \
     -n "${FOURNOS_NAMESPACE}" \
     --type=merge \
-    -p '{
-      "spec": {
-        "hardware": {
-          "gpuType": "a100",
-          "gpuCount": 2
-        },
-        "secretRefs": []
-      }
-    }'
+    -p '{"spec":{"hardware":{"gpuType":"a100","gpuCount":2}}}'
 else
-  echo "[mock-resolve] user-provided hardware found (${EXISTING_HW}), patching secretRefs only"
-  kubectl patch fournosjob "${FOURNOS_JOB_NAME}" \
-    -n "${FOURNOS_NAMESPACE}" \
-    --type=merge \
-    -p '{
-      "spec": {
-        "secretRefs": []
-      }
-    }'
+  echo "[mock-resolve] user-provided hardware found (${EXISTING_HW}), keeping"
 fi
+
+echo "[mock-resolve] setting secretRefs"
+kubectl patch fournosjob "${FOURNOS_JOB_NAME}" \
+  -n "${FOURNOS_NAMESPACE}" \
+  --type=merge \
+  -p '{"spec":{"secretRefs":["vault-placeholder"]}}'
 
 echo "[mock-resolve] done"

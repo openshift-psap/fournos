@@ -154,17 +154,20 @@ def reconcile_admitted(spec, name, namespace, status, patch, body):
 
         secret_refs_raw = spec.get("secretRefs") or []
         try:
-            resolved_refs = ctx.registry.resolve_secret_refs(secret_refs_raw)
-        except KeyError as exc:
+            resolved_secrets = ctx.registry.copy_secrets(
+                secret_refs_raw, name, owner_ref(body)
+            )
+        except (KeyError, client.exceptions.ApiException) as exc:
+            msg = str(exc).strip("'\"") if isinstance(exc, KeyError) else exc.reason
             patch.status["phase"] = Phase.FAILED
-            patch.status["message"] = str(exc).strip("'\"")
+            patch.status["message"] = msg
             set_condition(
                 patch,
                 conditions,
                 COND_PIPELINE_RUN_READY,
                 "False",
                 "SecretRefNotFound",
-                str(exc).strip("'\""),
+                msg,
             )
             ctx.kueue.delete_workload(name)
             logger.error("Job %s: %s", name, exc)
@@ -182,7 +185,7 @@ def reconcile_admitted(spec, name, namespace, status, patch, body):
                 env=spec.get("env", {}),
                 kubeconfig_secret=secret,
                 gpu_count=gpu_count,
-                secret_refs=resolved_refs,
+                resolved_secrets=resolved_secrets,
                 cluster=cluster,
                 owner_ref=owner_ref(body),
             )
