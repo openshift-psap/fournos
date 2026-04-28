@@ -95,8 +95,8 @@ class ClusterRegistry:
         """Apply the vault secret naming pattern to a user-supplied ref."""
         return settings.vault_secret_pattern.format(entry=ref)
 
-    def _resolve_secret_ref(self, ref: str) -> str:
-        """Verify that *ref* is a Vault-synced K8s Secret and return its name.
+    def _resolve_secret_ref(self, ref: str) -> client.V1Secret:
+        """Verify that *ref* is a Vault-synced K8s Secret and return it.
 
         Users supply refs without the ``vault-`` prefix; the pattern from
         ``settings.vault_secret_pattern`` is applied to derive the real
@@ -126,11 +126,11 @@ class ClusterRegistry:
                 f"(missing {LABEL_VAULT_ENTRY}=true label)"
             )
         logger.debug("Validated secretRef %s -> %s", ref, secret_name)
-        return secret_name
+        return secret
 
     def resolve_secret_refs(self, refs: list[str]) -> list[str]:
         """Resolve a list of secretRefs to their K8s Secret names."""
-        return [self._resolve_secret_ref(r) for r in refs]
+        return [self._resolve_secret_ref(r).metadata.name for r in refs]
 
     def copy_secret(self, ref: str, fjob_name: str, owner_ref: dict) -> ResolvedSecret:
         """Copy a Vault-synced Secret from the secrets namespace into the pod namespace.
@@ -140,10 +140,8 @@ class ClusterRegistry:
         back to the FournosJob so K8s GC cleans it up automatically.
         Idempotent: a 409 (AlreadyExists) is silently ignored.
         """
-        secret_name = self._resolve_secret_ref(ref)
-        source = self._k8s.read_namespaced_secret(
-            secret_name, settings.secrets_namespace
-        )
+        source = self._resolve_secret_ref(ref)
+        secret_name = source.metadata.name
 
         keys = sorted((source.data or {}).keys())
         copied_name = f"{fjob_name}-{ref}"
