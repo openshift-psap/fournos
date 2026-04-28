@@ -57,6 +57,9 @@ LABEL_MANAGED_BY = "app.kubernetes.io/managed-by"
 ANNOTATION_VAULT_ADDR = "fournos.dev/vault-addr"
 ANNOTATION_VAULT_PATH = "fournos.dev/vault-path"
 MANAGER_VALUE = "fournos-vault-sync"
+SKIP_SYNC_KEY = (
+    "fournos_skip_sync"  # vaults with this key won't be synchronized to the cluster
+)
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +168,31 @@ def _apply_secret(
         logger.info("Updated  Secret %s/%s", namespace, name)
 
 
+def _list_managed_secrets(v1, namespace: str) -> list[str]:
+    """List all secrets managed by fournos-vault-sync."""
+    from kubernetes.client.exceptions import ApiException
+
+    try:
+        label_selector = f"{LABEL_MANAGED_BY}={MANAGER_VALUE},{LABEL_VAULT_ENTRY}=true"
+        secrets = v1.list_namespaced_secret(namespace, label_selector=label_selector)
+        return [secret.metadata.name for secret in secrets.items]
+    except ApiException as exc:
+        logger.error("Failed to list managed secrets: %s", exc)
+        return []
+
+
+def _delete_secret(v1, name: str, namespace: str):
+    """Delete a Kubernetes Secret."""
+    from kubernetes.client.exceptions import ApiException
+
+    try:
+        v1.delete_namespaced_secret(name, namespace)
+        logger.info("Deleted  Secret %s/%s", namespace, name)
+    except ApiException as exc:
+        if exc.status != 404:
+            logger.error("Failed to delete Secret %s/%s: %s", namespace, name, exc)
+
+
 # ---------------------------------------------------------------------------
 # Core logic
 # ---------------------------------------------------------------------------
@@ -206,11 +234,22 @@ def sync(
     if not names:
         logger.warning("No vault entries found under %s/%s", kv_mount, secret_path)
         return 0
+
     logger.info("Found %d vault entries: %s", len(names), ", ".join(names))
 
     v1 = None if dry_run else _k8s_core_api()
 
+    # Track which secrets we process for destructive sync
+    processed_secrets = set()
+
+    # Get list of existing managed secrets for destructive sync
+    existing_managed_secrets = set()
+    if not dry_run:
+        existing_managed_secrets = set(_list_managed_secrets(v1, namespace))
+        logger.info("Found %d existing managed secrets", len(existing_managed_secrets))
+
     errors = 0
+    skipped_count = 0
     for vault_name in names:
         full_path = f"{secret_path}/{vault_name}"
 
@@ -234,6 +273,14 @@ def sync(
 
         if not kv_data:
             logger.warning("Vault entry %s is empty, skipping", full_path)
+            continue
+
+        # Check if vault contains fournos_skip_sync key - if so, skip this vault
+        if SKIP_SYNC_KEY in kv_data:
+            logger.info(
+                "Skipping vault %s (contains %s key)", vault_name, SKIP_SYNC_KEY
+            )
+            skipped_count += 1
             continue
 
         safe_data: dict[str, str] = {}
@@ -260,6 +307,7 @@ def sync(
             print(f"[dry-run] Would create/update Secret {namespace}/{secret_name}")
             for key in safe_data:
                 print(f"  {key}: <{len(str(safe_data[key]))} chars>")
+            processed_secrets.add(secret_name)
             continue
 
         try:
@@ -271,6 +319,7 @@ def sync(
                 vault_addr=vault_addr,
                 vault_full_path=f"{kv_mount}/{full_path}",
             )
+            processed_secrets.add(secret_name)
         except Exception:
             logger.exception(
                 "Failed to apply Secret %s/%s",
@@ -278,6 +327,36 @@ def sync(
                 secret_name,
             )
             errors += 1
+
+    # Destructive sync: delete managed secrets that are no longer in vault
+    secrets_to_delete = existing_managed_secrets - processed_secrets
+    if secrets_to_delete:
+        logger.info(
+            "Found %d managed secrets not in vault, deleting: %s",
+            len(secrets_to_delete),
+            ", ".join(secrets_to_delete),
+        )
+
+        for secret_name in secrets_to_delete:
+            if dry_run:
+                print(f"[dry-run] Would delete Secret {namespace}/{secret_name}")
+            else:
+                try:
+                    _delete_secret(v1, secret_name, namespace)
+                except Exception:
+                    logger.exception(
+                        "Failed to delete Secret %s/%s", namespace, secret_name
+                    )
+                    errors += 1
+    else:
+        logger.info("No managed secrets need to be deleted")
+
+    if skipped_count > 0:
+        logger.info(
+            "Total vault entries skipped (contained %s): %d",
+            SKIP_SYNC_KEY,
+            skipped_count,
+        )
 
     return 1 if errors else 0
 
