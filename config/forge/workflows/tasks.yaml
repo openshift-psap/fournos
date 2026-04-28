@@ -33,6 +33,8 @@ spec:
         value: "$(params.env)"
       - name: FOURNOS_STEP
         value: "$(params.job-step)"
+      - name: FOURNOS_SECRETS
+        value: /var/run/secrets/fournos
       volumeMounts:
         - name: kubeconfig
           mountPath: /var/run/secrets/fournos-kubeconfig

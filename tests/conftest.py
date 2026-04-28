@@ -464,7 +464,7 @@ def create_stale_pipelinerun(k8s, name: str) -> None:
                     """),
                 },
                 {"name": "env", "value": ""},
-                {"name": "kubeconfig-secret", "value": "kubeconfig-cluster-1"},
+                {"name": "kubeconfig-secret", "value": f"{name}-kubeconfig"},
                 {"name": "gpu-count", "value": "0"},
             ],
         },
