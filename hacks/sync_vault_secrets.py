@@ -190,7 +190,7 @@ def _list_managed_secrets(v1, namespace: str) -> list[str]:
         return [secret.metadata.name for secret in secrets.items]
     except ApiException as exc:
         logger.error("Failed to list managed secrets: %s", exc)
-        return []
+        raise
 
 
 def _delete_secret(v1, name: str, namespace: str):
@@ -203,6 +203,7 @@ def _delete_secret(v1, name: str, namespace: str):
     except ApiException as exc:
         if exc.status != 404:
             logger.error("Failed to delete Secret %s/%s: %s", namespace, name, exc)
+            raise
 
 
 # ---------------------------------------------------------------------------
@@ -249,16 +250,15 @@ def sync(
 
     logger.info("Found %d vault entries: %s", len(names), ", ".join(names))
 
-    v1 = None if dry_run else _k8s_core_api()
+    # Always create v1 client for read operations (needed for destructive sync preview)
+    v1 = _k8s_core_api()
 
     # Track which secrets we process for destructive sync
     processed_secrets = set()
 
-    # Get list of existing managed secrets for destructive sync
-    existing_managed_secrets = set()
-    if not dry_run:
-        existing_managed_secrets = set(_list_managed_secrets(v1, namespace))
-        logger.info("Found %d existing managed secrets", len(existing_managed_secrets))
+    # Get list of existing managed secrets for destructive sync (always needed for preview)
+    existing_managed_secrets = set(_list_managed_secrets(v1, namespace))
+    logger.info("Found %d existing managed secrets", len(existing_managed_secrets))
 
     errors = 0
     skipped_count = 0
@@ -293,6 +293,7 @@ def sync(
                 "Skipping vault %s (contains %s key)", vault_name, SKIP_SYNC_KEY
             )
             skipped_count += 1
+            processed_secrets.add(secret_name)
             continue
 
         safe_data: dict[str, str] = {}
