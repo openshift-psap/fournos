@@ -131,6 +131,7 @@ def test_filter_jobs_by_phase(k8s):
         k8s,
         "test-filter-stuck",
         {
+            "exclusive": False,
             "hardware": {"gpuType": "a100", "gpuCount": 100},
             "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },

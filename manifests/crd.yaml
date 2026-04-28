@@ -117,12 +117,14 @@ spec:
                     type: string
                 exclusive:
                   type: boolean
-                  default: false
+                  default: true
                   description: >-
                     Lock the target cluster for exclusive use by this job.
                     When true, the job waits until the cluster has no other active
                     jobs and then prevents any new job from being scheduled there.
-                    Requires 'cluster' to be set.
+                    Requires 'cluster' to be set.  Hardware is optional — when
+                    omitted the Workload only requests cluster-slot resources
+                    for locking.
                 priority:
                   type: string
                 shutdown:

@@ -48,7 +48,7 @@ Jobs are submitted as `FournosJob` custom resources ([manifests/crd.yaml](manife
 | `spec.forge.args`            | yes          | List of arguments passed to FORGE                                                                |
 | `spec.forge.configOverrides` | no           | Arbitrary YAML overrides passed to the test framework                                            |
 | `spec.env`                   | no           | Environment variables passed to the pipeline as a `KEY=VALUE` env file                           |
-| `spec.cluster`               |              | Pin to a specific cluster (Kueue ResourceFlavor)                                                 |
+| `spec.cluster`               |              | Pin to a specific cluster (Kueue ResourceFlavor). Since `exclusive` defaults to `true`, this also locks the cluster — set `exclusive: false` for shared access. |
 | `spec.hardware.gpuType`      |              | Short GPU model name (e.g. `a100`, `h200`). The operator adds the resource prefix automatically. |
 | `spec.hardware.gpuCount`     | with gpuType | Number of GPUs (minimum 1)                                                                       |
 | `spec.owner`                 | no           | Team or individual that owns this job                                                            |
@@ -56,11 +56,11 @@ Jobs are submitted as `FournosJob` custom resources ([manifests/crd.yaml](manife
 | `spec.pipeline`              | no           | Tekton Pipeline name (default: `fournos-full`)                                                   |
 | `spec.priority`              | no           | Kueue WorkloadPriorityClass name                                                                 |
 | `spec.secretRefs`            | no           | Vault-synced K8s Secret names (`vault-<entry>`) to mount into the pipeline. Populated by Forge during the Resolving phase. Each must be a K8s Secret with `fournos.dev/vault-entry=true` in `FOURNOS_SECRETS_NAMESPACE`. During the Admitted phase the operator copies them into the operator namespace and mounts them as a projected volume at `/var/run/secrets/fournos/<entry-name>/`. |
-| `spec.exclusive`             | no           | If `true`, locks the target cluster so no other FournosJob can run there. Requires `spec.cluster`. |
+| `spec.exclusive`             | no (default `true`) | If `true`, locks the target cluster so no other FournosJob can run there. Requires `spec.cluster`. Hardware is optional — when omitted the Workload only requests cluster-slot resources for locking. |
 | `spec.shutdown`              | no           | Shutdown action: `Stop` (graceful, runs finally tasks) or `Terminate` (immediate, skips finally tasks). Both wait for the PipelineRun to finish before releasing Kueue quota. |
 
 
-`spec.cluster` and `spec.hardware` are both optional. Every job passes through the mandatory Resolving phase where Forge populates `spec.hardware` (if not already set) and `spec.secretRefs` directly on the FournosJob. `spec.cluster` can be set alongside `spec.hardware` to pin a hardware request to a specific cluster.
+`spec.hardware` is required unless the job uses exclusive cluster locking (`exclusive: true` + `cluster`), in which case it may be omitted — the Workload only needs cluster-slot resources. Every job passes through the mandatory Resolving phase where Forge populates `spec.hardware` (if not already set) and `spec.secretRefs` directly on the FournosJob. Since `exclusive` defaults to `true`, any job with `spec.cluster` locks the cluster exclusively — including jobs that also specify `spec.hardware`. Set `exclusive: false` for shared access. Jobs without `spec.cluster` must set `exclusive: false`.
 
 `metadata.name` is the unique identifier for the job. Use `metadata.generateName` for auto-generated unique names (e.g. `generateName: nightly-benchmark-` produces `nightly-benchmark-x7k2m`). `spec.displayName` is a human-readable label for external correlation — it does not need to be unique and is passed to the pipeline as `job-name`.
 
@@ -112,22 +112,25 @@ kubectl delete fournosjob <name>     # cleanup
 All jobs flow through Kueue — there is one scheduling path with different constraint levels:
 
 
-| User specifies                             | Workload nodeSelector                          | Kueue behavior                                                          |
-| ------------------------------------------ | ---------------------------------------------- | ----------------------------------------------------------------------- |
-| `cluster: "cluster-1"`                     | `fournos.dev/cluster: cluster-1`               | Only the `cluster-1` flavor is eligible. Queues if the cluster is full. |
-| `hardware: {gpuType: "a100", gpuCount: 2}` | *(none)*                                       | All flavors with enough A100 quota are eligible. Kueue picks first fit. |
-| Both                                       | `fournos.dev/cluster: cluster-1` + GPU request | Specific hardware on a specific cluster.                                |
+| User specifies                                       | Workload nodeSelector                          | Kueue behavior                                                          |
+| ---------------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------- |
+| `cluster` (default: exclusive)                       | `fournos.dev/cluster: cluster-1`               | Locks the cluster (100 cluster-slots). Hardware optional — GPU request included only if set. |
+| `cluster` + `hardware` (default: exclusive)          | `fournos.dev/cluster: cluster-1` + GPU request | Locks the cluster (100 cluster-slots) and requests specific GPUs.       |
+| `exclusive: false` + `cluster` + `hardware`          | `fournos.dev/cluster: cluster-1` + GPU request | Shared access (1 cluster-slot) with specific hardware on a specific cluster. |
+| `exclusive: false` + `hardware` (no cluster)         | *(none)*                                       | All flavors with enough GPU quota are eligible. Kueue picks first fit.  |
 
 
 Each ResourceFlavor has `spec.nodeLabels: { fournos.dev/cluster: <name> }`. When `cluster` is specified, the operator sets a matching `nodeSelector` on the Workload's podSet template so Kueue constrains admission to that flavor.
 
+Because `exclusive` defaults to `true`, any job with `spec.cluster` automatically locks the assigned cluster — including jobs that also specify `spec.hardware`. To get shared access (multiple jobs on the same cluster), set `exclusive: false` explicitly. Jobs without `spec.cluster` must set `exclusive: false` (since exclusive mode requires a cluster target). Hardware is always required for non-exclusive jobs — only exclusive cluster-locked jobs may omit it.
+
 ### Exclusive cluster locking
 
-When `spec.exclusive: true` is set (requires `spec.cluster`), the operator enforces full exclusivity using a **Kueue cluster-slot semaphore**:
+Jobs default to `spec.exclusive: true` (requires `spec.cluster`). The operator enforces full exclusivity using a **Kueue cluster-slot semaphore**:
 
 - Every Kueue `ClusterQueue` flavor carries a virtual resource `fournos/cluster-slot` with a quota of 100.
-- **Normal jobs** request 1 cluster-slot in their Workload.
-- **Exclusive jobs** request all 100 cluster-slots for their target cluster.
+- **Non-exclusive jobs** (`exclusive: false`) request 1 cluster-slot in their Workload.
+- **Exclusive jobs** (the default) request all 100 cluster-slots for their target cluster.
 
 This means Kueue itself enforces exclusivity atomically:
 - While an exclusive Workload holds all 100 slots, no other Workload can be admitted to that cluster (0 slots remaining).
@@ -135,6 +138,8 @@ This means Kueue itself enforces exclusivity atomically:
 - Hardware-only jobs are automatically steered to clusters with available slots — no operator-side anti-affinity is needed.
 
 The lock is implicitly released when the exclusive job completes and the operator deletes its Workload, freeing all 100 slots. No operator-level blocking phase, labels, or in-memory state is required.
+
+Exclusive jobs with a cluster may omit `spec.hardware` — the Workload only needs cluster-slot resources for locking. When hardware is also specified, the Workload requests both GPU resources and all 100 cluster-slots.
 
 ### Job lifecycle
 
@@ -189,8 +194,8 @@ sequenceDiagram
 
 
 
-1. **on_create**: Operator validates the spec (cluster exists if specified, `exclusive` requires `cluster`). If `spec.shutdown` is set (`Stop` or `Terminate`), immediately sets `phase=Stopped`. Otherwise sets `phase=Resolving`.
-2. **timer (Resolving)**: Launches a Forge resolve K8s Job that patches the FournosJob spec with `hardware` (if not user-provided) and `secretRefs`. Polls the Job for completion. On success, reads the FournosJob spec, validates hardware (GPU type checked against Kueue), validates `secretRefs` against Vault secrets, creates the Kueue Workload (exclusive jobs request all 100 `fournos/cluster-slot` units; normal jobs request 1), and sets `phase=Pending`. Failed resolve Jobs are preserved for debugging.
+1. **on_create**: Operator validates the spec (cluster exists if specified, `exclusive` requires `cluster` — and `exclusive` defaults to `true`). If `spec.shutdown` is set (`Stop` or `Terminate`), immediately sets `phase=Stopped`. Otherwise sets `phase=Resolving`.
+2. **timer (Resolving)**: Launches a Forge resolve K8s Job that patches the FournosJob spec with `hardware` (if not user-provided) and `secretRefs`. Polls the Job for completion. On success, reads the FournosJob spec, validates hardware (GPU type checked against Kueue; hardware is optional for exclusive+cluster jobs), validates `secretRefs` against Vault secrets, creates the Kueue Workload (exclusive jobs request all 100 `fournos/cluster-slot` units; non-exclusive jobs request 1), and sets `phase=Pending`. Failed resolve Jobs are preserved for debugging.
 3. **timer (Pending)**: Polls the Workload for Kueue admission. On admission, extracts the assigned cluster and sets `phase=Admitted`.
 4. **timer (Admitted)**: Reads `secretRefs` from the FournosJob spec, copies each referenced secret from `secrets_namespace` into the operator namespace (per-job name `<fjob-name>-<ref>`, with `ownerReferences` for automatic cleanup), resolves the kubeconfig Secret, creates the Tekton PipelineRun with a projected `vault-secrets` volume mounting all copied secrets at `/var/run/secrets/fournos/<entry-name>/` and `ownerReferences` pointing at the FournosJob, sets `phase=Running`.
 5. **timer (Running)**: Polls the PipelineRun for completion. On success/failure, deletes the Workload and sets `phase=Succeeded` or `phase=Failed`.
@@ -379,9 +384,9 @@ dev/
   sample-job.yaml          # Example FournosJob CR for testing
 tests/
   conftest.py              # Fixtures (kubernetes client, helpers, cleanup)
-  test_scheduling.py       # Cluster pin, hardware, both, alt pipeline, inadmissible, wrong GPU, optional spec fields
-  test_validation.py       # Unknown cluster, admitted without flavor
-  test_resolving.py        # Resolving phase: happy paths, hardware precedence, Forge failures, GPU validation
+  test_scheduling.py       # Cluster pin, hardware, both, alt pipeline, inadmissible, wrong GPU, optional spec fields, default-exclusive slot count
+  test_validation.py       # Unknown cluster, admitted without flavor, implicit exclusive without cluster
+  test_resolving.py        # Resolving phase: happy paths, hardware precedence, Forge failures, GPU validation, non-exclusive cluster without hardware
   test_lifecycle.py        # Workload cleanup, delete cleanup, list, filter by phase
   test_resource_gc.py      # Stale Workload/PipelineRun garbage collection
   test_exclusive.py        # Exclusive cluster locking (happy path, blocking, occupancy, lock release)
@@ -407,7 +412,7 @@ README.md
 - **Timer-based reconciliation** — the operator polls Workload admission and PipelineRun completion via a kopf timer (5s interval), eliminating the need for callback tasks or watch streams on third-party resources
 - **Operator cleans up on completion** — Kueue Workloads are deleted when the PipelineRun reaches a terminal state, releasing quota without relying on external callbacks
 - **ownerReferences for cascade deletion** — Workloads, PipelineRuns, resolve Jobs, and copied secrets all carry `ownerReferences` pointing at their FournosJob, so Kubernetes automatically cascade-deletes them when the job is removed
-- **Exclusive locking via Kueue semaphore** — each cluster flavor has 100 `fournos/cluster-slot` units. Normal jobs request 1 slot; exclusive jobs request all 100. Kueue enforces mutual exclusion atomically — no operator-level blocking, labels, or in-memory state needed. Hardware-only jobs are automatically steered to clusters with available slots.
+- **Exclusive locking via Kueue semaphore** — each cluster flavor has 100 `fournos/cluster-slot` units. Non-exclusive jobs request 1 slot; exclusive jobs (the default) request all 100. Kueue enforces mutual exclusion atomically — no operator-level blocking, labels, or in-memory state needed. Hardware-only jobs are automatically steered to clusters with available slots. Exclusive jobs with a cluster may omit hardware — the Workload only needs cluster-slot resources for locking.
 - **Shutdown via spec field** — the `spec.shutdown` enum supports two modes: `Stop` (Tekton `CancelledRunFinally` — runs `finally` cleanup tasks) and `Terminate` (Tekton `Cancelled` — skips `finally` tasks). Both transition to an intermediate `Stopping` phase while the PipelineRun winds down. The Workload (and its quota) is kept alive until the PipelineRun completes, ensuring the cluster slot is not released prematurely. Only then does the operator delete the Workload and set `phase=Stopped`. The enum is extensible for future shutdown strategies. The FournosJob stays around in `Stopped` phase for inspection, unlike deletion which cascades and removes the record.
 - **Mandatory Resolving phase** — every job passes through a `Resolving` phase before entering `Pending`. During this phase, a Forge K8s Job runs to determine hardware requirements (`gpuType`, `gpuCount`) and secret references (`secretRefs`). Forge patches these values directly into the FournosJob spec (hardware only when not already user-provided). The operator validates them after the Job completes. Failed resolve Jobs are preserved for debugging.
 - **Vault-based secret management with cross-namespace injection** — pipeline secrets originate in a HashiCorp Vault and are synced to K8s Secrets on demand via `hacks/sync_vault_secrets.py` into a dedicated secrets namespace (`FOURNOS_SECRETS_NAMESPACE`, default `psap-secrets`). The K8s Secret name uses a `vault-` prefix followed by the Vault entry name (e.g. `vault-my-creds`); entries that are not valid DNS-1123 names are rejected during sync. Each synced Secret carries a `fournos.dev/vault-entry=true` label. Secret references are populated by Forge during the Resolving phase on `spec.secretRefs`. The operator validates them in the secrets namespace before creating the Workload (during Resolving). During the Admitted phase, the operator copies each referenced secret from the secrets namespace into the operator namespace with a per-job name (`<fjob-name>-<secret-name>`) and `ownerReferences` to the FournosJob for automatic cleanup. The copies are combined into a single projected volume (`vault-secrets`) mounted at `/var/run/secrets/fournos/<entry-name>/<key>`, with each secret's keys placed under a subdirectory matching its original name. This avoids key collisions across secrets and works with a static `volumeMount` in the Task YAML regardless of how many secrets a job uses. An empty projected volume (no secrets) is always emitted so the static mount never fails. Missing or non-vault refs fail the job during Resolving rather than creating a broken PipelineRun.

@@ -13,8 +13,11 @@ from fournos.core.constants import MAX_CLUSTER_SLOTS, Phase
 from tests.conftest import (
     NAMESPACE,
     create_job,
+    create_noop_resolve_job,
     get_job,
     get_workload_cluster_slots,
+    get_workload_gpu_request,
+    get_workload_node_selector,
     job_status_summary,
     poll_phase,
     workload_exists,
@@ -127,6 +130,7 @@ def test_normal_workload_requests_one_slot(k8s):
         k8s,
         "test-normal-slots",
         {
+            "exclusive": False,
             "cluster": "cluster-1",
             "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },
@@ -159,6 +163,7 @@ def test_exclusive_blocks_cluster_pinned_job(k8s):
         k8s,
         "test-blocked-pin",
         {
+            "exclusive": False,
             "cluster": "cluster-2",
             "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },
@@ -215,6 +220,7 @@ def test_exclusive_steers_hardware_only_job(k8s):
         k8s,
         "test-hw-avoid",
         {
+            "exclusive": False,
             "hardware": {"gpuType": "a100", "gpuCount": 2},
             "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },
@@ -268,6 +274,7 @@ def test_exclusive_waits_for_cluster_to_clear(k8s):
         k8s,
         "test-occupant",
         {
+            "exclusive": False,
             "cluster": "cluster-2",
             "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },
@@ -329,6 +336,7 @@ def test_lock_released_on_completion(k8s):
         k8s,
         "test-waiting",
         {
+            "exclusive": False,
             "cluster": "cluster-1",
             "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },
@@ -363,3 +371,57 @@ def test_lock_released_on_completion(k8s):
         timeout=60,
     )
     assert phase == Phase.SUCCEEDED, job_status_summary(k8s, "test-waiting")
+
+
+def test_exclusive_without_hardware(k8s):
+    """Exclusive + cluster without hardware: locks cluster using only cluster-slot resources.
+
+    A noop resolve Job prevents Forge from populating hardware.  The
+    Workload should carry 100 cluster-slots and a nodeSelector but no
+    GPU resource requests.
+    """
+    create_noop_resolve_job("test-excl-nohw")
+
+    create_job(
+        k8s,
+        "test-excl-nohw",
+        {
+            "cluster": "cluster-2",
+            "exclusive": True,
+            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+        },
+    )
+
+    poll_phase(
+        k8s,
+        "test-excl-nohw",
+        terminal={Phase.PENDING, Phase.ADMITTED, Phase.RUNNING},
+        timeout=45,
+    )
+
+    slots = get_workload_cluster_slots("test-excl-nohw")
+    assert slots == MAX_CLUSTER_SLOTS, (
+        f"Exclusive Workload should request {MAX_CLUSTER_SLOTS} slots, got {slots}"
+    )
+
+    ns = get_workload_node_selector("test-excl-nohw")
+    assert ns == {"fournos.dev/cluster": "cluster-2"}, (
+        f"Workload nodeSelector should pin to cluster-2, got {ns}"
+    )
+
+    a100 = get_workload_gpu_request("test-excl-nohw", "a100")
+    h200 = get_workload_gpu_request("test-excl-nohw", "h200")
+    assert a100 == 0 and h200 == 0, (
+        f"Workload should have no GPU requests, got a100={a100}, h200={h200}"
+    )
+
+    phase = poll_phase(
+        k8s,
+        "test-excl-nohw",
+        terminal={Phase.SUCCEEDED, Phase.FAILED},
+        timeout=90,
+    )
+    assert phase == Phase.SUCCEEDED, job_status_summary(k8s, "test-excl-nohw")
+
+    job = get_job(k8s, "test-excl-nohw")
+    assert job["status"]["cluster"] == "cluster-2"

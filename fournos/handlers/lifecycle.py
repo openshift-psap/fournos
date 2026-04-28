@@ -48,7 +48,7 @@ def on_create(spec, name, namespace, status, patch, body):
         return
 
     cluster = spec.get("cluster")
-    exclusive = spec.get("exclusive", False)
+    exclusive = spec["exclusive"]
 
     if exclusive and not cluster:
         patch.status["phase"] = Phase.FAILED
@@ -173,7 +173,7 @@ def reconcile_pending(spec, name, status, patch, body):
         new_msg, log_msg = _pending_status(
             wl_message,
             cluster,
-            spec.get("exclusive", False),
+            spec["exclusive"],
             locker,
         )
         if status.get("message") != new_msg:

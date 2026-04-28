@@ -36,7 +36,7 @@ class KueueClient:
         gpu_type: str | None = None,
         gpu_count: int = 0,
         cluster: str | None = None,
-        exclusive: bool = False,
+        exclusive: bool = True,
         priority: str | None = None,
         owner_ref: dict | None = None,
     ) -> dict:

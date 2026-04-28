@@ -93,6 +93,7 @@ def test_happy_path_without_hardware(k8s):
         k8s,
         "test-resolve-nohw",
         {
+            "exclusive": False,
             "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },
     )
@@ -237,6 +238,7 @@ def test_unknown_gpu_type(k8s):
         k8s,
         "test-bad-gpu",
         {
+            "exclusive": False,
             "hardware": {"gpuType": "acbd1234", "gpuCount": 2},
             "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },
@@ -306,6 +308,42 @@ def test_resolve_job_failure(k8s):
     )
 
 
+def test_nonexclusive_cluster_without_hardware_fails(k8s):
+    """Non-exclusive + cluster + no hardware → Failed (hardware required).
+
+    A noop resolve Job prevents Forge from populating hardware.  Since
+    the job is non-exclusive, the missing hardware is not allowed (only
+    exclusive+cluster jobs may omit it).
+    """
+    create_noop_resolve_job("test-nex-nohw")
+
+    create_job(
+        k8s,
+        "test-nex-nohw",
+        {
+            "exclusive": False,
+            "cluster": "cluster-1",
+            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+        },
+    )
+
+    phase = poll_phase(
+        k8s,
+        "test-nex-nohw",
+        terminal={Phase.FAILED},
+        message_substring="No hardware requirements",
+        timeout=45,
+    )
+    assert phase == Phase.FAILED, job_status_summary(k8s, "test-nex-nohw")
+
+    conditions = {
+        c["type"]: c
+        for c in get_job(k8s, "test-nex-nohw")["status"].get("conditions", [])
+    }
+    assert conditions["Resolved"]["status"] == "False"
+    assert conditions["Resolved"]["reason"] == "NoHardware"
+
+
 def test_resolve_empty_hw(k8s):
     """Resolve Job succeeds but doesn't populate spec.hardware -> Failed.
 
@@ -319,6 +357,7 @@ def test_resolve_empty_hw(k8s):
         k8s,
         "test-resolve-noconfig",
         {
+            "exclusive": False,
             "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },
     )

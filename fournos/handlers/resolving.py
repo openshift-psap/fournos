@@ -125,24 +125,38 @@ def _resolve_hardware(spec, name, conditions, patch):
     Forge populates ``spec.hardware`` when absent.  The GPU type is
     always validated against Kueue.
 
-    Returns ``(gpu_type, gpu_count)`` on success, or ``None`` if
-    validation failed (patch already set to Failed).
+    Exclusive jobs pinned to a cluster may omit hardware — the Workload
+    only needs cluster-slot resources for locking.
+
+    Returns ``(gpu_type, gpu_count)`` on success (gpu_type may be
+    ``None`` for exclusive-only), or ``None`` if validation failed
+    (patch already set to Failed).
     """
     hardware = spec.get("hardware") or {}
     gpu_type = hardware.get("gpuType")
     gpu_count = hardware.get("gpuCount", 0)
 
+    exclusive_lock = spec["exclusive"] and spec.get("cluster")
+
     if not gpu_type or not gpu_count:
-        _resolve_failed(
-            patch,
-            conditions,
+        if not exclusive_lock:
+            _resolve_failed(
+                patch,
+                conditions,
+                name,
+                "No hardware requirements: spec.hardware not populated "
+                "after Forge resolution",
+                reason="NoHardware",
+                cond_message="No hardware requirements found",
+            )
+            return None
+        logger.warning(
+            "Job %s: exclusive cluster lock without hardware — "
+            "Workload will only request cluster-slot resources "
+            "(Forge may not have populated spec.hardware)",
             name,
-            "No hardware requirements: spec.hardware not populated "
-            "after Forge resolution",
-            reason="NoHardware",
-            cond_message="No hardware requirements found",
         )
-        return None
+        return None, 0
 
     try:
         known_gpu_types = ctx.kueue.list_gpu_types()
@@ -218,7 +232,7 @@ def _create_workload_and_transition(
             gpu_type=gpu_type,
             gpu_count=gpu_count,
             cluster=spec.get("cluster"),
-            exclusive=spec.get("exclusive", False),
+            exclusive=spec["exclusive"],
             priority=spec.get("priority"),
             owner_ref=owner_ref(body),
         )

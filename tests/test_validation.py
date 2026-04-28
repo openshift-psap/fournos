@@ -52,6 +52,7 @@ def test_admitted_without_flavor(k8s):
         k8s,
         "test-no-flavor",
         {
+            "exclusive": False,
             "hardware": {"gpuType": "a100", "gpuCount": 999},
             "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },
@@ -118,3 +119,29 @@ def test_admitted_without_flavor(k8s):
     )
 
     poll_resource_gone(workload_exists, "test-no-flavor")
+
+
+def test_implicit_exclusive_without_cluster_fails(k8s):
+    """Hardware-only job (no cluster, no explicit exclusive) fails: CRD defaults exclusive to true."""
+    create_job(
+        k8s,
+        "test-implicit-excl",
+        {
+            "hardware": {"gpuType": "a100", "gpuCount": 2},
+            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+        },
+    )
+
+    phase = poll_phase(
+        k8s,
+        "test-implicit-excl",
+        terminal={Phase.FAILED},
+        timeout=15,
+    )
+    assert phase == Phase.FAILED, job_status_summary(k8s, "test-implicit-excl")
+
+    job = get_job(k8s, "test-implicit-excl")
+    msg = job["status"]["message"].lower()
+    assert "cluster" in msg and "exclusive" in msg, (
+        f"Failure message should mention both 'exclusive' and 'cluster', got: {msg!r}"
+    )
