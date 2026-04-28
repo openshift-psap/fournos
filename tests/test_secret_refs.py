@@ -111,6 +111,7 @@ def test_vault_sync_then_fjob(k8s, core_v1):
             "test-e2e-secret",
             {
                 "cluster": "cluster-1",
+                "hardware": {"gpuType": "a100", "gpuCount": 2},
                 "secretRefs": [VAULT_ENTRY],
                 "forge": {
                     "project": "testproj/llmd",
@@ -182,6 +183,7 @@ def test_missing_secret_ref_fails(k8s):
         "test-missing-ref",
         {
             "cluster": "cluster-1",
+            "hardware": {"gpuType": "a100", "gpuCount": 2},
             "secretRefs": ["nonexistent-vault-entry"],
             "forge": {
                 "project": "testproj/llmd",
