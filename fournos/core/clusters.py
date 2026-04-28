@@ -80,6 +80,13 @@ class ClusterRegistry:
         """
         source = self._k8s.read_namespaced_secret(ref, settings.secrets_namespace)
 
+        labels = source.metadata.labels or {}
+        if labels.get(LABEL_VAULT_ENTRY) != "true":
+            raise KeyError(
+                f"Secret {ref!r} in {settings.secrets_namespace} is not a "
+                f"Vault-synced secret (missing {LABEL_VAULT_ENTRY}=true label)"
+            )
+
         keys = sorted((source.data or {}).keys())
         copied_name = f"{fjob_name}-{ref}"
 
