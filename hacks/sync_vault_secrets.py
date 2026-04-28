@@ -7,15 +7,15 @@ Existing secrets are updated in-place.
 
 Required environment variables
 ------------------------------
-* ``VAULT_ADDR``  — Vault server URL (e.g. ``https://vault.example.com``)
 * ``VAULT_TOKEN`` — Vault authentication token
-* ``VAULT_SECRET_PATH`` — path within the KV engine (e.g. ``path/to/secrets``)
 
 Optional environment variables
 ------------------------------
+* ``VAULT_ADDR``  — Vault server URL (default: ``https://vault.ci.openshift.org``)
+* ``VAULT_SECRET_PATH`` — path within the KV engine (default: ``selfservice/psap``)
 * ``VAULT_KV_MOUNT`` — KV v2 engine mount point (default: ``kv``)
 * ``FOURNOS_SECRETS_NAMESPACE`` — target Kubernetes namespace (can also
-  use ``-n``).  Defaults to ``psap-secrets``.
+  use ``-n``). Defaults to ``psap-secrets``.
 
 Prerequisites
 -------------
@@ -24,16 +24,21 @@ Prerequisites
 
 Examples
 --------
-Sync all vault entries under the configured path::
+Sync all vault entries under the configured path (using all defaults)::
 
-    export VAULT_ADDR="https://vault.example.com"
     export VAULT_TOKEN="s.xxxxx"
+    python hacks/sync_vault_secrets.py
+
+Use custom vault, path, and namespace::
+
+    export VAULT_TOKEN="s.xxxxx"
+    export VAULT_ADDR="https://vault.example.com"
     export VAULT_SECRET_PATH="path/to/secrets"
-    python hacks/sync_vault_secrets.py -n psap-secrets
+    python hacks/sync_vault_secrets.py -n my-namespace
 
 Preview without touching the cluster::
 
-    python hacks/sync_vault_secrets.py -n psap-secrets --dry-run
+    python hacks/sync_vault_secrets.py --dry-run
 """
 
 from __future__ import annotations
@@ -46,12 +51,19 @@ import re
 import urllib.error
 import urllib.request
 
+# Set FOURNOS_NAMESPACE if not set (required for fournos imports)
+if not os.environ.get("FOURNOS_NAMESPACE"):
+    os.environ["FOURNOS_NAMESPACE"] = "not used"
+
 from fournos.core.constants import LABEL_VAULT_ENTRY
 from fournos.settings import settings
 
 logger = logging.getLogger(__name__)
 
 KV_MOUNT_DEFAULT = "kv"
+VAULT_ADDR_DEFAULT = "https://vault.ci.openshift.org"
+VAULT_SECRET_PATH_DEFAULT = "selfservice/psap"
+NAMESPACE_DEFAULT = "psap-secrets"
 
 LABEL_MANAGED_BY = "app.kubernetes.io/managed-by"
 ANNOTATION_VAULT_ADDR = "fournos.dev/vault-addr"
@@ -369,18 +381,18 @@ def sync(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Sync secrets from a HashiCorp Vault to Kubernetes.",
-        epilog="Set VAULT_ADDR, VAULT_TOKEN, and VAULT_SECRET_PATH in the environment.",
+        epilog="Set VAULT_TOKEN in the environment. VAULT_ADDR and VAULT_SECRET_PATH have defaults.",
     )
     parser.add_argument(
         "-n",
         "--namespace",
-        default=settings.secrets_namespace,
-        help="Target Kubernetes namespace (default: $FOURNOS_SECRETS_NAMESPACE or psap-secrets).",
+        default=settings.secrets_namespace or NAMESPACE_DEFAULT,
+        help=f"Target Kubernetes namespace (default: $FOURNOS_SECRETS_NAMESPACE or {NAMESPACE_DEFAULT}).",
     )
     parser.add_argument(
         "--vault-addr",
-        default=os.environ.get("VAULT_ADDR", ""),
-        help="Vault server URL (default: $VAULT_ADDR).",
+        default=os.environ.get("VAULT_ADDR", VAULT_ADDR_DEFAULT),
+        help=f"Vault server URL (default: $VAULT_ADDR or {VAULT_ADDR_DEFAULT}).",
     )
     parser.add_argument(
         "--kv-mount",
@@ -389,8 +401,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--secret-path",
-        default=os.environ.get("VAULT_SECRET_PATH", ""),
-        help="Path within the KV engine (default: $VAULT_SECRET_PATH).",
+        default=os.environ.get("VAULT_SECRET_PATH", VAULT_SECRET_PATH_DEFAULT),
+        help=f"Path within the KV engine (default: $VAULT_SECRET_PATH or {VAULT_SECRET_PATH_DEFAULT}).",
     )
     parser.add_argument(
         "--dry-run",
@@ -416,20 +428,6 @@ def main(argv: list[str] | None = None) -> int:
     vault_token = os.environ.get("VAULT_TOKEN", "")
     if not vault_token:
         logger.error("VAULT_TOKEN environment variable is not set")
-        return 1
-
-    if not args.vault_addr:
-        logger.error("VAULT_ADDR environment variable is not set (or use --vault-addr)")
-        return 1
-
-    if not args.secret_path:
-        logger.error(
-            "VAULT_SECRET_PATH environment variable is not set (or use --secret-path)"
-        )
-        return 1
-
-    if not args.namespace:
-        logger.error("--namespace is required (or set FOURNOS_SECRETS_NAMESPACE)")
         return 1
 
     return sync(
