@@ -53,7 +53,7 @@ spec:
               optional: true
       volumeMounts:
         - name: vault-secrets
-          mountPath: /workspace/vault-secrets
+          mountPath: /var/run/secrets/fournos
           readOnly: true
       script: |
         #!/bin/sh
@@ -66,7 +66,7 @@ spec:
         echo "[mock-run] gpu-count=$(params.gpu-count)"
         echo "[mock-run] job=$(params.job-name)"
         echo "[mock-run] vault-secrets:"
-        find /workspace/vault-secrets -type f 2>/dev/null | sort | while read f; do echo "  $f"; done
+        find /var/run/secrets/fournos -type f 2>/dev/null | sort | while read f; do echo "  $f = $(cat "$f")"; done
         echo "[mock-run] simulating workload (${MOCK_SLEEP}s)..."
         sleep "$MOCK_SLEEP"
         echo "[mock-run] done"
