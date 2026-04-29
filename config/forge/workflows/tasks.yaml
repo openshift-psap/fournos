@@ -17,6 +17,8 @@ spec:
       image: image-registry.openshift-image-registry.svc:5000/$(context.taskRun.namespace)/forge-core:main
       imagePullPolicy: Always
       env:
+      - name: TARGET_KUBECONFIG
+        value: /var/run/secrets/fournos-kubeconfig/kubeconfig
       - name: FJOB_NAME
         value: "$(params.fjob-name)"
       - name: FOURNOS_NAMESPACE
@@ -51,7 +53,7 @@ spec:
         # switching KUBECONFIG to the target cluster.
         oc get "fjob/$FJOB_NAME" -n "$FOURNOS_NAMESPACE" -oyaml > $ARTIFACT_DIR/fournos_fjob.yaml
 
-        export KUBECONFIG=/var/run/secrets/fournos-kubeconfig/kubeconfig
+        export KUBECONFIG=$TARGET_KUBECONFIG
 
         PULL_BASE_SHA=$(cat "$ARTIFACT_DIR/fournos_fjob.yaml" | yq -r .spec.env.PULL_BASE_SHA)
         if [[ "$PULL_BASE_SHA" != null ]]; then
