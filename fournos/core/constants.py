@@ -27,3 +27,14 @@ LOCK_HOLDING_PHASES = frozenset({Phase.ADMITTED, Phase.RUNNING, Phase.STOPPING})
 class Shutdown(StrEnum):
     STOP = "Stop"
     TERMINATE = "Terminate"
+
+
+# PSAPCluster constants
+LABEL_PSAPCLUSTER = "fournos.dev/psapcluster"
+PSAPCLUSTER_CQ_PREFIX = "fournos-"
+PSAPCLUSTER_COHORT = "fournos"
+DEFAULT_CLUSTER_SLOTS = 100
+
+COND_KUBECONFIG_VALID = "KubeconfigValid"
+COND_GPU_DISCOVERED = "GPUDiscovered"
+COND_CLUSTER_QUEUE_READY = "ClusterQueueReady"

@@ -20,6 +20,21 @@ class Settings(BaseSettings):
     resolve_deadline_sec: int = Field(default=300, gt=0)
     resolve_job_template: str = "config/forge/resolve_job.yaml"
     artifact_pvc_size: str = "10Gi"
+    psapcluster_timer_interval_sec: float = Field(
+        default=30.0,
+        gt=0,
+        description="Reconciliation interval for PSAPCluster timer",
+    )
+    gpu_discovery_default_interval_sec: float = Field(
+        default=300.0,
+        gt=0,
+        description="Default GPU discovery interval when not specified per-cluster",
+    )
+    gpu_discovery_timeout_sec: int = Field(
+        default=10,
+        gt=0,
+        description="Connection timeout for target cluster API calls",
+    )
 
 
 settings = Settings()
