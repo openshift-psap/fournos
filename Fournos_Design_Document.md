@@ -286,12 +286,14 @@ FORGE-owned tasks (stubs in this repo, replaced by real FORGE implementation):
 ### Pipelines
 
 
-| Pipeline           | File                                                              | Tasks         | Finally  |
-| ------------------ | ----------------------------------------------------------------- | ------------- | -------- |
-| `fournos-full`     | [pipeline-full.yaml](config/forge/workflows/pipeline-full.yaml)         | prepare → run | cleanup  |
-| `fournos-run-only` | [pipeline-run-only.yaml](dev/mock-pipelines/pipeline-run-only.yaml) *(kind / tests)* | run           | *(none)* |
+| Pipeline           | File                                                              | Tasks                          | Finally                        |
+| ------------------ | ----------------------------------------------------------------- | ------------------------------ | ------------------------------ |
+| `forge-full`       | [pipeline-full.yaml](config/forge/workflows/pipeline-full.yaml)         | pre-cleanup, prepare → test    | export-artifacts, post-cleanup |
+| `forge-test-only`  | [pipeline-test-only.yaml](config/forge/workflows/pipeline-test-only.yaml) | test                           | export-artifacts               |
+| `fournos-full`     | [pipeline-full.yaml](dev/mock-pipelines/pipeline-full.yaml) *(kind / tests)* | prepare → run                  | cleanup                        |
+| `fournos-run-only` | [pipeline-run-only.yaml](dev/mock-pipelines/pipeline-run-only.yaml) *(kind / tests)* | run                            | *(none)*                       |
 
-For a run-only pipeline in real hub deployments, use [pipeline-test-only.yaml](config/forge/workflows/pipeline-test-only.yaml) (`forge-test-only`).
+All pipelines declare an `artifacts` workspace backed by a `volumeClaimTemplate` PVC (auto-provisioned per PipelineRun). Each task writes to a step-specific subdirectory under the shared mount, and the `export-artifacts` finally task has access to the full artifact tree.
 
 The `spec.pipeline` field in `FournosJob` selects which pipeline to use (default: `fournos-full`).
 

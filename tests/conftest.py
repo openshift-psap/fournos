@@ -288,6 +288,12 @@ def get_pipelinerun_volumes(name: str) -> list[dict]:
     )
 
 
+def get_pipelinerun_workspaces(name: str) -> list[dict]:
+    """Return the workspaces from the PipelineRun spec."""
+    pr = get_k8s_resource("pipelinerun", name)
+    return pr.get("spec", {}).get("workspaces", [])
+
+
 def resolve_job_exists(name: str) -> bool:
     """Check whether the resolve Job for *name* exists."""
     result = subprocess.run(

@@ -3,6 +3,9 @@ kind: Task
 metadata:
   name: forge-step
 spec:
+  workspaces:
+    - name: artifacts
+      description: Shared artifact storage across pipeline tasks.
   params:
     - name: fjob-name
       type: string
@@ -44,7 +47,8 @@ spec:
         set -o nounset
         set -o errtrace
 
-        export ARTIFACT_DIR=/tmp/artifacts
+        export ARTIFACT_BASE_DIR="$(workspaces.artifacts.path)"
+        export ARTIFACT_DIR="${ARTIFACT_BASE_DIR}/${FOURNOS_STEP}"
         mkdir -p "${ARTIFACT_DIR}"
 
         exec &> >(tee -a "$ARTIFACT_DIR/run.log")

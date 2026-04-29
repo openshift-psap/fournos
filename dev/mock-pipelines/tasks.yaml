@@ -6,6 +6,8 @@ kind: Task
 metadata:
   name: fournos-prepare
 spec:
+  workspaces:
+    - name: artifacts
   params:
     - name: kubeconfig-secret
       type: string
@@ -23,6 +25,8 @@ kind: Task
 metadata:
   name: fournos-run
 spec:
+  workspaces:
+    - name: artifacts
   params:
     - name: fjob-name
       type: string
@@ -51,6 +55,10 @@ spec:
         echo "[mock-run] fournos-namespace=$(params.fournos-namespace)"
         echo "[mock-run] vault-secrets:"
         find /var/run/secrets/fournos -type f 2>/dev/null | sort | while read f; do echo "  $f ($(wc -c < "$f") bytes)"; done
+        ARTIFACT_DIR="$(workspaces.artifacts.path)/run"
+        mkdir -p "$ARTIFACT_DIR"
+        echo "mock-run" > "$ARTIFACT_DIR/marker.txt"
+        echo "[mock-run] wrote artifact marker to $ARTIFACT_DIR/marker.txt"
         echo "[mock-run] simulating workload (${MOCK_SLEEP}s)..."
         sleep "$MOCK_SLEEP"
         echo "[mock-run] done"
@@ -61,6 +69,8 @@ kind: Task
 metadata:
   name: fournos-cleanup
 spec:
+  workspaces:
+    - name: artifacts
   params:
     - name: kubeconfig-secret
       type: string
@@ -78,6 +88,8 @@ kind: Pipeline
 metadata:
   name: fournos-run-only
 spec:
+  workspaces:
+    - name: artifacts
   params:
     - name: fjob-name
       type: string
@@ -89,6 +101,9 @@ spec:
     - name: run
       taskRef:
         name: fournos-run
+      workspaces:
+        - name: artifacts
+          workspace: artifacts
       params:
         - name: fjob-name
           value: "$(params.fjob-name)"

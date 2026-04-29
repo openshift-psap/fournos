@@ -88,6 +88,21 @@ class TektonClient:
                     {"name": "fournos-namespace", "value": settings.namespace},
                     {"name": "kubeconfig-secret", "value": kubeconfig_secret},
                 ],
+                "workspaces": [
+                    {
+                        "name": "artifacts",
+                        "volumeClaimTemplate": {
+                            "spec": {
+                                "accessModes": ["ReadWriteOnce"],
+                                "resources": {
+                                    "requests": {
+                                        "storage": settings.artifact_pvc_size,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                ],
             },
         }
         result = self._k8s.create_namespaced_custom_object(

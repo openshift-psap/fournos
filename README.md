@@ -311,6 +311,7 @@ All settings are read from environment variables with the `FOURNOS_` prefix:
 | `FOURNOS_RESOLVE_IMAGE` | `image-registry.openshift-image-registry.svc:5000/{namespace}/forge-core:main` | Container image for the resolve Job (`{namespace}` is substituted at runtime) |
 | `FOURNOS_RESOLVE_DEADLINE_SEC` | `300` | Deadline for the resolve Job (seconds) |
 | `FOURNOS_RESOLVE_JOB_TEMPLATE` | `config/forge/resolve_job.yaml` | Path (relative to project root) to the Job YAML template for the resolve step. Override with `dev/mock-resolve/resolve_job.yaml` for local dev/CI. |
+| `FOURNOS_ARTIFACT_PVC_SIZE` | `1Gi` | Size of the per-PipelineRun PVC used for shared artifact storage across pipeline tasks |
 
 ## Architecture
 
@@ -324,7 +325,7 @@ The operator runs as a single-replica Deployment using
 1. **Resolves** job requirements by launching a Forge K8s Job that populates the FournosJob spec with GPU type/count and secret references
 2. **Creates** a Kueue Workload with the resolved GPU resources (owned by the FournosJob via `ownerReferences`)
 3. **Polls** (5 s timer) for Kueue admission and assigned cluster
-4. **Copies** referenced Vault secrets from the secrets namespace into the operator namespace (per-job copies with `ownerReferences` for automatic cleanup) and **launches** a Tekton PipelineRun with `FJOB_NAME` + `FOURNOS_NAMESPACE` (so FORGE can look up the full FournosJob spec) and the secrets mounted as a projected volume at `/var/run/secrets/fournos/` (owned by the FournosJob via `ownerReferences`)
+4. **Copies** referenced Vault secrets from the secrets namespace into the operator namespace (per-job copies with `ownerReferences` for automatic cleanup) and **launches** a Tekton PipelineRun with `FJOB_NAME` + `FOURNOS_NAMESPACE` (so FORGE can look up the full FournosJob spec), the secrets mounted as a projected volume at `/var/run/secrets/fournos/` (owned by the FournosJob via `ownerReferences`), and a shared `artifacts` workspace backed by a `volumeClaimTemplate` PVC for cross-task artifact storage (managed by Tekton)
 5. **Watches** the PipelineRun until completion
 6. **Deletes** the Workload to release Kueue quota
 
