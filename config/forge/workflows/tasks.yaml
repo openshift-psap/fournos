@@ -15,6 +15,8 @@ spec:
       type: string
     - name: job-step
       type: string
+    - name: job-step-name
+      type: string
   steps:
     - name: forge
       image: image-registry.openshift-image-registry.svc:5000/$(context.taskRun.namespace)/forge-core:main
@@ -28,6 +30,8 @@ spec:
         value: "$(params.fournos-namespace)"
       - name: FOURNOS_STEP
         value: "$(params.job-step)"
+      - name: FOURNOS_STEP_NAME
+        value: "$(params.job-step-name)"
       - name: FOURNOS_SECRETS
         value: /var/run/secrets/fournos
       - name: FOURNOS_CI
@@ -48,7 +52,7 @@ spec:
         set -o errtrace
 
         export ARTIFACT_BASE_DIR="$(workspaces.artifacts.path)"
-        export ARTIFACT_DIR="${ARTIFACT_BASE_DIR}/${FOURNOS_STEP}"
+        export ARTIFACT_DIR="${ARTIFACT_BASE_DIR}/${FOURNOS_STEP_NAME}"
         mkdir -p "${ARTIFACT_DIR}"
 
         exec &> >(tee -a "$ARTIFACT_DIR/run.log")

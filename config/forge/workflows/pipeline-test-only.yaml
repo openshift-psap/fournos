@@ -29,7 +29,9 @@ spec:
         - name: kubeconfig-secret
           value: "$(params.kubeconfig-secret)"
         - name: job-step
-          value: "test"
+          value: test
+        - name: job-step-name
+          value: 000__test
 
   finally:
     - name: export-artifacts
@@ -47,3 +49,5 @@ spec:
           value: "$(params.kubeconfig-secret)"
         - name: job-step
           value: export-artifacts
+        - name: job-step-name
+          value: 001__export-artifacts
