@@ -293,6 +293,154 @@ Copied secrets are named `<fjob-name>-<secret-name>` and carry
 `ownerReferences` back to the FournosJob, so Kubernetes garbage-collects
 them automatically when the job is deleted.
 
+## PSAPCluster — Cluster Management
+
+The `PSAPCluster` custom resource provides a single pane of glass for cluster
+state, GPU inventory, and ownership locking.
+
+### Viewing clusters
+
+```bash
+oc get psapclusters -n psap-automation
+```
+
+```
+NAME          OWNER   GPUS      KUBECONFIG    LOCKED   AGE
+athena-fire           8x H200   Valid         false    3h
+psap-mgmt                       Valid         false    3h
+```
+
+### Onboarding a cluster via PSAPCluster
+
+1. Create a kubeconfig Secret in the secrets namespace (default `psap-secrets`):
+
+```bash
+oc create secret generic kubeconfig-<cluster-name> \
+  --from-file=kubeconfig=/path/to/kubeconfig \
+  -n psap-secrets
+```
+
+2. Create a `PSAPCluster` resource:
+
+```yaml
+apiVersion: fournos.dev/v1
+kind: PSAPCluster
+metadata:
+  name: my-cluster
+spec:
+  kubeconfigSecret: kubeconfig-my-cluster
+```
+
+```bash
+oc apply -f my-cluster.yaml -n psap-automation
+```
+
+The controller automatically:
+- Validates the kubeconfig secret
+- Creates a per-cluster Kueue ClusterQueue (`fournos-my-cluster`) and ResourceFlavor
+- Discovers GPUs on the target cluster and updates CQ quotas
+- Self-heals if the ClusterQueue or ResourceFlavor is deleted externally
+
+### Locking a cluster
+
+Locking sets the ClusterQueue `stopPolicy` to `Hold`, preventing new workload
+admission on that cluster.
+
+```bash
+# Lock with a 4-hour TTL (auto-expires)
+oc patch psapcluster athena-fire -n psap-automation --type merge \
+  -p '{"spec":{"owner":"nathan","ttl":"4h"}}'
+
+# Lock indefinitely (must be manually unlocked)
+oc patch psapcluster athena-fire -n psap-automation --type merge \
+  -p '{"spec":{"owner":"nathan"}}'
+
+# Lock with eviction (drains running workloads)
+oc patch psapcluster athena-fire -n psap-automation --type merge \
+  -p '{"spec":{"owner":"nathan","ttl":"2h","evict":true}}'
+
+# Unlock
+oc patch psapcluster athena-fire -n psap-automation --type merge \
+  -p '{"spec":{"owner":""}}'
+```
+
+#### TTL format
+
+| Format | Example | Duration |
+|--------|---------|----------|
+| `Nm`   | `30m`   | 30 minutes |
+| `Nh`   | `4h`    | 4 hours |
+| `Nd`   | `2d`    | 2 days |
+
+If `ttl` is omitted, the lock does not expire.
+
+### PSAPCluster spec fields
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `kubeconfigSecret` | yes | — | Name of the K8s Secret holding the target cluster kubeconfig |
+| `owner` | no | — | Person or team claiming exclusive use. Setting this locks the cluster |
+| `ttl` | no | — | Auto-expiry duration (e.g. `4h`, `30m`, `2d`). Lock persists indefinitely if omitted |
+| `evict` | no | `false` | When `true`, uses `HoldAndDrain` instead of `Hold` (evicts running workloads) |
+| `gpuDiscoveryInterval` | no | `5m` | How often to probe the target cluster for GPU hardware |
+
+### PSAPCluster status fields
+
+| Field | Description |
+|-------|-------------|
+| `kubeconfigStatus` | `Valid`, `Missing`, `Invalid`, or `Unreachable` |
+| `locked` | Whether the cluster is currently locked |
+| `lockExpiresAt` | When the lock auto-expires (null if no TTL) |
+| `gpuSummary` | Human-readable GPU summary (e.g. `8x H200`) |
+| `clusterQueueName` | Name of the managed ClusterQueue |
+| `clusterQueueStatus` | `Active`, `Held`, `HeldAndDraining`, or `Missing` |
+| `hardware.gpus` | Array of `{vendor, model, shortName, count, nodeCount}` |
+| `hardware.totalGPUs` | Total GPU count across all types |
+| `hardware.lastDiscovery` | Timestamp of last successful GPU discovery |
+| `hardware.consecutiveFailures` | Number of consecutive discovery failures |
+| `conditions` | `KubeconfigValid`, `GPUDiscovered`, `ClusterQueueReady` |
+
+### Troubleshooting PSAPCluster
+
+**Cluster shows `Unreachable`:**
+The controller failed to connect to the target cluster 5 or more times
+consecutively. The kubeconfig reconciler will automatically reset the status
+to `Valid` once the secret is accessible, and GPU discovery will retry on the
+next cycle. Check:
+- Is the target cluster up? Try `oc --kubeconfig=<path> cluster-info`
+- Is the kubeconfig secret valid? `oc get secret <name> -n psap-secrets -o yaml`
+- Check operator logs: `oc logs deployment/fournos -n psap-automation | grep <cluster-name>`
+
+**Cluster shows `Missing` kubeconfig:**
+The kubeconfig secret referenced by `spec.kubeconfigSecret` does not exist
+in the secrets namespace. Create it with:
+```bash
+oc create secret generic kubeconfig-<name> \
+  --from-file=kubeconfig=/path/to/kubeconfig -n psap-secrets
+```
+
+**ClusterQueue deleted externally:**
+The self-healing reconciler (runs every 30s) detects the missing CQ and
+recreates it automatically. No manual action needed.
+
+**Lock not expiring:**
+- Verify `ttl` is set: `oc get psapcluster <name> -n psap-automation -o jsonpath='{.spec.ttl}'`
+- Check `lockExpiresAt`: `oc get psapcluster <name> -n psap-automation -o jsonpath='{.status.lockExpiresAt}'`
+- Check operator logs for errors in the TTL reconciler
+
+**GPU count shows 0 or is missing:**
+- The target cluster may not have GPU nodes, or GPU device plugins are not installed
+- Check node labels: `oc get nodes --show-labels | grep gpu` on the target cluster
+- Verify the kubeconfig has permission to list nodes
+
+### PSAPCluster configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `FOURNOS_PSAPCLUSTER_TIMER_INTERVAL_SEC` | `30` | Reconciliation timer interval |
+| `FOURNOS_GPU_DISCOVERY_DEFAULT_INTERVAL_SEC` | `300` | Default GPU discovery interval |
+| `FOURNOS_GPU_DISCOVERY_TIMEOUT_SEC` | `10` | Timeout for connecting to target clusters |
+
 ## Configuration
 
 All settings are read from environment variables with the `FOURNOS_` prefix:
