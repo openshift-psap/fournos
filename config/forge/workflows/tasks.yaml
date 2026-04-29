@@ -3,6 +3,9 @@ kind: Task
 metadata:
   name: forge-step
 spec:
+  workspaces:
+    - name: artifacts
+      description: Shared artifact storage across pipeline tasks.
   params:
     - name: fjob-name
       type: string
@@ -11,6 +14,8 @@ spec:
     - name: kubeconfig-secret
       type: string
     - name: job-step
+      type: string
+    - name: job-step-name
       type: string
   steps:
     - name: forge
@@ -25,6 +30,8 @@ spec:
         value: "$(params.fournos-namespace)"
       - name: FOURNOS_STEP
         value: "$(params.job-step)"
+      - name: FOURNOS_STEP_NAME
+        value: "$(params.job-step-name)"
       - name: FOURNOS_SECRETS
         value: /var/run/secrets/fournos
       - name: FOURNOS_CI
@@ -44,7 +51,8 @@ spec:
         set -o nounset
         set -o errtrace
 
-        export ARTIFACT_DIR=/tmp/artifacts
+        export ARTIFACT_BASE_DIR="$(workspaces.artifacts.path)"
+        export ARTIFACT_DIR="${ARTIFACT_BASE_DIR}/${FOURNOS_STEP_NAME}"
         mkdir -p "${ARTIFACT_DIR}"
 
         exec &> >(tee -a "$ARTIFACT_DIR/run.log")

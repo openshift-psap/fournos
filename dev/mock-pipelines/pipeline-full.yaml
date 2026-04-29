@@ -4,6 +4,8 @@ kind: Pipeline
 metadata:
   name: fournos-full
 spec:
+  workspaces:
+    - name: artifacts
   params:
     - name: fjob-name
       type: string
@@ -15,6 +17,9 @@ spec:
     - name: prepare
       taskRef:
         name: fournos-prepare
+      workspaces:
+        - name: artifacts
+          workspace: artifacts
       params:
         - name: kubeconfig-secret
           value: "$(params.kubeconfig-secret)"
@@ -22,6 +27,9 @@ spec:
       runAfter: [prepare]
       taskRef:
         name: fournos-run
+      workspaces:
+        - name: artifacts
+          workspace: artifacts
       params:
         - name: fjob-name
           value: "$(params.fjob-name)"
@@ -33,6 +41,9 @@ spec:
     - name: cleanup
       taskRef:
         name: fournos-cleanup
+      workspaces:
+        - name: artifacts
+          workspace: artifacts
       params:
         - name: kubeconfig-secret
           value: "$(params.kubeconfig-secret)"

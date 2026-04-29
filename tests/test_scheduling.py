@@ -7,6 +7,7 @@ from tests.conftest import (
     get_job,
     get_k8s_resource,
     get_pipelinerun_param,
+    get_pipelinerun_workspaces,
     get_workload_cluster_slots,
     get_workload_flavor,
     get_workload_gpu_request,
@@ -46,6 +47,15 @@ def test_cluster_pinned(k8s):
     secret = get_pipelinerun_param("test-cluster", "kubeconfig-secret")
     assert secret == "test-cluster-kubeconfig", (
         f"PipelineRun kubeconfig-secret should be test-cluster-kubeconfig, got {secret!r}"
+    )
+
+    workspaces = get_pipelinerun_workspaces("test-cluster")
+    artifacts_ws = next((w for w in workspaces if w["name"] == "artifacts"), None)
+    assert artifacts_ws is not None, (
+        f"PipelineRun should have an 'artifacts' workspace, got {workspaces!r}"
+    )
+    assert "volumeClaimTemplate" in artifacts_ws, (
+        f"artifacts workspace should use volumeClaimTemplate, got {artifacts_ws!r}"
     )
 
     kc = get_k8s_resource("secret", "test-cluster-kubeconfig")

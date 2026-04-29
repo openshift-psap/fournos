@@ -1,9 +1,11 @@
-# Full three-step pipeline: pre_cleanup -> prepare → test → post-cleanup.
+# Full pipeline: pre_cleanup -> prepare → test → export-artifacts + post-cleanup.
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
   name: forge-full
 spec:
+  workspaces:
+    - name: artifacts
   params:
     - name: fjob-name
       type: string
@@ -16,6 +18,9 @@ spec:
     - name: pre-cleanup
       taskRef:
         name: forge-step
+      workspaces:
+        - name: artifacts
+          workspace: artifacts
       params:
         - name: fjob-name
           value: "$(params.fjob-name)"
@@ -25,10 +30,15 @@ spec:
           value: "$(params.kubeconfig-secret)"
         - name: job-step
           value: pre-cleanup
+        - name: job-step-name
+          value: 000__pre-cleanup
 
     - name: prepare
       taskRef:
         name: forge-step
+      workspaces:
+        - name: artifacts
+          workspace: artifacts
       params:
         - name: fjob-name
           value: "$(params.fjob-name)"
@@ -38,11 +48,16 @@ spec:
           value: "$(params.kubeconfig-secret)"
         - name: job-step
           value: prepare
+        - name: job-step-name
+          value: 001__prepare
 
     - name: test
       runAfter: [prepare]
       taskRef:
         name: forge-step
+      workspaces:
+        - name: artifacts
+          workspace: artifacts
       params:
         - name: fjob-name
           value: "$(params.fjob-name)"
@@ -52,11 +67,34 @@ spec:
           value: "$(params.kubeconfig-secret)"
         - name: job-step
           value: test
+        - name: job-step-name
+          value: 002__test
 
   finally:
+    - name: export-artifacts
+      taskRef:
+        name: forge-step
+      workspaces:
+        - name: artifacts
+          workspace: artifacts
+      params:
+        - name: fjob-name
+          value: "$(params.fjob-name)"
+        - name: fournos-namespace
+          value: "$(params.fournos-namespace)"
+        - name: kubeconfig-secret
+          value: "$(params.kubeconfig-secret)"
+        - name: job-step
+          value: export-artifacts
+        - name: job-step-name
+          value: 003__export-artifacts
+
     - name: post-cleanup
       taskRef:
         name: forge-step
+      workspaces:
+        - name: artifacts
+          workspace: artifacts
       params:
         - name: fjob-name
           value: "$(params.fjob-name)"
@@ -66,3 +104,5 @@ spec:
           value: "$(params.kubeconfig-secret)"
         - name: job-step
           value: pre-cleanup # there's currently no post-cleanup step
+        - name: job-step-name
+          value: 004__post-cleanup

@@ -5,6 +5,8 @@ kind: Pipeline
 metadata:
   name: forge-test-only
 spec:
+  workspaces:
+    - name: artifacts
   params:
     - name: fjob-name
       type: string
@@ -16,6 +18,9 @@ spec:
     - name: test
       taskRef:
         name: forge-step
+      workspaces:
+        - name: artifacts
+          workspace: artifacts
       params:
         - name: fjob-name
           value: "$(params.fjob-name)"
@@ -24,4 +29,25 @@ spec:
         - name: kubeconfig-secret
           value: "$(params.kubeconfig-secret)"
         - name: job-step
-          value: "test"
+          value: test
+        - name: job-step-name
+          value: 000__test
+
+  finally:
+    - name: export-artifacts
+      taskRef:
+        name: forge-step
+      workspaces:
+        - name: artifacts
+          workspace: artifacts
+      params:
+        - name: fjob-name
+          value: "$(params.fjob-name)"
+        - name: fournos-namespace
+          value: "$(params.fournos-namespace)"
+        - name: kubeconfig-secret
+          value: "$(params.kubeconfig-secret)"
+        - name: job-step
+          value: export-artifacts
+        - name: job-step-name
+          value: 001__export-artifacts

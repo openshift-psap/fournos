@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     )
     resolve_deadline_sec: int = Field(default=300, gt=0)
     resolve_job_template: str = "config/forge/resolve_job.yaml"
+    artifact_pvc_size: str = "10Gi"
 
 
 settings = Settings()

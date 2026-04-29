@@ -160,6 +160,13 @@ spec:
                   type: string
                 message:
                   type: string
+                engineStatus:
+                  type: object
+                  description: >-
+                    Opaque status blob written by the benchmark execution engine.
+                    Fournos preserves it as-is for callers (e.g. OCPCI) to
+                    read back information such as artifact URLs.
+                  x-kubernetes-preserve-unknown-fields: true
                 conditions:
                   type: array
                   items:

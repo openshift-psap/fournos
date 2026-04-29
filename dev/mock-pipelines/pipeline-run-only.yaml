@@ -5,6 +5,8 @@ kind: Pipeline
 metadata:
   name: fournos-run-only
 spec:
+  workspaces:
+    - name: artifacts
   params:
     - name: fjob-name
       type: string
@@ -16,6 +18,9 @@ spec:
     - name: run
       taskRef:
         name: fournos-run
+      workspaces:
+        - name: artifacts
+          workspace: artifacts
       params:
         - name: fjob-name
           value: "$(params.fjob-name)"
