@@ -15,7 +15,9 @@ from kubernetes import client, config
 
 from fournos.core.clusters import ClusterRegistry
 from fournos.core.constants import LABEL_JOB_NAME, Phase
+from fournos.core.gpu_discovery import GPUDiscoveryClient
 from fournos.core.kueue import KueueClient
+from fournos.core.psapcluster import PSAPClusterManager
 from fournos.core.resolve import ResolveClient
 from fournos.core.tekton import TektonClient
 from fournos import __version__, handlers
@@ -59,6 +61,8 @@ def startup(**_):
     ctx.tekton = TektonClient(custom_objects)
     ctx.registry = ClusterRegistry(client.CoreV1Api())
     ctx.resolve = ResolveClient(client.BatchV1Api())
+    ctx.gpu_discovery = GPUDiscoveryClient(client.CoreV1Api())
+    ctx.psapcluster = PSAPClusterManager(custom_objects)
 
     logger.info("Operating in namespace %s", settings.namespace)
     logger.info("Secrets namespace: %s", settings.secrets_namespace)
@@ -120,6 +124,32 @@ def reconcile(spec, name, namespace, status, patch, body, **_):
         handlers.reconcile_admitted(spec, name, namespace, status, patch, body)
     elif phase == Phase.RUNNING:
         handlers.reconcile_running(name, status, patch)
+
+
+# ---------------------------------------------------------------------------
+# PSAPCLUSTER — cluster inventory, GPU discovery, locking
+# ---------------------------------------------------------------------------
+
+
+@kopf.on.create("fournos.dev", "v1", "psapclusters")
+@kopf.on.resume("fournos.dev", "v1", "psapclusters")
+def on_psapcluster_create(spec, name, namespace, status, patch, body, **_):
+    handlers.on_psapcluster_create(spec, name, namespace, status, patch, body)
+
+
+@kopf.on.update("fournos.dev", "v1", "psapclusters", field="spec.owner")
+def on_psapcluster_owner_change(spec, name, namespace, status, patch, body, old, new, **_):
+    handlers.on_psapcluster_owner_change(spec, name, namespace, status, patch, body, old, new)
+
+
+@kopf.timer(
+    "fournos.dev",
+    "v1",
+    "psapclusters",
+    interval=settings.psapcluster_timer_interval_sec,
+)
+def reconcile_psapcluster(spec, name, namespace, status, patch, body, **_):
+    handlers.reconcile_psapcluster(spec, name, namespace, status, patch, body)
 
 
 # ---------------------------------------------------------------------------

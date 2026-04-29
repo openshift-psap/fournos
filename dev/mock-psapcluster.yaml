@@ -1,0 +1,13 @@
+apiVersion: fournos.dev/v1
+kind: PSAPCluster
+metadata:
+  name: psap-mgmt
+spec:
+  kubeconfigSecret: kubeconfig-psap-mgmt
+---
+apiVersion: fournos.dev/v1
+kind: PSAPCluster
+metadata:
+  name: athena-fire
+spec:
+  kubeconfigSecret: kubeconfig-athena-fire

@@ -1,0 +1,165 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: psapclusters.fournos.dev
+spec:
+  group: fournos.dev
+  names:
+    kind: PSAPCluster
+    listKind: PSAPClusterList
+    plural: psapclusters
+    singular: psapcluster
+    shortNames:
+      - pc
+      - pcluster
+  scope: Namespaced
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Owner
+          type: string
+          jsonPath: .spec.owner
+        - name: GPUs
+          type: string
+          jsonPath: .status.gpuSummary
+        - name: Kubeconfig
+          type: string
+          jsonPath: .status.kubeconfigStatus
+        - name: Locked
+          type: boolean
+          jsonPath: .status.locked
+        - name: Queue
+          type: string
+          jsonPath: .status.clusterQueueStatus
+          priority: 1
+        - name: TTL
+          type: string
+          jsonPath: .spec.ttl
+          priority: 1
+        - name: Lock Expires
+          type: string
+          jsonPath: .status.lockExpiresAt
+          priority: 1
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - kubeconfigSecret
+              properties:
+                kubeconfigSecret:
+                  type: string
+                  description: >-
+                    Name of the K8s Secret holding the kubeconfig for this
+                    target cluster. Must exist in the secrets namespace.
+                owner:
+                  type: string
+                  description: >-
+                    Person or team claiming exclusive ownership. When set,
+                    the controller sets the per-cluster ClusterQueue stopPolicy
+                    to Hold. Running jobs finish; new jobs queue. Clear to release.
+                ttl:
+                  type: string
+                  pattern: "^[0-9]+(m|h|d)$"
+                  description: >-
+                    Duration for auto-expiry of ownership (e.g. "4h", "30m", "2d").
+                    Ignored when owner is not set.
+                evict:
+                  type: boolean
+                  default: false
+                  description: >-
+                    When true and owner is set, uses HoldAndDrain instead of Hold
+                    (evicts running jobs in addition to blocking new ones).
+                gpuDiscoveryInterval:
+                  type: string
+                  pattern: "^[0-9]+(m|h|d)$"
+                  default: "5m"
+                  description: >-
+                    How often to probe the target cluster for GPU hardware.
+                    Defaults to 5 minutes.
+            status:
+              type: object
+              properties:
+                kubeconfigStatus:
+                  type: string
+                  enum:
+                    - Valid
+                    - Missing
+                    - Invalid
+                    - Unreachable
+                locked:
+                  type: boolean
+                lockExpiresAt:
+                  type: string
+                  format: date-time
+                ownerSetAt:
+                  type: string
+                  format: date-time
+                gpuSummary:
+                  type: string
+                clusterQueueName:
+                  type: string
+                clusterQueueStatus:
+                  type: string
+                  enum:
+                    - Active
+                    - Held
+                    - HeldAndDraining
+                    - Missing
+                resourceFlavorName:
+                  type: string
+                hardware:
+                  type: object
+                  properties:
+                    gpus:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          vendor:
+                            type: string
+                          model:
+                            type: string
+                          shortName:
+                            type: string
+                          count:
+                            type: integer
+                          nodeCount:
+                            type: integer
+                    totalGPUs:
+                      type: integer
+                    lastDiscovery:
+                      type: string
+                      format: date-time
+                    consecutiveFailures:
+                      type: integer
+                    lastError:
+                      type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
