@@ -77,7 +77,7 @@ oc delete FournosJob -n $FOURNOS_NAMESPACE <name>      # cleanup
 | `spec.forge.project` | yes | FORGE project path |
 | `spec.forge.args` | yes | List of arguments passed to FORGE |
 | `spec.forge.configOverrides` | no | Arbitrary YAML overrides passed to the test framework |
-| `spec.env` | no | Environment variables passed to the pipeline as a `KEY=VALUE` env file |
+| `spec.env` | no | Environment variables available to FORGE (read from the FournosJob spec via K8s API) |
 | `spec.cluster` | \* | Pin to a specific cluster (Kueue ResourceFlavor). Since `exclusive` defaults to `true`, this also locks the cluster — set `exclusive: false` for shared access. |
 | `spec.hardware.gpuType` | \* | Short GPU model name — e.g. `a100`, `h200`. The operator prepends the `FOURNOS_GPU_RESOURCE_PREFIX` (default `fournos/gpu-`) automatically, so do **not** include the full resource path. |
 | `spec.hardware.gpuCount` | with gpuType | Number of GPUs (minimum 1) |
@@ -324,7 +324,7 @@ The operator runs as a single-replica Deployment using
 1. **Resolves** job requirements by launching a Forge K8s Job that populates the FournosJob spec with GPU type/count and secret references
 2. **Creates** a Kueue Workload with the resolved GPU resources (owned by the FournosJob via `ownerReferences`)
 3. **Polls** (5 s timer) for Kueue admission and assigned cluster
-4. **Copies** referenced Vault secrets from the secrets namespace into the operator namespace (per-job copies with `ownerReferences` for automatic cleanup) and **launches** a Tekton PipelineRun with FORGE parameters and the secrets mounted as a projected volume at `/var/run/secrets/fournos/` (owned by the FournosJob via `ownerReferences`)
+4. **Copies** referenced Vault secrets from the secrets namespace into the operator namespace (per-job copies with `ownerReferences` for automatic cleanup) and **launches** a Tekton PipelineRun with `FJOB_NAME` + `FOURNOS_NAMESPACE` (so FORGE can look up the full FournosJob spec) and the secrets mounted as a projected volume at `/var/run/secrets/fournos/` (owned by the FournosJob via `ownerReferences`)
 5. **Watches** the PipelineRun until completion
 6. **Deletes** the Workload to release Kueue quota
 

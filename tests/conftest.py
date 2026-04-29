@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import textwrap
 import time
 from typing import Any
 
@@ -452,20 +451,9 @@ def create_stale_pipelinerun(k8s, name: str) -> None:
         "spec": {
             "pipelineRef": {"name": "fournos-run-only"},
             "params": [
-                {"name": "job-name", "value": name},
-                {"name": "forge-project", "value": "test/stale"},
-                {
-                    "name": "forge-config",
-                    "value": textwrap.dedent("""\
-                        project: test/stale
-                        args:
-                        - cks
-                        - internal-test
-                    """),
-                },
-                {"name": "env", "value": ""},
+                {"name": "fjob-name", "value": name},
+                {"name": "fournos-namespace", "value": NAMESPACE},
                 {"name": "kubeconfig-secret", "value": f"{name}-kubeconfig"},
-                {"name": "gpu-count", "value": "0"},
             ],
         },
     }

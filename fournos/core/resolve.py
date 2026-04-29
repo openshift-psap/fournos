@@ -10,7 +10,6 @@ import yaml
 from kubernetes import client
 
 from fournos.core.constants import LABEL_JOB_NAME, LABEL_MANAGED_BY
-from fournos.core.tekton import serialize_env
 from fournos.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -49,9 +48,6 @@ class ResolveClient:
         self,
         *,
         name: str,
-        forge_project: str,
-        forge_config: dict,
-        env: dict,
         owner_ref: dict,
     ) -> dict:
         job_name = _resolve_job_name(name)
@@ -73,11 +69,8 @@ class ResolveClient:
         )
 
         env_values = {
-            "FOURNOS_JOB_NAME": name,
+            "FJOB_NAME": name,
             "FOURNOS_NAMESPACE": settings.namespace,
-            "FORGE_PROJECT": forge_project,
-            "FORGE_CONFIG": yaml.dump(forge_config, default_flow_style=False),
-            "FOURNOS_ENV": serialize_env(env),
         }
         for env_var in container["env"]:
             if env_var["name"] not in env_values:

@@ -1,10 +1,6 @@
 from __future__ import annotations
 
 import logging
-import re
-import shlex
-
-import yaml
 
 from kubernetes import client
 
@@ -17,23 +13,6 @@ logger = logging.getLogger(__name__)
 TEKTON_GROUP = "tekton.dev"
 TEKTON_VERSION = "v1"
 TEKTON_PIPELINE_RUN_PLURAL = "pipelineruns"
-
-_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
-
-def serialize_env(env: dict) -> str:
-    """Serialize env dict as ``KEY=quoted_value`` lines for ``source``.
-
-    Keys are validated as shell identifiers so they cannot inject
-    shell syntax.  Values are wrapped with :func:`shlex.quote` so
-    ``source`` treats them as literals (no expansion or substitution).
-    """
-    lines: list[str] = []
-    for key, value in env.items():
-        if not _ENV_KEY_RE.match(key):
-            raise ValueError(f"Invalid environment variable name: {key!r}")
-        lines.append(f"{key}={shlex.quote(str(value))}\n")
-    return "".join(lines)
 
 
 def _build_secrets_volume(resolved: list[ResolvedSecret]) -> dict:
@@ -69,13 +48,8 @@ class TektonClient:
         self,
         *,
         name: str,
-        display_name: str,
         pipeline: str,
-        forge_project: str,
-        forge_config: dict,
-        env: dict,
         kubeconfig_secret: str,
-        gpu_count: int,
         resolved_secrets: list[ResolvedSecret],
         cluster: str,
         owner_ref: dict | None = None,
@@ -95,8 +69,6 @@ class TektonClient:
         if owner_ref:
             metadata["ownerReferences"] = [owner_ref]
 
-        secret_ref_names = [r.original_name for r in resolved_secrets]
-
         body = {
             "apiVersion": f"{TEKTON_GROUP}/{TEKTON_VERSION}",
             "kind": "PipelineRun",
@@ -112,19 +84,9 @@ class TektonClient:
                     },
                 },
                 "params": [
-                    {"name": "job-name", "value": display_name},
-                    {"name": "forge-project", "value": forge_project},
-                    {
-                        "name": "forge-config",
-                        "value": yaml.dump(forge_config, default_flow_style=False),
-                    },
-                    {
-                        "name": "env",
-                        "value": serialize_env(env),
-                    },
+                    {"name": "fjob-name", "value": name},
+                    {"name": "fournos-namespace", "value": settings.namespace},
                     {"name": "kubeconfig-secret", "value": kubeconfig_secret},
-                    {"name": "gpu-count", "value": str(gpu_count)},
-                    {"name": "secret-refs", "value": secret_ref_names},
                 ],
             },
         }

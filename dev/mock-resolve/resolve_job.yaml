@@ -16,8 +16,5 @@ spec:
         - name: resolve
           imagePullPolicy: IfNotPresent
           env:
-            - name: FOURNOS_JOB_NAME
+            - name: FJOB_NAME
             - name: FOURNOS_NAMESPACE
-            - name: FORGE_PROJECT
-            - name: FORGE_CONFIG
-            - name: FOURNOS_ENV

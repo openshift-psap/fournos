@@ -5,45 +5,24 @@ metadata:
   name: forge-full
 spec:
   params:
-    - name: job-name
+    - name: fjob-name
       type: string
-    - name: forge-project
+    - name: fournos-namespace
       type: string
-    - name: forge-config
-      type: string
-    - name: env
-      type: string
-      default: ""
     - name: kubeconfig-secret
       type: string
-    - name: gpu-count
-      type: string
-    - name: secret-refs
-      type: array
-      default: []
 
   tasks:
     - name: pre-cleanup
       taskRef:
         name: forge-step
       params:
-        # -- common params -- #
-        - name: forge-project
-          value: "$(params.forge-project)"
-        - name: forge-config
-          value: "$(params.forge-config)"
-        - name: env
-          value: "$(params.env)"
+        - name: fjob-name
+          value: "$(params.fjob-name)"
+        - name: fournos-namespace
+          value: "$(params.fournos-namespace)"
         - name: kubeconfig-secret
           value: "$(params.kubeconfig-secret)"
-        - name: gpu-count
-          value: "$(params.gpu-count)"
-        - name: job-name
-          value: "$(params.job-name)"
-        - name: secret-refs
-          value:
-          - $(params.secret-refs[*])
-          # -- specific params -- #
         - name: job-step
           value: pre-cleanup
 
@@ -51,23 +30,12 @@ spec:
       taskRef:
         name: forge-step
       params:
-        # -- common params -- #
-        - name: forge-project
-          value: "$(params.forge-project)"
-        - name: forge-config
-          value: "$(params.forge-config)"
-        - name: env
-          value: "$(params.env)"
+        - name: fjob-name
+          value: "$(params.fjob-name)"
+        - name: fournos-namespace
+          value: "$(params.fournos-namespace)"
         - name: kubeconfig-secret
           value: "$(params.kubeconfig-secret)"
-        - name: gpu-count
-          value: "$(params.gpu-count)"
-        - name: job-name
-          value: "$(params.job-name)"
-        - name: secret-refs
-          value:
-          - $(params.secret-refs[*])
-          # -- specific params -- #
         - name: job-step
           value: prepare
 
@@ -76,23 +44,12 @@ spec:
       taskRef:
         name: forge-step
       params:
-        # -- common params -- #
-        - name: forge-project
-          value: "$(params.forge-project)"
-        - name: forge-config
-          value: "$(params.forge-config)"
-        - name: env
-          value: "$(params.env)"
+        - name: fjob-name
+          value: "$(params.fjob-name)"
+        - name: fournos-namespace
+          value: "$(params.fournos-namespace)"
         - name: kubeconfig-secret
           value: "$(params.kubeconfig-secret)"
-        - name: gpu-count
-          value: "$(params.gpu-count)"
-        - name: job-name
-          value: "$(params.job-name)"
-        - name: secret-refs
-          value:
-          - $(params.secret-refs[*])
-        # -- specific params -- #
         - name: job-step
           value: test
 
@@ -101,22 +58,11 @@ spec:
       taskRef:
         name: forge-step
       params:
-        # -- common params -- #
-        - name: forge-project
-          value: "$(params.forge-project)"
-        - name: forge-config
-          value: "$(params.forge-config)"
-        - name: env
-          value: "$(params.env)"
+        - name: fjob-name
+          value: "$(params.fjob-name)"
+        - name: fournos-namespace
+          value: "$(params.fournos-namespace)"
         - name: kubeconfig-secret
           value: "$(params.kubeconfig-secret)"
-        - name: gpu-count
-          value: "$(params.gpu-count)"
-        - name: job-name
-          value: "$(params.job-name)"
-        - name: secret-refs
-          value:
-          - $(params.secret-refs[*])
-        # -- specific params -- #
         - name: job-step
           value: pre-cleanup # there's currently no post-cleanup step
