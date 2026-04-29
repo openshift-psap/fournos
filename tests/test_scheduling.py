@@ -2,14 +2,16 @@
 
 import yaml
 
-from fournos.core.constants import Phase
+from fournos.core.constants import MAX_CLUSTER_SLOTS, Phase
 from tests.conftest import (
     NAMESPACE,
     create_job,
     get_job,
     get_k8s_resource,
     get_pipelinerun_param,
+    get_workload_cluster_slots,
     get_workload_flavor,
+    get_workload_gpu_request,
     get_workload_node_selector,
     job_status_summary,
     poll_phase,
@@ -86,6 +88,7 @@ def test_hardware_request(k8s):
         k8s,
         "test-hardware",
         {
+            "exclusive": False,
             "hardware": {"gpuType": "a100", "gpuCount": 2},
             "forge": {"project": "testproj/llmd", "args": ["llama3", "internal-test"]},
             "priority": "nightly",
@@ -131,6 +134,10 @@ def test_cluster_and_hardware(k8s):
     assert ns == {"fournos.dev/cluster": "cluster-4"}, (
         f"Workload nodeSelector should pin to cluster-4, got {ns}"
     )
+    slots = get_workload_cluster_slots("test-cluster-hw")
+    assert slots == MAX_CLUSTER_SLOTS, (
+        f"Default-exclusive cluster+hw job should request {MAX_CLUSTER_SLOTS} slots, got {slots}"
+    )
     flavor = get_workload_flavor("test-cluster-hw")
     assert flavor == "cluster-4", f"Workload flavor should be cluster-4, got {flavor!r}"
     secret = get_pipelinerun_param("test-cluster-hw", "kubeconfig-secret")
@@ -150,6 +157,46 @@ def test_cluster_and_hardware(k8s):
     assert job["status"]["cluster"] == "cluster-4", (
         f"Expected cluster cluster-4, got {job['status'].get('cluster')!r}"
     )
+
+
+def test_shared_cluster_with_hardware(k8s):
+    """Shared access (exclusive: false) + cluster + hardware: 1 slot + GPU request."""
+    create_job(
+        k8s,
+        "test-shared-hw",
+        {
+            "exclusive": False,
+            "cluster": "cluster-3",
+            "hardware": {"gpuType": "h200", "gpuCount": 4},
+            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+        },
+    )
+
+    poll_phase(
+        k8s,
+        "test-shared-hw",
+        terminal={Phase.RUNNING, Phase.SUCCEEDED, Phase.FAILED},
+        timeout=30,
+    )
+
+    slots = get_workload_cluster_slots("test-shared-hw")
+    assert slots == 1, f"Non-exclusive Workload should request 1 slot, got {slots}"
+
+    gpu_req = get_workload_gpu_request("test-shared-hw", "h200")
+    assert gpu_req == 4, f"Workload should request 4 H200 GPUs, got {gpu_req}"
+
+    ns = get_workload_node_selector("test-shared-hw")
+    assert ns == {"fournos.dev/cluster": "cluster-3"}, (
+        f"Workload nodeSelector should pin to cluster-3, got {ns}"
+    )
+
+    phase = poll_phase(
+        k8s,
+        "test-shared-hw",
+        terminal={Phase.SUCCEEDED, Phase.FAILED},
+        timeout=60,
+    )
+    assert phase == Phase.SUCCEEDED, job_status_summary(k8s, "test-shared-hw")
 
 
 def test_alternative_pipeline_selection(k8s):
@@ -185,6 +232,7 @@ def test_inadmissible_stays_pending(k8s):
         k8s,
         "test-inadmissible",
         {
+            "exclusive": False,
             "hardware": {"gpuType": "a100", "gpuCount": 100},
             "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },

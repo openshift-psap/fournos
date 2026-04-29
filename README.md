@@ -78,7 +78,7 @@ oc delete FournosJob -n $FOURNOS_NAMESPACE <name>      # cleanup
 | `spec.forge.args` | yes | List of arguments passed to FORGE |
 | `spec.forge.configOverrides` | no | Arbitrary YAML overrides passed to the test framework |
 | `spec.env` | no | Environment variables passed to the pipeline as a `KEY=VALUE` env file |
-| `spec.cluster` | \* | Pin to a specific cluster (Kueue ResourceFlavor) |
+| `spec.cluster` | \* | Pin to a specific cluster (Kueue ResourceFlavor). Since `exclusive` defaults to `true`, this also locks the cluster — set `exclusive: false` for shared access. |
 | `spec.hardware.gpuType` | \* | Short GPU model name — e.g. `a100`, `h200`. The operator prepends the `FOURNOS_GPU_RESOURCE_PREFIX` (default `fournos/gpu-`) automatically, so do **not** include the full resource path. |
 | `spec.hardware.gpuCount` | with gpuType | Number of GPUs (minimum 1) |
 | `spec.owner` | no | Team or individual that owns this job |
@@ -86,14 +86,18 @@ oc delete FournosJob -n $FOURNOS_NAMESPACE <name>      # cleanup
 | `spec.pipeline` | no | Tekton Pipeline name (default: `fournos-full`) |
 | `spec.priority` | no | Kueue WorkloadPriorityClass name |
 | `spec.secretRefs` | no | Vault-synced K8s Secret names (prefixed with `vault-`) to mount into the pipeline. Populated by Forge during the Resolving phase. The operator validates each name in `FOURNOS_SECRETS_NAMESPACE`, copies the secrets into the operator namespace, and mounts them as a projected volume at `/var/run/secrets/fournos/<entry-name>/`. |
-| `spec.exclusive` | no | If `true`, locks the target cluster so no other FournosJob can run there. Requires `spec.cluster`. |
+| `spec.exclusive` | no (default `true`) | If `true`, locks the target cluster so no other FournosJob can run there. Requires `spec.cluster`. Hardware is optional — when omitted the Workload only requests cluster-slot resources for locking. |
 | `spec.shutdown` | no | Shutdown action: `Stop` cancels gracefully (Tekton `CancelledRunFinally` — runs `finally` tasks); `Terminate` cancels immediately (Tekton `Cancelled` — skips `finally` tasks). Both wait for the PipelineRun to finish before releasing Kueue quota. |
 
-\* `spec.cluster` and `spec.hardware` are both optional. Every job passes
-through the Resolving phase where Forge populates `spec.hardware` (if not
-already set) and `spec.secretRefs` directly on the FournosJob.
-`spec.cluster` can be set alongside `spec.hardware` to pin a hardware request
-to a specific cluster.
+\* `spec.hardware` is required unless the job uses exclusive cluster locking
+(`exclusive: true` + `cluster`), in which case it may be omitted — the
+Workload only needs cluster-slot resources. Every job passes through the
+Resolving phase where Forge populates `spec.hardware` (if not already set)
+and `spec.secretRefs` directly on the FournosJob. Since `exclusive` defaults
+to `true`, any job with `spec.cluster` locks the cluster exclusively —
+including jobs that also specify `spec.hardware`. Set `exclusive: false` for
+shared access (hardware is then required). Jobs without `spec.cluster` must
+set `exclusive: false`.
 
 ### Status
 

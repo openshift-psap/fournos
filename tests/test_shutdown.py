@@ -41,6 +41,7 @@ def test_stop_pending_job(k8s):
         k8s,
         "test-stop-pending",
         {
+            "exclusive": False,
             "hardware": {"gpuType": "a100", "gpuCount": 100},
             "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
         },

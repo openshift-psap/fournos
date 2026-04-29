@@ -119,30 +119,52 @@ def _check_job_finished(job, name, conditions, patch):
     return True
 
 
-def _resolve_hardware(spec, name, conditions, patch):
+def _resolve_hardware(
+    spec,
+    name,
+    conditions,
+    patch,
+) -> tuple[str | None, int | None]:
     """Determine and validate GPU requirements from the FournosJob spec.
 
     Forge populates ``spec.hardware`` when absent.  The GPU type is
-    always validated against Kueue.
+    validated against Kueue unless this is an exclusive cluster-lock
+    job with no hardware requirements.
 
-    Returns ``(gpu_type, gpu_count)`` on success, or ``None`` if
-    validation failed (patch already set to Failed).
+    Exclusive jobs pinned to a cluster may omit hardware — the Workload
+    only needs cluster-slot resources for locking.
+
+    Returns:
+        (gpu_type, gpu_count): On success.  ``gpu_type`` is ``None``
+            and ``gpu_count`` is ``0`` for exclusive-only jobs.
+        (None, None): Validation failed; the patch has already been set
+            to ``Failed`` with a descriptive message.
     """
     hardware = spec.get("hardware") or {}
     gpu_type = hardware.get("gpuType")
     gpu_count = hardware.get("gpuCount", 0)
 
+    exclusive_lock = spec["exclusive"] and spec.get("cluster")
+
     if not gpu_type or not gpu_count:
-        _resolve_failed(
-            patch,
-            conditions,
+        if not exclusive_lock:
+            _resolve_failed(
+                patch,
+                conditions,
+                name,
+                "No hardware requirements: spec.hardware not populated "
+                "after Forge resolution",
+                reason="NoHardware",
+                cond_message="No hardware requirements found",
+            )
+            return None, None
+        logger.warning(
+            "Job %s: exclusive cluster lock without hardware — "
+            "Workload will only request cluster-slot resources "
+            "(Forge may not have populated spec.hardware)",
             name,
-            "No hardware requirements: spec.hardware not populated "
-            "after Forge resolution",
-            reason="NoHardware",
-            cond_message="No hardware requirements found",
         )
-        return None
+        return None, 0
 
     try:
         known_gpu_types = ctx.kueue.list_gpu_types()
@@ -155,7 +177,7 @@ def _resolve_hardware(spec, name, conditions, patch):
             reason="InvalidGPUType",
             cond_message=f"Kueue API error: {exc.reason}",
         )
-        return None
+        return None, None
     if not known_gpu_types:
         _resolve_failed(
             patch,
@@ -166,7 +188,7 @@ def _resolve_hardware(spec, name, conditions, patch):
             cond_message="No GPU types found in any ClusterQueue",
         )
         logger.error("Job %s: no GPU types found in any ClusterQueue", name)
-        return None
+        return None, None
     if gpu_type not in known_gpu_types:
         _resolve_failed(
             patch,
@@ -177,7 +199,7 @@ def _resolve_hardware(spec, name, conditions, patch):
             reason="InvalidGPUType",
             cond_message=f"GPU type '{gpu_type}' not available",
         )
-        return None
+        return None, None
 
     return gpu_type, gpu_count
 
@@ -218,7 +240,7 @@ def _create_workload_and_transition(
             gpu_type=gpu_type,
             gpu_count=gpu_count,
             cluster=spec.get("cluster"),
-            exclusive=spec.get("exclusive", False),
+            exclusive=spec["exclusive"],
             priority=spec.get("priority"),
             owner_ref=owner_ref(body),
         )
@@ -277,14 +299,12 @@ def reconcile_resolving(spec, name, status, patch, body):
     if not _check_job_finished(job, name, conditions, patch):
         return
 
-    hw = _resolve_hardware(spec, name, conditions, patch)
-    if hw is None:
+    gpu_type, gpu_count = _resolve_hardware(spec, name, conditions, patch)
+    if gpu_count is None:
         return
 
     if not _validate_secret_refs(spec, name, conditions, patch):
         return
-
-    gpu_type, gpu_count = hw
     _create_workload_and_transition(
         spec, name, conditions, patch, body, gpu_type, gpu_count
     )

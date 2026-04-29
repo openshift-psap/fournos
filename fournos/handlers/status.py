@@ -70,7 +70,7 @@ def create_workload_for_job(spec, name, body):
         gpu_type=hardware.get("gpuType") if hardware else None,
         gpu_count=hardware.get("gpuCount", 0) if hardware else 0,
         cluster=spec.get("cluster"),
-        exclusive=spec.get("exclusive", False),
+        exclusive=spec["exclusive"],
         priority=spec.get("priority"),
         owner_ref=owner_ref(body),
     )
