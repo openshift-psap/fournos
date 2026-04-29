@@ -167,9 +167,6 @@ def reconcile_admitted(spec, name, namespace, status, patch, body):
             logger.error("Job %s: kubeconfig copy failed: %s", name, exc)
             return
 
-        hardware = spec.get("hardware") or {}
-        gpu_count = hardware.get("gpuCount", 0)
-
         secret_refs_raw = spec.get("secretRefs") or []
         try:
             resolved_secrets = ctx.registry.copy_secrets(
@@ -191,18 +188,11 @@ def reconcile_admitted(spec, name, namespace, status, patch, body):
             logger.error("Job %s: %s", name, exc)
             return
 
-        display_name = spec.get("displayName") or name
-
         try:
             ctx.tekton.create_pipeline_run(
                 name=name,
-                display_name=display_name,
                 pipeline=spec.get("pipeline", "fournos-full"),
-                forge_project=spec["forge"]["project"],
-                forge_config=spec["forge"],
-                env=spec.get("env", {}),
                 kubeconfig_secret=kubeconfig_secret,
-                gpu_count=gpu_count,
                 resolved_secrets=resolved_secrets,
                 cluster=cluster,
                 owner_ref=owner_ref(body),

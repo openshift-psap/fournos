@@ -4,37 +4,31 @@ metadata:
   name: forge-step
 spec:
   params:
-    - name: forge-project
+    - name: fjob-name
       type: string
-    - name: forge-config
-      type: string
-    - name: env
+    - name: fournos-namespace
       type: string
     - name: kubeconfig-secret
       type: string
-    - name: gpu-count
-      type: string
-    - name: job-name
-      type: string
     - name: job-step
       type: string
-    - name: secret-refs
-      type: array
   steps:
     - name: forge
       image: image-registry.openshift-image-registry.svc:5000/$(context.taskRun.namespace)/forge-core:main
       imagePullPolicy: Always
       env:
-      - name: KUBECONFIG
+      - name: TARGET_KUBECONFIG
         value: /var/run/secrets/fournos-kubeconfig/kubeconfig
-      - name: FORGE_CONFIG
-        value: "$(params.forge-config)"
-      - name: FOURNOS_ENV
-        value: "$(params.env)"
+      - name: FJOB_NAME
+        value: "$(params.fjob-name)"
+      - name: FOURNOS_NAMESPACE
+        value: "$(params.fournos-namespace)"
       - name: FOURNOS_STEP
         value: "$(params.job-step)"
       - name: FOURNOS_SECRETS
         value: /var/run/secrets/fournos
+      - name: FOURNOS_CI
+        value: "true"
       volumeMounts:
         - name: kubeconfig
           mountPath: /var/run/secrets/fournos-kubeconfig
@@ -55,20 +49,28 @@ spec:
 
         exec &> >(tee -a "$ARTIFACT_DIR/run.log")
 
-        cat > $ARTIFACT_DIR/forge_config.yaml <<< "$FORGE_CONFIG"
+        # Fetch FournosJob from the hub cluster (in-cluster SA) before
+        # switching KUBECONFIG to the target cluster.
+        oc get "fjob/$FJOB_NAME" -n "$FOURNOS_NAMESPACE" -oyaml > $ARTIFACT_DIR/fournos_fjob.yaml
 
-        cat > $ARTIFACT_DIR/forge_config.env <<< "$FOURNOS_ENV"
+        export KUBECONFIG=$TARGET_KUBECONFIG
 
-        if grep -q '^PULL_BASE_SHA=' $ARTIFACT_DIR/forge_config.env; then
-          export PULL_BASE_SHA=$(cat $ARTIFACT_DIR/forge_config.env | grep '^PULL_BASE_SHA=' | cut -d'=' -f2)
+        PULL_BASE_SHA=$(cat "$ARTIFACT_DIR/fournos_fjob.yaml" | yq -r .spec.env.PULL_BASE_SHA)
+        if [[ "$PULL_BASE_SHA" != null ]]; then
+          export PULL_BASE_SHA
+        else
+          unset PULL_BASE_SHA
         fi
 
-        if grep -q '^PULL_PULL_SHA=' $ARTIFACT_DIR/forge_config.env; then
-          export PULL_PULL_SHA=$(cat $ARTIFACT_DIR/forge_config.env | grep '^PULL_PULL_SHA=' | cut -d'=' -f2)
+        PULL_PULL_SHA=$(cat "$ARTIFACT_DIR/fournos_fjob.yaml" | yq -r .spec.env.PULL_PULL_SHA)
+        if [[ "$PULL_PULL_SHA" != null ]]; then
+          export PULL_PULL_SHA
+        else
+          unset PULL_PULL_SHA
         fi
 
         if [[ "${PULL_PULL_SHA:-}" ]]; then
-        echo
+          echo
           echo "Updating to PULL_PULL_SHA=$PULL_PULL_SHA ..."
 
           git -C "$FORGE_HOME" fetch --quiet origin "$PULL_PULL_SHA"
@@ -76,12 +78,15 @@ spec:
         else
           echo "No PULL_PULL_SHA, using the image commit"
         fi
-
         git show --quiet
 
-        export FOURNOS_CI=true
+        FORGE_PROJECT=$(cat "$ARTIFACT_DIR/fournos_fjob.yaml" | yq -r .spec.forge.project)
+        if [[ -z "$FORGE_PROJECT" || "$FORGE_PROJECT" == null ]]; then
+          echo "ERROR: invalid .spec.forge.project='$FORGE_PROJECT' in $FOURNOS_NAMESPACE/$FJOB_NAME"
+          exit 1
+        fi
 
-        exec bin/run_ci "$(params.forge-project)" ci "$FOURNOS_STEP"
+        exec bin/run_ci "$FORGE_PROJECT" ci "$FOURNOS_STEP"
 
   volumes:
     - name: kubeconfig

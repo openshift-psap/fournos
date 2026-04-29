@@ -47,7 +47,7 @@ Jobs are submitted as `FournosJob` custom resources ([manifests/crd.yaml](manife
 | `spec.forge.project`         | yes          | FORGE project path                                                                               |
 | `spec.forge.args`            | yes          | List of arguments passed to FORGE                                                                |
 | `spec.forge.configOverrides` | no           | Arbitrary YAML overrides passed to the test framework                                            |
-| `spec.env`                   | no           | Environment variables passed to the pipeline as a `KEY=VALUE` env file                           |
+| `spec.env`                   | no           | Environment variables available to FORGE (read from the FournosJob spec via K8s API)             |
 | `spec.cluster`               |              | Pin to a specific cluster (Kueue ResourceFlavor). Since `exclusive` defaults to `true`, this also locks the cluster — set `exclusive: false` for shared access. |
 | `spec.hardware.gpuType`      |              | Short GPU model name (e.g. `a100`, `h200`). The operator adds the resource prefix automatically. |
 | `spec.hardware.gpuCount`     | with gpuType | Number of GPUs (minimum 1)                                                                       |
@@ -62,7 +62,7 @@ Jobs are submitted as `FournosJob` custom resources ([manifests/crd.yaml](manife
 
 `spec.hardware` is required unless the job uses exclusive cluster locking (`exclusive: true` + `cluster`), in which case it may be omitted — the Workload only needs cluster-slot resources. Every job passes through the mandatory Resolving phase where Forge populates `spec.hardware` (if not already set) and `spec.secretRefs` directly on the FournosJob. Since `exclusive` defaults to `true`, any job with `spec.cluster` locks the cluster exclusively — including jobs that also specify `spec.hardware`. Set `exclusive: false` for shared access. Jobs without `spec.cluster` must set `exclusive: false`.
 
-`metadata.name` is the unique identifier for the job. Use `metadata.generateName` for auto-generated unique names (e.g. `generateName: nightly-benchmark-` produces `nightly-benchmark-x7k2m`). `spec.displayName` is a human-readable label for external correlation — it does not need to be unique and is passed to the pipeline as `job-name`.
+`metadata.name` is the unique identifier for the job. Use `metadata.generateName` for auto-generated unique names (e.g. `generateName: nightly-benchmark-` produces `nightly-benchmark-x7k2m`). `spec.displayName` is a human-readable label for external correlation — it does not need to be unique. FORGE reads it directly from the FournosJob spec via the K8s API.
 
 ### Status
 
@@ -197,7 +197,7 @@ sequenceDiagram
 1. **on_create**: Operator validates the spec (cluster exists if specified, `exclusive` requires `cluster` — and `exclusive` defaults to `true`). If `spec.shutdown` is set (`Stop` or `Terminate`), immediately sets `phase=Stopped`. Otherwise sets `phase=Resolving`.
 2. **timer (Resolving)**: Launches a Forge resolve K8s Job that patches the FournosJob spec with `hardware` (if not user-provided) and `secretRefs`. Polls the Job for completion. On success, reads the FournosJob spec, validates hardware (GPU type checked against Kueue; hardware is optional for exclusive+cluster jobs), validates `secretRefs` against Vault secrets, creates the Kueue Workload (exclusive jobs request all 100 `fournos/cluster-slot` units; non-exclusive jobs request 1), and sets `phase=Pending`. Failed resolve Jobs are preserved for debugging.
 3. **timer (Pending)**: Polls the Workload for Kueue admission. On admission, extracts the assigned cluster and sets `phase=Admitted`.
-4. **timer (Admitted)**: Reads `secretRefs` from the FournosJob spec, copies each referenced secret from `secrets_namespace` into the operator namespace (per-job name `<fjob-name>-<ref>`, with `ownerReferences` for automatic cleanup), resolves the kubeconfig Secret, creates the Tekton PipelineRun with a projected `vault-secrets` volume mounting all copied secrets at `/var/run/secrets/fournos/<entry-name>/` and `ownerReferences` pointing at the FournosJob, sets `phase=Running`.
+4. **timer (Admitted)**: Reads `secretRefs` from the FournosJob spec, copies each referenced secret from `secrets_namespace` into the operator namespace (per-job name `<fjob-name>-<ref>`, with `ownerReferences` for automatic cleanup), resolves the kubeconfig Secret, creates the Tekton PipelineRun with `FJOB_NAME` + `FOURNOS_NAMESPACE` params (so FORGE can look up the full spec), a projected `vault-secrets` volume mounting all copied secrets at `/var/run/secrets/fournos/<entry-name>/`, and `ownerReferences` pointing at the FournosJob, sets `phase=Running`.
 5. **timer (Running)**: Polls the PipelineRun for completion. On success/failure, deletes the Workload and sets `phase=Succeeded` or `phase=Failed`.
 6. **timer (any non-terminal phase, shutdown)**: If `spec.shutdown` is set (`Stop` or `Terminate`) and the job has a PipelineRun (Admitted/Running), the timer cancels the PipelineRun — `Stop` uses Tekton's `CancelledRunFinally` (runs `finally` tasks), `Terminate` uses `Cancelled` (skips `finally` tasks) — and sets `phase=Stopping`. The Workload is **not** deleted yet — it stays alive to hold the cluster slot while the PipelineRun winds down. If no PipelineRun exists (Pending), the Workload is deleted immediately and the job goes straight to `phase=Stopped`.
 7. **timer (Stopping)**: Polls the PipelineRun until it reaches a terminal state (`succeeded` or `failed`). Once complete, deletes the Workload to release Kueue quota and sets `phase=Stopped`.
@@ -256,14 +256,14 @@ The operator is stateless and crash-safe. On restart, `@kopf.on.resume` re-evalu
 
 FORGE is an existing benchmark execution framework that runs on the hub cluster inside Tekton Task pods and owns all operations on target clusters — setup, benchmark execution, and cleanup — by issuing remote `oc`/`kubectl` commands via kubeconfig Secrets. Fournos has a strict separation of concerns: it handles cluster selection, scheduling, and bookkeeping, but never interacts with target clusters directly.
 
-The operator passes FORGE configuration to the Tekton Pipeline as two params:
+Instead of extracting individual fields from the FournosJob spec and passing them as separate pipeline params, the operator passes two identifiers to both the resolve Job and the Tekton Pipeline:
 
-- **`forge-project`** — `spec.forge.project` as a plain string, for direct use in task scripts (e.g. `bin/run_ci "$(params.forge-project)" ci "$FOURNOS_STEP"`)
-- **`forge-config`** — the entire `spec.forge` dict serialized as YAML, written to `forge_config.yaml` in the task for FORGE to consume
+- **`FJOB_NAME`** — the FournosJob `metadata.name`
+- **`FOURNOS_NAMESPACE`** — the operator namespace
 
-Environment variables (`spec.env`) are serialized as `KEY=VALUE` lines and passed as the `env` param. Tasks write this to `forge_config.env` and source it before invoking FORGE.
+FORGE uses these to look up the full FournosJob spec via the Kubernetes API, giving it access to all configuration in one go (`spec.forge`, `spec.env`, etc.) without the operator needing to serialize and forward individual fields.
 
-Fournos also passes `job-name` (from `spec.displayName` or `metadata.name`) so FORGE can use it for its own resource naming and correlation.
+FORGE reads `spec.displayName` (or `metadata.name`) directly from the FournosJob spec for its own resource naming and correlation.
 
 **Hub configuration vs mocks:** `config/forge/` is the authoritative layout for deploying FORGE on the hub (workflows, images, samples). Tasks in `config/forge/workflows/tasks.yaml` and `config/fournos-validation/workflows/tasks.yaml` implement the parameter interface for real clusters. `dev/mock-pipelines/` holds echo/sleep Tekton stand-ins used only by kind-based dev setup and tests—not a substitute for `config/forge/`.
 
@@ -406,7 +406,7 @@ README.md
 - **CRD-based operator** (kopf) — consumers interact via `kubectl` / Kubernetes API, getting RBAC, audit logging, and `kubectl wait` for free
 - **Unified Kueue scheduling** — all jobs flow through Kueue for consistent quota tracking and priority ordering. Cluster-pinned jobs use `nodeSelector` to constrain admission to a single ResourceFlavor; hardware-request jobs leave all flavors eligible.
 - **Separation of concerns** — Fournos owns scheduling, bookkeeping, and parameter passing; FORGE owns all target-cluster operations (setup, execution, cleanup). Fournos never touches target clusters directly.
-- **FORGE is opaque** — Fournos never validates FORGE config; the entire `spec.forge` dict is serialized as YAML and passed through to the Tekton Pipeline alongside `spec.forge.project` as a convenience string param
+- **FORGE is opaque** — Fournos never validates FORGE config; it passes `FJOB_NAME` and `FOURNOS_NAMESPACE` so FORGE can look up the full FournosJob spec via the K8s API
 - **Tekton for execution, Kueue for scheduling** — virtual Workload pattern with `fournos/gpu-`* resources
 - **Stateless operator** — all job state lives in Kubernetes resources (FournosJob CRs, PipelineRuns, Workloads), not in memory. Crash-safe via `on_resume`.
 - **Timer-based reconciliation** — the operator polls Workload admission and PipelineRun completion via a kopf timer (5s interval), eliminating the need for callback tasks or watch streams on third-party resources

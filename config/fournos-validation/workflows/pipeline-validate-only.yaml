@@ -5,23 +5,12 @@ metadata:
   name: fournos-validate-only
 spec:
   params:
-    - name: job-name
+    - name: fjob-name
       type: string
-    - name: forge-project
+    - name: fournos-namespace
       type: string
-    - name: forge-config
-      type: string
-      default: ""
-    - name: env
-      type: string
-      default: ""
     - name: kubeconfig-secret
       type: string
-    - name: gpu-count
-      type: string
-    - name: secret-refs
-      type: array
-      default: []
   tasks:
     - name: validate
       taskRef:
@@ -29,8 +18,3 @@ spec:
       params:
         - name: kubeconfig-secret
           value: "$(params.kubeconfig-secret)"
-        - name: job-name
-          value: "$(params.job-name)"
-        - name: secret-refs
-          value:
-            - $(params.secret-refs[*])

@@ -6,11 +6,6 @@ spec:
   params:
     - name: kubeconfig-secret
       type: string
-    - name: job-name
-      type: string
-    - name: secret-refs
-      type: array
-      default: []
   steps:
     - name: check-connectivity
       image: bitnami/kubectl:latest

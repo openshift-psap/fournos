@@ -25,7 +25,6 @@ from tests.conftest import (
     SECRETS_NAMESPACE,
     create_job,
     create_noop_resolve_job,
-    get_pipelinerun_param,
     get_pipelinerun_volumes,
     job_status_summary,
     poll_phase,
@@ -128,11 +127,6 @@ def test_vault_sync_then_fjob(k8s, core_v1):
         )
         assert phase in ("Running", "Succeeded"), job_status_summary(
             k8s, "test-e2e-secret"
-        )
-
-        refs_param = get_pipelinerun_param("test-e2e-secret", "secret-refs")
-        assert refs_param == [VAULT_ENTRY], (
-            f"PipelineRun secret-refs should be {[VAULT_ENTRY]!r}, got {refs_param!r}"
         )
 
         volumes = get_pipelinerun_volumes("test-e2e-secret")

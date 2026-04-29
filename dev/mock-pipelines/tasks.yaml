@@ -9,14 +9,11 @@ spec:
   params:
     - name: kubeconfig-secret
       type: string
-    - name: job-name
-      type: string
   steps:
     - name: validate
       image: busybox:1.36
       script: |
         #!/bin/sh
-        echo "[mock-prepare] job=$(params.job-name)"
         echo "[mock-prepare] kubeconfig-secret=$(params.kubeconfig-secret)"
         echo "[mock-prepare] connectivity check: OK"
 
@@ -27,20 +24,12 @@ metadata:
   name: fournos-run
 spec:
   params:
-    - name: forge-project
+    - name: fjob-name
       type: string
-    - name: forge-config
-      type: string
-    - name: env
+    - name: fournos-namespace
       type: string
     - name: kubeconfig-secret
       type: string
-    - name: gpu-count
-      type: string
-    - name: job-name
-      type: string
-    - name: secret-refs
-      type: array
   steps:
     - name: run-forge
       image: busybox:1.36
@@ -58,13 +47,8 @@ spec:
       script: |
         #!/bin/sh
         MOCK_SLEEP="${MOCK_SLEEP:-3}"
-        echo "[mock-run] forge-project=$(params.forge-project)"
-        echo "[mock-run] forge-config:"
-        echo "$(params.forge-config)" | sed 's/^/  /'
-        echo "[mock-run] env:"
-        echo "$(params.env)" | sed 's/^/  /'
-        echo "[mock-run] gpu-count=$(params.gpu-count)"
-        echo "[mock-run] job=$(params.job-name)"
+        echo "[mock-run] fjob-name=$(params.fjob-name)"
+        echo "[mock-run] fournos-namespace=$(params.fournos-namespace)"
         echo "[mock-run] vault-secrets:"
         find /var/run/secrets/fournos -type f 2>/dev/null | sort | while read f; do echo "  $f ($(wc -c < "$f") bytes)"; done
         echo "[mock-run] simulating workload (${MOCK_SLEEP}s)..."
@@ -80,14 +64,11 @@ spec:
   params:
     - name: kubeconfig-secret
       type: string
-    - name: job-name
-      type: string
   steps:
     - name: cleanup
       image: busybox:1.36
       script: |
         #!/bin/sh
-        echo "[mock-cleanup] job=$(params.job-name)"
         echo "[mock-cleanup] nothing to clean up in mock mode"
 
 ---
@@ -98,41 +79,23 @@ metadata:
   name: fournos-run-only
 spec:
   params:
-    - name: job-name
+    - name: fjob-name
       type: string
-    - name: forge-project
+    - name: fournos-namespace
       type: string
-    - name: forge-config
-      type: string
-    - name: env
-      type: string
-      default: ""
     - name: kubeconfig-secret
       type: string
-    - name: gpu-count
-      type: string
-    - name: secret-refs
-      type: array
-      default: []
   tasks:
     - name: run
       taskRef:
         name: fournos-run
       params:
-        - name: forge-project
-          value: "$(params.forge-project)"
-        - name: forge-config
-          value: "$(params.forge-config)"
-        - name: env
-          value: "$(params.env)"
+        - name: fjob-name
+          value: "$(params.fjob-name)"
+        - name: fournos-namespace
+          value: "$(params.fournos-namespace)"
         - name: kubeconfig-secret
           value: "$(params.kubeconfig-secret)"
-        - name: gpu-count
-          value: "$(params.gpu-count)"
-        - name: job-name
-          value: "$(params.job-name)"
-        - name: secret-refs
-          value: ["$(params.secret-refs[*])"]
 
 ---
 # Mock config — controls mock task behavior.
@@ -143,4 +106,3 @@ metadata:
   name: fournos-mock-config
 data:
   sleep: "3"
-
