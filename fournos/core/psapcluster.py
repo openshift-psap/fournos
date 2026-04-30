@@ -98,10 +98,6 @@ class PSAPClusterManager:
                     "matchLabels": {"fournos.dev/queue-access": "true"},
                 },
                 "stopPolicy": stop_policy,
-                "preemption": {
-                    "withinClusterQueue": "LowerPriority",
-                    "reclaimWithinCohort": "Any",
-                },
                 "resourceGroups": [
                     {
                         "coveredResources": covered,
