@@ -22,7 +22,10 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: ocpci
-    namespace: psap-automation  # This points back to the original namespace
+    namespace: psap-automation
+  - kind: ServiceAccount
+    name: pipeline
+    namespace: psap-automation-wip
 roleRef:
   kind: Role
   name: ocpci-fournos-job-manager

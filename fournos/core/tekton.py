@@ -92,6 +92,9 @@ class TektonClient:
                     {
                         "name": "artifacts",
                         "volumeClaimTemplate": {
+                            "metadata": {
+                                "labels": labels,
+                            },
                             "spec": {
                                 "accessModes": ["ReadWriteOnce"],
                                 "resources": {
