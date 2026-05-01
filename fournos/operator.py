@@ -15,9 +15,9 @@ from kubernetes import client, config
 
 from fournos.core.clusters import ClusterRegistry
 from fournos.core.constants import LABEL_JOB_NAME, Phase
+from fournos.core.discovery import ClusterDiscovery
 from fournos.core.gpu_discovery import GPUDiscoveryClient
 from fournos.core.kueue import KueueClient
-from fournos.core.psapcluster import PSAPClusterManager
 from fournos.core.resolve import ResolveClient
 from fournos.core.tekton import TektonClient
 from fournos import __version__, handlers
@@ -62,7 +62,9 @@ def startup(**_):
     ctx.registry = ClusterRegistry(client.CoreV1Api())
     ctx.resolve = ResolveClient(client.BatchV1Api())
     ctx.gpu_discovery = GPUDiscoveryClient(client.CoreV1Api())
-    ctx.psapcluster = PSAPClusterManager(custom_objects)
+    ctx.discovery = ClusterDiscovery(
+        client.CoreV1Api(), custom_objects, ctx.kueue
+    )
 
     logger.info("Operating in namespace %s", settings.namespace)
     logger.info("Secrets namespace: %s", settings.secrets_namespace)
@@ -70,6 +72,13 @@ def startup(**_):
     gc_thread = threading.Thread(target=_gc_loop, daemon=True)
     gc_thread.start()
     logger.info("Resource GC started (interval=%ss)", settings.gc_interval_sec)
+
+    discovery_thread = threading.Thread(target=_discovery_loop, daemon=True)
+    discovery_thread.start()
+    logger.info(
+        "Cluster discovery started (interval=%ss)",
+        settings.cluster_discovery_interval_sec,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +164,16 @@ def reconcile_psapcluster(spec, name, namespace, status, patch, body, **_):
 # ---------------------------------------------------------------------------
 # RESOURCE GC — delete stale Workloads/PipelineRuns whose FournosJob is gone
 # ---------------------------------------------------------------------------
+
+
+def _discovery_loop():
+    interval = settings.cluster_discovery_interval_sec
+    while True:
+        time.sleep(interval)
+        try:
+            handlers.scan_clusters()
+        except Exception:
+            logger.exception("Cluster discovery scan failed")
 
 
 def _gc_loop():

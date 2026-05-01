@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-from kubernetes import client
+from kubernetes import client as k8s_client
 
 from fournos.core.constants import (
     CLUSTER_SLOT_RESOURCE,
@@ -25,6 +25,7 @@ from .status import (
     CRD_GROUP,
     CRD_VERSION,
     COND_WORKLOAD_ADMITTED,
+    owner_ref,
     set_condition,
 )
 
@@ -49,6 +50,17 @@ def on_create(spec, name, namespace, status, patch, body):
 
     cluster = spec.get("cluster")
     exclusive = spec["exclusive"]
+    lock_only = spec.get("lockOnly", False)
+
+    if lock_only and not cluster:
+        patch.status["phase"] = Phase.FAILED
+        patch.status["message"] = "lockOnly: true requires 'cluster' to be set"
+        return
+
+    if not lock_only and not spec.get("forge"):
+        patch.status["phase"] = Phase.FAILED
+        patch.status["message"] = "spec.forge is required for non-lockOnly jobs"
+        return
 
     if exclusive and not cluster:
         patch.status["phase"] = Phase.FAILED
@@ -58,7 +70,7 @@ def on_create(spec, name, namespace, status, patch, body):
     if cluster:
         try:
             known_flavors = ctx.kueue.list_flavors()
-        except client.exceptions.ApiException as exc:
+        except k8s_client.exceptions.ApiException as exc:
             patch.status["phase"] = Phase.FAILED
             patch.status["message"] = f"Failed to list clusters: {exc.reason}"
             logger.error("Job %s: list_flavors failed: %s", name, exc.reason)
@@ -71,9 +83,45 @@ def on_create(spec, name, namespace, status, patch, body):
     if exclusive:
         patch.meta.setdefault("labels", {})[LABEL_EXCLUSIVE_CLUSTER] = cluster
 
+    if lock_only:
+        _create_lock_workload(spec, name, patch, body)
+        return
+
     patch.status["phase"] = Phase.RESOLVING
     patch.status["message"] = "Resolving job requirements"
     logger.info("Job %s: phase=Resolving", name)
+
+
+def _create_lock_workload(spec, name, patch, body):
+    """Create a Kueue Workload for a lockOnly sentinel job and go straight to Pending."""
+    try:
+        ctx.kueue.create_workload(
+            name=name,
+            gpu_type=None,
+            gpu_count=0,
+            cluster=spec["cluster"],
+            exclusive=True,
+            priority=spec.get("priority"),
+            owner_ref=owner_ref(body),
+        )
+    except k8s_client.exceptions.ApiException as exc:
+        if exc.status != 409:
+            patch.status["phase"] = Phase.FAILED
+            patch.status["message"] = f"Failed to create Workload: {exc.reason}"
+            logger.error("Job %s: Workload creation failed: %s", name, exc.reason)
+            return
+
+    patch.status["phase"] = Phase.PENDING
+    patch.status["message"] = "Cluster lock pending admission"
+    set_condition(
+        patch,
+        [],
+        COND_WORKLOAD_ADMITTED,
+        "False",
+        "Pending",
+        "Lock workload created, waiting for Kueue admission",
+    )
+    logger.info("Job %s: lockOnly sentinel, phase=Pending", name)
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +136,7 @@ def _find_exclusive_locker(cluster: str, exclude_job: str) -> str | None:
     Returns None on API errors so reconciliation is not interrupted.
     """
     try:
-        custom = client.CustomObjectsApi()
+        custom = k8s_client.CustomObjectsApi()
         jobs = custom.list_namespaced_custom_object(
             CRD_GROUP,
             CRD_VERSION,
@@ -96,7 +144,7 @@ def _find_exclusive_locker(cluster: str, exclude_job: str) -> str | None:
             "fournosjobs",
             label_selector=f"{LABEL_EXCLUSIVE_CLUSTER}={cluster}",
         )
-    except client.exceptions.ApiException:
+    except k8s_client.exceptions.ApiException:
         logger.warning("Failed to query exclusive locker for cluster %s", cluster)
         return None
     for job in jobs.get("items", []):

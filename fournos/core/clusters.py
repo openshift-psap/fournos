@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 
 from kubernetes import client
@@ -9,6 +10,43 @@ from fournos.core.constants import LABEL_MANAGED_BY, LABEL_VAULT_ENTRY
 from fournos.settings import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _build_cluster_name_regex(pattern: str) -> re.Pattern[str]:
+    """Convert a format-string pattern like ``kubeconfig-{cluster}`` to a regex."""
+    escaped = re.escape(pattern)
+    regex = escaped.replace(r"\{cluster\}", r"(?P<cluster>.+)")
+    return re.compile(f"^{regex}$")
+
+
+_CLUSTER_NAME_RE: re.Pattern[str] | None = None
+
+
+def _get_cluster_name_re() -> re.Pattern[str]:
+    global _CLUSTER_NAME_RE
+    if _CLUSTER_NAME_RE is None:
+        _CLUSTER_NAME_RE = _build_cluster_name_regex(settings.kubeconfig_secret_pattern)
+    return _CLUSTER_NAME_RE
+
+
+def extract_cluster_name(secret_name: str) -> str | None:
+    """Extract the cluster name from a kubeconfig secret name.
+
+    Returns ``None`` if the secret name does not match the pattern.
+    """
+    m = _get_cluster_name_re().match(secret_name)
+    return m.group("cluster") if m else None
+
+
+def list_kubeconfig_secrets(k8s: client.CoreV1Api) -> list[str]:
+    """List all secrets in the secrets namespace that match the kubeconfig pattern."""
+    result = k8s.list_namespaced_secret(settings.secrets_namespace)
+    pattern = _get_cluster_name_re()
+    return [
+        s.metadata.name
+        for s in result.items
+        if pattern.match(s.metadata.name)
+    ]
 
 
 @dataclass(frozen=True)
