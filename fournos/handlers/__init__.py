@@ -13,6 +13,7 @@ from .psapcluster import (
     reconcile_psapcluster,
 )
 from .resolving import reconcile_resolving
+from .discovery import scan_clusters
 
 __all__ = [
     "on_create",
@@ -25,4 +26,5 @@ __all__ = [
     "on_psapcluster_create",
     "on_psapcluster_owner_change",
     "reconcile_psapcluster",
+    "scan_clusters",
 ]

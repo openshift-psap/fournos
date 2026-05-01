@@ -5,7 +5,7 @@ metadata:
 spec:
   owner: perf-team
   displayName: forge-full-sample
-  cluster: cluster-1
+  cluster: athena-fire
   pipeline: forge-full
   forge:
     project: llm_d

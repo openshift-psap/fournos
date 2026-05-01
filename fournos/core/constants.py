@@ -30,11 +30,8 @@ class Shutdown(StrEnum):
 
 
 # PSAPCluster constants
-LABEL_PSAPCLUSTER = "fournos.dev/psapcluster"
-PSAPCLUSTER_CQ_PREFIX = "fournos-"
-PSAPCLUSTER_COHORT = "fournos"
-DEFAULT_CLUSTER_SLOTS = 100
+LABEL_PSAPCLUSTER_LOCK = "fournos.dev/psapcluster-lock"
+LABEL_AUTO_DISCOVERED = "fournos.dev/auto-discovered"
 
 COND_KUBECONFIG_VALID = "KubeconfigValid"
 COND_GPU_DISCOVERED = "GPUDiscovered"
-COND_CLUSTER_QUEUE_READY = "ClusterQueueReady"

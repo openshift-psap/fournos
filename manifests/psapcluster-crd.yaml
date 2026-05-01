@@ -32,9 +32,9 @@ spec:
         - name: Locked
           type: boolean
           jsonPath: .status.locked
-        - name: Queue
+        - name: Lock Job
           type: string
-          jsonPath: .status.clusterQueueStatus
+          jsonPath: .status.lockJobName
           priority: 1
         - name: TTL
           type: string
@@ -65,20 +65,14 @@ spec:
                   type: string
                   description: >-
                     Person or team claiming exclusive ownership. When set,
-                    the controller sets the per-cluster ClusterQueue stopPolicy
-                    to Hold. Running jobs finish; new jobs queue. Clear to release.
+                    the controller creates a sentinel FournosJob that holds
+                    all cluster-slot quota, blocking other jobs. Clear to release.
                 ttl:
                   type: string
                   pattern: "^[0-9]+(m|h|d)$"
                   description: >-
                     Duration for auto-expiry of ownership (e.g. "4h", "30m", "2d").
                     Ignored when owner is not set.
-                evict:
-                  type: boolean
-                  default: false
-                  description: >-
-                    When true and owner is set, uses HoldAndDrain instead of Hold
-                    (evicts running jobs in addition to blocking new ones).
                 gpuDiscoveryInterval:
                   type: string
                   pattern: "^[0-9]+(m|h|d)$"
@@ -104,18 +98,12 @@ spec:
                 ownerSetAt:
                   type: string
                   format: date-time
+                lockJobName:
+                  type: string
+                  description: >-
+                    Name of the sentinel FournosJob holding cluster quota
+                    while the cluster is locked.
                 gpuSummary:
-                  type: string
-                clusterQueueName:
-                  type: string
-                clusterQueueStatus:
-                  type: string
-                  enum:
-                    - Active
-                    - Held
-                    - HeldAndDraining
-                    - Missing
-                resourceFlavorName:
                   type: string
                 hardware:
                   type: object

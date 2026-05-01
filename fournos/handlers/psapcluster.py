@@ -4,10 +4,12 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 
+from kubernetes import client
+
 from fournos.core.constants import (
-    COND_CLUSTER_QUEUE_READY,
     COND_GPU_DISCOVERED,
     COND_KUBECONFIG_VALID,
+    LABEL_PSAPCLUSTER_LOCK,
 )
 from fournos.core.gpu_discovery import GPUDiscoveryError
 from fournos.settings import settings
@@ -17,6 +19,10 @@ logger = logging.getLogger(__name__)
 
 _DURATION_RE = re.compile(r"^(\d+)(m|h|d)$")
 _DURATION_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
+
+CRD_GROUP = "fournos.dev"
+CRD_VERSION = "v1"
+FOURNOSJOB_PLURAL = "fournosjobs"
 
 
 def parse_duration(s: str) -> timedelta:
@@ -63,6 +69,10 @@ def _check_kubeconfig(spec: dict) -> str:
         return "Invalid"
 
 
+def _lock_job_name(cluster_name: str) -> str:
+    return f"psapcluster-lock-{cluster_name}"
+
+
 # ---------------------------------------------------------------------------
 # CREATE / RESUME
 # ---------------------------------------------------------------------------
@@ -73,18 +83,8 @@ def on_psapcluster_create(spec, name, namespace, status, patch, body):
 
     kubeconfig_status = _check_kubeconfig(spec)
 
-    ctx.psapcluster.ensure_resource_flavor(name)
-    ctx.psapcluster.ensure_cluster_queue(name)
-
-    for ns in _queue_namespaces():
-        ctx.psapcluster.ensure_local_queue(name, ns)
-
-    cq_name = ctx.psapcluster.cluster_queue_name(name)
     patch.status["kubeconfigStatus"] = kubeconfig_status
     patch.status["locked"] = False
-    patch.status["clusterQueueName"] = cq_name
-    patch.status["clusterQueueStatus"] = "Active"
-    patch.status["resourceFlavorName"] = name
     patch.status["conditions"] = [
         _make_condition(
             COND_KUBECONFIG_VALID,
@@ -92,7 +92,6 @@ def on_psapcluster_create(spec, name, namespace, status, patch, body):
             kubeconfig_status,
         ),
         _make_condition(COND_GPU_DISCOVERED, "False", "Pending"),
-        _make_condition(COND_CLUSTER_QUEUE_READY, "True", "Created"),
     ]
 
     owner = spec.get("owner")
@@ -115,16 +114,13 @@ def on_psapcluster_owner_change(spec, name, namespace, status, patch, body, old,
 
 
 def _apply_lock(spec: dict, name: str, patch, owner: str) -> None:
-    evict = spec.get("evict", False)
-    policy = "HoldAndDrain" if evict else "Hold"
-    queue_status = "HeldAndDraining" if evict else "Held"
-
-    ctx.psapcluster.set_cluster_queue_stop_policy(name, policy)
+    lock_job = _lock_job_name(name)
+    _create_sentinel_job(name, lock_job, owner)
 
     now = datetime.now(timezone.utc)
     patch.status["locked"] = True
     patch.status["ownerSetAt"] = now.isoformat()
-    patch.status["clusterQueueStatus"] = queue_status
+    patch.status["lockJobName"] = lock_job
 
     ttl_str = spec.get("ttl")
     if ttl_str:
@@ -138,23 +134,78 @@ def _apply_lock(spec: dict, name: str, patch, owner: str) -> None:
         patch.status["lockExpiresAt"] = None
 
     logger.info(
-        "PSAPCluster %s: locked by %s (policy=%s, ttl=%s)",
+        "PSAPCluster %s: locked by %s (sentinel=%s, ttl=%s)",
         name,
         owner,
-        policy,
+        lock_job,
         ttl_str or "indefinite",
     )
 
 
 def _release_lock(name: str, patch) -> None:
-    ctx.psapcluster.set_cluster_queue_stop_policy(name, "None")
+    lock_job = _lock_job_name(name)
+    _delete_sentinel_job(lock_job)
 
     patch.status["locked"] = False
     patch.status["lockExpiresAt"] = None
     patch.status["ownerSetAt"] = None
-    patch.status["clusterQueueStatus"] = "Active"
+    patch.status["lockJobName"] = None
 
-    logger.info("PSAPCluster %s: unlocked", name)
+    logger.info("PSAPCluster %s: unlocked (deleted sentinel %s)", name, lock_job)
+
+
+def _create_sentinel_job(cluster_name: str, job_name: str, owner: str) -> None:
+    body = {
+        "apiVersion": f"{CRD_GROUP}/{CRD_VERSION}",
+        "kind": "FournosJob",
+        "metadata": {
+            "name": job_name,
+            "namespace": settings.namespace,
+            "labels": {
+                LABEL_PSAPCLUSTER_LOCK: cluster_name,
+            },
+        },
+        "spec": {
+            "cluster": cluster_name,
+            "exclusive": True,
+            "lockOnly": True,
+            "owner": owner,
+            "displayName": f"Cluster lock: {cluster_name} (owner: {owner})",
+        },
+    }
+    custom = client.CustomObjectsApi()
+    try:
+        custom.create_namespaced_custom_object(
+            group=CRD_GROUP,
+            version=CRD_VERSION,
+            namespace=settings.namespace,
+            plural=FOURNOSJOB_PLURAL,
+            body=body,
+        )
+        logger.info("Created sentinel FournosJob %s for cluster %s", job_name, cluster_name)
+    except client.exceptions.ApiException as exc:
+        if exc.status == 409:
+            logger.debug("Sentinel FournosJob %s already exists", job_name)
+        else:
+            raise
+
+
+def _delete_sentinel_job(job_name: str) -> None:
+    custom = client.CustomObjectsApi()
+    try:
+        custom.delete_namespaced_custom_object(
+            group=CRD_GROUP,
+            version=CRD_VERSION,
+            namespace=settings.namespace,
+            plural=FOURNOSJOB_PLURAL,
+            name=job_name,
+        )
+        logger.info("Deleted sentinel FournosJob %s", job_name)
+    except client.exceptions.ApiException as exc:
+        if exc.status == 404:
+            logger.debug("Sentinel FournosJob %s already deleted", job_name)
+        else:
+            raise
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +217,7 @@ def reconcile_psapcluster(spec, name, namespace, status, patch, body):
     _reconcile_kubeconfig(spec, name, status, patch)
     _reconcile_ttl_expiry(spec, name, status, patch)
     _reconcile_gpu_discovery(spec, name, status, patch)
-    _reconcile_cluster_queue(spec, name, status, patch)
+    _reconcile_lock_job(spec, name, status, patch)
 
 
 def _reconcile_kubeconfig(spec, name, status, patch):
@@ -181,7 +232,7 @@ def _reconcile_kubeconfig(spec, name, status, patch):
                 current,
             )
         )
-        logger.info("PSAPCluster %s: kubeconfigStatus changed %s → %s", name, prev, current)
+        logger.info("PSAPCluster %s: kubeconfigStatus changed %s -> %s", name, prev, current)
 
 
 def _reconcile_ttl_expiry(spec, name, status, patch):
@@ -293,39 +344,44 @@ def _reconcile_gpu_discovery(spec, name, status, patch):
     prev_resources = [(g.get("shortName"), g.get("count")) for g in prev_gpus]
     if new_resources != prev_resources and new_resources:
         try:
-            ctx.psapcluster.update_cluster_queue_quotas(name, new_resources)
+            ctx.kueue.update_flavor_quotas(name, new_resources)
         except Exception as exc:
             logger.warning(
-                "PSAPCluster %s: failed to update CQ quotas: %s", name, exc
+                "PSAPCluster %s: failed to update flavor quotas: %s", name, exc
             )
 
 
-def _reconcile_cluster_queue(spec, name, status, patch):
-    cq = ctx.psapcluster.get_cluster_queue_or_none(name)
-    if cq is None:
-        logger.warning("PSAPCluster %s: ClusterQueue missing, recreating", name)
-        gpu_resources = _gpu_resources_from_status(status)
-        stop_policy = "Hold" if status.get("locked") else "None"
-        ctx.psapcluster.ensure_cluster_queue(name, gpu_resources, stop_policy)
-        for ns in _queue_namespaces():
-            ctx.psapcluster.ensure_local_queue(name, ns)
-        patch.status["clusterQueueStatus"] = "Held" if status.get("locked") else "Active"
-        patch.status.setdefault("conditions", []).append(
-            _make_condition(COND_CLUSTER_QUEUE_READY, "True", "Recreated")
-        )
+def _reconcile_lock_job(spec, name, status, patch):
+    """Self-healing: if locked but sentinel job is missing, recreate or clear."""
+    if not status.get("locked"):
         return
 
-    rf = ctx.psapcluster.get_resource_flavor_or_none(name)
-    if rf is None:
-        logger.warning("PSAPCluster %s: ResourceFlavor missing, recreating", name)
-        ctx.psapcluster.ensure_resource_flavor(name)
-
-
-def _gpu_resources_from_status(status: dict) -> list[tuple[str, int]]:
-    hardware = status.get("hardware") or {}
-    gpus = hardware.get("gpus") or []
-    return [(g["shortName"], g["count"]) for g in gpus if g.get("shortName") and g.get("count")]
-
-
-def _queue_namespaces() -> list[str]:
-    return [settings.namespace]
+    lock_job = _lock_job_name(name)
+    custom = client.CustomObjectsApi()
+    try:
+        custom.get_namespaced_custom_object(
+            group=CRD_GROUP,
+            version=CRD_VERSION,
+            namespace=settings.namespace,
+            plural=FOURNOSJOB_PLURAL,
+            name=lock_job,
+        )
+    except client.exceptions.ApiException as exc:
+        if exc.status == 404:
+            owner = spec.get("owner")
+            if owner:
+                logger.warning(
+                    "PSAPCluster %s: sentinel job %s missing, recreating", name, lock_job
+                )
+                _create_sentinel_job(name, lock_job, owner)
+            else:
+                logger.warning(
+                    "PSAPCluster %s: sentinel job %s missing and no owner, clearing lock",
+                    name,
+                    lock_job,
+                )
+                _release_lock(name, patch)
+        else:
+            logger.warning(
+                "PSAPCluster %s: failed to check sentinel job: %s", name, exc
+            )

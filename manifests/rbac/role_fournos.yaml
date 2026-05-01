@@ -6,7 +6,7 @@ metadata:
 rules:
   - apiGroups: ["fournos.dev"]
     resources: ["fournosjobs", "fournosjobs/status", "fournosjobs/finalizers"]
-    verbs: ["get", "list", "watch", "patch", "update"]
+    verbs: ["create", "delete", "get", "list", "watch", "patch", "update"]
   - apiGroups: ["kueue.x-k8s.io"]
     resources: ["workloads"]
     verbs: ["create", "get", "list", "watch", "patch", "delete"]
@@ -21,7 +21,7 @@ rules:
     verbs: ["get", "create"]
   - apiGroups: ["fournos.dev"]
     resources: ["psapclusters", "psapclusters/status", "psapclusters/finalizers"]
-    verbs: ["get", "list", "watch", "patch", "update"]
+    verbs: ["create", "get", "list", "watch", "patch", "update"]
   - apiGroups: ["kueue.x-k8s.io"]
     resources: ["localqueues"]
     verbs: ["create", "get", "list", "watch", "patch", "delete"]

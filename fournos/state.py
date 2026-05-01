@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from fournos.core.clusters import ClusterRegistry
+from fournos.core.discovery import ClusterDiscovery
 from fournos.core.gpu_discovery import GPUDiscoveryClient
 from fournos.core.kueue import KueueClient
-from fournos.core.psapcluster import PSAPClusterManager
 from fournos.core.resolve import ResolveClient
 from fournos.core.tekton import TektonClient
 
@@ -19,7 +19,7 @@ class _OperatorState:
     registry: ClusterRegistry | None = None
     resolve: ResolveClient | None = None
     gpu_discovery: GPUDiscoveryClient | None = None
-    psapcluster: PSAPClusterManager | None = None
+    discovery: ClusterDiscovery | None = None
 
 
 ctx = _OperatorState()
