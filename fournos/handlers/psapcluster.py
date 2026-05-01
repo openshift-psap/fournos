@@ -58,12 +58,12 @@ def _build_gpu_summary(gpus: list[dict]) -> str:
 def _check_kubeconfig(spec: dict) -> str:
     secret_name = spec["kubeconfigSecret"]
     try:
-        ctx.registry._k8s.read_namespaced_secret(
+        client.CoreV1Api().read_namespaced_secret(
             secret_name, settings.secrets_namespace
         )
         return "Valid"
-    except Exception as exc:
-        if hasattr(exc, "status") and exc.status == 404:
+    except client.exceptions.ApiException as exc:
+        if exc.status == 404:
             return "Missing"
         logger.warning("Error checking kubeconfig secret %s: %s", secret_name, exc)
         return "Invalid"
