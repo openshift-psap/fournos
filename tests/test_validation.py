@@ -2,7 +2,7 @@
 
 Tests cover on_create rejections (unknown cluster, exclusive without cluster)
 and admission-phase errors (no flavor assigned).  Resolving-phase validation
-(GPU type, Forge failures) lives in test_resolving.py.
+(GPU type, execution engine failures) lives in test_resolving.py.
 """
 
 import json
@@ -27,7 +27,12 @@ def test_unknown_cluster(k8s):
         "test-unknown",
         {
             "cluster": "no-such-cluster",
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": {
+                "forge": {
+                    "project": "testproj/llmd",
+                    "args": ["cks", "internal-test"],
+                }
+            },
         },
     )
 
@@ -54,7 +59,12 @@ def test_admitted_without_flavor(k8s):
         {
             "exclusive": False,
             "hardware": {"gpuType": "a100", "gpuCount": 999},
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": {
+                "forge": {
+                    "project": "testproj/llmd",
+                    "args": ["cks", "internal-test"],
+                }
+            },
         },
     )
 
@@ -128,7 +138,12 @@ def test_implicit_exclusive_without_cluster_fails(k8s):
         "test-implicit-excl",
         {
             "hardware": {"gpuType": "a100", "gpuCount": 2},
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": {
+                "forge": {
+                    "project": "testproj/llmd",
+                    "args": ["cks", "internal-test"],
+                }
+            },
         },
     )
 

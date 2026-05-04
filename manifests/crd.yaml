@@ -51,7 +51,7 @@ spec:
             spec:
               type: object
               required:
-                - forge
+                - executionEngine
               properties:
                 owner:
                   type: string
@@ -82,22 +82,13 @@ spec:
                     gpuCount:
                       type: integer
                       minimum: 1
-                forge:
+                executionEngine:
                   type: object
-                  required:
-                    - project
-                    - args
-                  properties:
-                    project:
-                      type: string
-                    args:
-                      type: array
-                      items:
-                        type: string
-                    configOverrides:
-                      type: object
-                      description: Overrides passed to the test framework as YAML.
-                      x-kubernetes-preserve-unknown-fields: true
+                  description: >-
+                    Execution engine configuration. The top-level key is the
+                    engine name (e.g. "forge") and its value is the
+                    engine-specific config.
+                  x-kubernetes-preserve-unknown-fields: true
                 secretRefs:
                   type: array
                   description: >-
@@ -105,8 +96,8 @@ spec:
                     into the pipeline.  The operator prepends vault- to
                     look up the corresponding K8s Secret (which must carry
                     the fournos.dev/vault-entry=true label) in the secrets
-                    namespace.  Populated by Forge during the Resolving
-                    phase when not provided by the user.
+                    namespace. Populated by the execution engine during the
+                    Resolving phase when not provided by the user.
                   items:
                     type: string
                     pattern: "^[a-z0-9]([a-z0-9\\-]{0,61}[a-z0-9])?$"

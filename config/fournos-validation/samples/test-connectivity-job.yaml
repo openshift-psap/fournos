@@ -10,6 +10,7 @@ spec:
   hardware:
     gpuType: a100
     gpuCount: 1
-  forge:
-    project: none
-    args: []
+  executionEngine:
+    forge:
+      project: none
+      args: []

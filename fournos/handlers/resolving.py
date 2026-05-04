@@ -1,6 +1,6 @@
 """Resolving handler — reconcile_resolving.
 
-Covers the Resolving phase: launching a Forge resolve Job that patches
+Covers the Resolving phase: launching a resolve Job that patches
 the FournosJob spec with hardware and secretRefs, validating the results,
 and creating the Kueue Workload to transition into Pending.
 """
@@ -13,6 +13,7 @@ from kubernetes import client
 
 from fournos.core.constants import Phase
 from fournos.core.resolve import ResolveClient
+from fournos.core.tekton import ANNOTATION_RESOLVE_IMAGE
 from fournos.state import ctx
 
 from .status import (
@@ -48,6 +49,9 @@ def _resolve_failed(patch, conditions, name, message, *, reason, cond_message=No
 def _ensure_resolve_job(spec, name, conditions, patch, body):
     """Create the resolve Job if it doesn't exist yet.
 
+    The resolve image is read from the ``fournos.dev/resolve-image``
+    annotation on the Tekton Pipeline referenced by ``spec.pipeline``.
+
     Returns the existing Job dict, or None if the Job was just created
     (or a 409 race was hit) — the caller should return and wait for the
     next reconcile tick.  Returns ``False`` on fatal creation failure
@@ -57,10 +61,37 @@ def _ensure_resolve_job(spec, name, conditions, patch, body):
     if job is not None:
         return job
 
+    pipeline_name = spec.get("pipeline", "fournos-full")
+    try:
+        pipeline = ctx.tekton.get_pipeline(pipeline_name)
+    except client.exceptions.ApiException as exc:
+        _resolve_failed(
+            patch,
+            conditions,
+            name,
+            f"Failed to fetch Pipeline '{pipeline_name}': {exc.reason}",
+            reason="PipelineNotFound",
+        )
+        return False
+
+    annotations = pipeline.get("metadata", {}).get("annotations") or {}
+    resolve_image = annotations.get(ANNOTATION_RESOLVE_IMAGE)
+    if not resolve_image:
+        _resolve_failed(
+            patch,
+            conditions,
+            name,
+            f"Pipeline '{pipeline_name}' is missing the "
+            f"'{ANNOTATION_RESOLVE_IMAGE}' annotation",
+            reason="MissingResolveImage",
+        )
+        return False
+
     try:
         ctx.resolve.create_job(
             name=name,
             owner_ref=owner_ref(body),
+            image=resolve_image,
         )
     except client.exceptions.ApiException as exc:
         if exc.status == 409:
@@ -83,7 +114,7 @@ def _ensure_resolve_job(spec, name, conditions, patch, body):
         "Resolving",
         "Resolve Job created, waiting for completion",
     )
-    patch.status["message"] = "Resolving job requirements via Forge"
+    patch.status["message"] = "Resolving job requirements"
     logger.info("Job %s: created resolve Job", name)
     return None
 
@@ -107,7 +138,7 @@ def _check_job_finished(job, name, conditions, patch):
             patch,
             conditions,
             name,
-            f"Forge resolution failed: {message}",
+            f"Resolution failed: {message}",
             reason="Failed",
             cond_message=message,
         )
@@ -124,7 +155,7 @@ def _resolve_hardware(
 ) -> tuple[str | None, int | None]:
     """Determine and validate GPU requirements from the FournosJob spec.
 
-    Forge populates ``spec.hardware`` when absent.  The GPU type is
+    The resolve Job populates ``spec.hardware`` when absent.  The GPU type is
     validated against Kueue unless this is an exclusive cluster-lock
     job with no hardware requirements.
 
@@ -150,7 +181,7 @@ def _resolve_hardware(
                 conditions,
                 name,
                 "No hardware requirements: spec.hardware not populated "
-                "after Forge resolution",
+                "after resolution",
                 reason="NoHardware",
                 cond_message="No hardware requirements found",
             )
@@ -158,7 +189,7 @@ def _resolve_hardware(
         logger.warning(
             "Job %s: exclusive cluster lock without hardware — "
             "Workload will only request cluster-slot resources "
-            "(Forge may not have populated spec.hardware)",
+            "(resolve Job may not have populated spec.hardware)",
             name,
         )
         return None, 0
@@ -266,7 +297,7 @@ def _create_workload_and_transition(
         COND_RESOLVED,
         "True",
         "Resolved",
-        "Forge resolution complete",
+        "Resolution complete",
     )
     set_condition(
         patch,

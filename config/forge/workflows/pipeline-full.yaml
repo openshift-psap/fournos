@@ -3,6 +3,8 @@ apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
   name: forge-full
+  annotations:
+    fournos.dev/resolve-image: image-registry.openshift-image-registry.svc:5000/${NAMESPACE}/forge-core:main
 spec:
   workspaces:
     - name: artifacts

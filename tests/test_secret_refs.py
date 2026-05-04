@@ -1,7 +1,7 @@
 """End-to-end tests — Vault sync -> secretRef resolution -> PipelineRun.
 
-SecretRefs live on the FournosJob spec and are populated by Forge during
-the Resolving phase.  The Vault HTTP layer is mocked so no real Vault is
+SecretRefs live on the FournosJob spec and are populated by the execution
+engine during the Resolving phase.  The Vault HTTP layer is mocked so no real Vault is
 needed, but secrets are created on the live cluster by the sync script,
 then consumed by a FournosJob whose spec.secretRefs references them.
 
@@ -112,9 +112,11 @@ def test_vault_sync_then_fjob(k8s, core_v1):
                 "cluster": "cluster-1",
                 "hardware": {"gpuType": "a100", "gpuCount": 2},
                 "secretRefs": [VAULT_ENTRY],
-                "forge": {
-                    "project": "testproj/llmd",
-                    "args": ["cks", "internal-test"],
+                "executionEngine": {
+                    "forge": {
+                        "project": "testproj/llmd",
+                        "args": ["cks", "internal-test"],
+                    }
                 },
             },
         )
@@ -179,9 +181,11 @@ def test_missing_secret_ref_fails(k8s):
             "cluster": "cluster-1",
             "hardware": {"gpuType": "a100", "gpuCount": 2},
             "secretRefs": ["nonexistent-vault-entry"],
-            "forge": {
-                "project": "testproj/llmd",
-                "args": ["cks", "internal-test"],
+            "executionEngine": {
+                "forge": {
+                    "project": "testproj/llmd",
+                    "args": ["cks", "internal-test"],
+                }
             },
         },
     )

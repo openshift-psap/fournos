@@ -9,17 +9,18 @@ spec:
   hardware:
     gpuType: a100
     gpuCount: 2
-  forge:
-    project: llm-d
-    args:
-      - cks
-      - something-else
-    configOverrides:
-      vllm:
-        version: 0.15.1
-      logging:
-        enabled: true
-        level: debug
+  executionEngine:
+    forge:
+      project: llm-d
+      args:
+        - cks
+        - something-else
+      configOverrides:
+        vllm:
+          version: 0.15.1
+        logging:
+          enabled: true
+          level: debug
   env:
     OCPCI_SUITE: regression
     OCPCI_VARIANT: nightly
