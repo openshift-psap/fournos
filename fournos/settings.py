@@ -17,8 +17,8 @@ class Settings(BaseSettings):
     gpu_resource_prefix: str = "fournos/gpu-"
     gc_interval_sec: float = Field(default=300.0, gt=0)
     log_level: str = "INFO"
-    resolve_image: str = (
-        "image-registry.openshift-image-registry.svc:5000/{namespace}/forge-core:main"
+    resolve_image_registry: str = (
+        "image-registry.openshift-image-registry.svc:5000/{namespace}/"
     )
     resolve_deadline_sec: int = Field(default=300, gt=0)
     resolve_job_template: str = "config/forge/resolve_job.yaml"

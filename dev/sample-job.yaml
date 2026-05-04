@@ -9,7 +9,9 @@ spec:
   hardware:
     gpuType: a100
     gpuCount: 2
-  forge:
+  executionEngine: forge
+  executionEngineSpec:
+    resolveImage: forge-core:main
     project: llm-d
     args:
       - cks

@@ -7,7 +7,9 @@ spec:
   displayName: forge-full-sample
   cluster: cluster-1
   pipeline: forge-full
-  forge:
+  executionEngine: forge
+  executionEngineSpec:
+    resolveImage: forge-core:main
     project: llm_d
     args:
       - cks

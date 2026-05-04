@@ -49,6 +49,7 @@ class ResolveClient:
         *,
         name: str,
         owner_ref: dict,
+        image: str,
     ) -> dict:
         job_name = _resolve_job_name(name)
         labels = {LABEL_MANAGED_BY: "fournos", LABEL_JOB_NAME: name}
@@ -64,9 +65,7 @@ class ResolveClient:
         body["spec"]["template"]["metadata"] = {"labels": labels}
 
         container = body["spec"]["template"]["spec"]["containers"][0]
-        container["image"] = settings.resolve_image.format(
-            namespace=settings.namespace,
-        )
+        container["image"] = image
 
         env_values = {
             "FJOB_NAME": name,

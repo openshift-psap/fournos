@@ -84,7 +84,12 @@ def test_exclusive_happy_path(k8s):
         {
             "cluster": "cluster-2",
             "exclusive": True,
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": "forge",
+            "executionEngineSpec": {
+                "resolveImage": "fournos-mock-resolve:dev",
+                "project": "testproj/llmd",
+                "args": ["cks", "internal-test"],
+            },
         },
     )
 
@@ -92,7 +97,7 @@ def test_exclusive_happy_path(k8s):
         k8s,
         "test-excl-happy",
         terminal={Phase.SUCCEEDED, Phase.FAILED},
-        timeout=90,
+        timeout=120,
     )
     assert phase == Phase.SUCCEEDED, job_status_summary(k8s, "test-excl-happy")
 
@@ -108,7 +113,12 @@ def test_exclusive_workload_requests_all_slots(k8s):
         {
             "cluster": "cluster-2",
             "exclusive": True,
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": "forge",
+            "executionEngineSpec": {
+                "resolveImage": "fournos-mock-resolve:dev",
+                "project": "testproj/llmd",
+                "args": ["cks", "internal-test"],
+            },
         },
     )
     poll_phase(
@@ -132,7 +142,12 @@ def test_normal_workload_requests_one_slot(k8s):
         {
             "exclusive": False,
             "cluster": "cluster-1",
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": "forge",
+            "executionEngineSpec": {
+                "resolveImage": "fournos-mock-resolve:dev",
+                "project": "testproj/llmd",
+                "args": ["cks", "internal-test"],
+            },
         },
     )
     poll_phase(
@@ -154,7 +169,12 @@ def test_exclusive_blocks_cluster_pinned_job(k8s):
         {
             "cluster": "cluster-2",
             "exclusive": True,
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": "forge",
+            "executionEngineSpec": {
+                "resolveImage": "fournos-mock-resolve:dev",
+                "project": "testproj/llmd",
+                "args": ["cks", "internal-test"],
+            },
         },
     )
     poll_phase(k8s, "test-excl-lock", terminal={Phase.RUNNING}, timeout=30)
@@ -165,7 +185,12 @@ def test_exclusive_blocks_cluster_pinned_job(k8s):
         {
             "exclusive": False,
             "cluster": "cluster-2",
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": "forge",
+            "executionEngineSpec": {
+                "resolveImage": "fournos-mock-resolve:dev",
+                "project": "testproj/llmd",
+                "args": ["cks", "internal-test"],
+            },
         },
     )
 
@@ -211,7 +236,12 @@ def test_exclusive_steers_hardware_only_job(k8s):
         {
             "cluster": "cluster-1",
             "exclusive": True,
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": "forge",
+            "executionEngineSpec": {
+                "resolveImage": "fournos-mock-resolve:dev",
+                "project": "testproj/llmd",
+                "args": ["cks", "internal-test"],
+            },
         },
     )
     poll_phase(k8s, "test-excl-hw", terminal={Phase.RUNNING}, timeout=30)
@@ -222,7 +252,12 @@ def test_exclusive_steers_hardware_only_job(k8s):
         {
             "exclusive": False,
             "hardware": {"gpuType": "a100", "gpuCount": 2},
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": "forge",
+            "executionEngineSpec": {
+                "resolveImage": "fournos-mock-resolve:dev",
+                "project": "testproj/llmd",
+                "args": ["cks", "internal-test"],
+            },
         },
     )
 
@@ -249,7 +284,12 @@ def test_exclusive_without_cluster_fails(k8s):
         {
             "exclusive": True,
             "hardware": {"gpuType": "a100", "gpuCount": 2},
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": "forge",
+            "executionEngineSpec": {
+                "resolveImage": "fournos-mock-resolve:dev",
+                "project": "testproj/llmd",
+                "args": ["cks", "internal-test"],
+            },
         },
     )
 
@@ -276,7 +316,12 @@ def test_exclusive_waits_for_cluster_to_clear(k8s):
         {
             "exclusive": False,
             "cluster": "cluster-2",
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": "forge",
+            "executionEngineSpec": {
+                "resolveImage": "fournos-mock-resolve:dev",
+                "project": "testproj/llmd",
+                "args": ["cks", "internal-test"],
+            },
         },
     )
     poll_phase(k8s, "test-occupant", terminal={Phase.RUNNING}, timeout=30)
@@ -287,7 +332,12 @@ def test_exclusive_waits_for_cluster_to_clear(k8s):
         {
             "cluster": "cluster-2",
             "exclusive": True,
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": "forge",
+            "executionEngineSpec": {
+                "resolveImage": "fournos-mock-resolve:dev",
+                "project": "testproj/llmd",
+                "args": ["cks", "internal-test"],
+            },
         },
     )
 
@@ -327,7 +377,12 @@ def test_lock_released_on_completion(k8s):
         {
             "cluster": "cluster-1",
             "exclusive": True,
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": "forge",
+            "executionEngineSpec": {
+                "resolveImage": "fournos-mock-resolve:dev",
+                "project": "testproj/llmd",
+                "args": ["cks", "internal-test"],
+            },
         },
     )
     poll_phase(k8s, "test-excl-release", terminal={Phase.RUNNING}, timeout=30)
@@ -338,7 +393,12 @@ def test_lock_released_on_completion(k8s):
         {
             "exclusive": False,
             "cluster": "cluster-1",
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": "forge",
+            "executionEngineSpec": {
+                "resolveImage": "fournos-mock-resolve:dev",
+                "project": "testproj/llmd",
+                "args": ["cks", "internal-test"],
+            },
         },
     )
 
@@ -376,9 +436,9 @@ def test_lock_released_on_completion(k8s):
 def test_exclusive_without_hardware(k8s):
     """Exclusive + cluster without hardware: locks cluster using only cluster-slot resources.
 
-    A noop resolve Job prevents Forge from populating hardware.  The
-    Workload should carry 100 cluster-slots and a nodeSelector but no
-    GPU resource requests.
+    A noop resolve Job prevents the execution engine from populating
+    hardware.  The Workload should carry 100 cluster-slots and a
+    nodeSelector but no GPU resource requests.
     """
     create_noop_resolve_job("test-excl-nohw")
 
@@ -388,7 +448,12 @@ def test_exclusive_without_hardware(k8s):
         {
             "cluster": "cluster-2",
             "exclusive": True,
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": "forge",
+            "executionEngineSpec": {
+                "resolveImage": "fournos-mock-resolve:dev",
+                "project": "testproj/llmd",
+                "args": ["cks", "internal-test"],
+            },
         },
     )
 

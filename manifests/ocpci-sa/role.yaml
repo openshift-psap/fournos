@@ -5,7 +5,7 @@ metadata:
   namespace: psap-automation
 rules:
   - apiGroups: ["fournos.dev"]
-    resources: ["fournosjobs"]
+    resources: ["fournosjobs", "fournosjobs/status"]
     verbs: ["create", "get", "list", "watch", "delete", "patch"]
   - apiGroups: [""]
     resources: ["pods"]

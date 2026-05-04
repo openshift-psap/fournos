@@ -50,7 +50,9 @@ spec:
     gpuType: a100
     gpuCount: 2
   pipeline: forge-full
-  forge:
+  executionEngine: forge
+  executionEngineSpec:
+    resolveImage: forge-core:main
     project: llmd
     args:
       - cks
@@ -308,7 +310,7 @@ All settings are read from environment variables with the `FOURNOS_` prefix:
 | `FOURNOS_GPU_RESOURCE_PREFIX` | `fournos/gpu-` | Resource name prefix for GPU types |
 | `FOURNOS_LOG_LEVEL` | `INFO` | Logging level |
 | `FOURNOS_GC_INTERVAL_SEC` | `300` | Resource GC interval (seconds) |
-| `FOURNOS_RESOLVE_IMAGE` | `image-registry.openshift-image-registry.svc:5000/{namespace}/forge-core:main` | Container image for the resolve Job (`{namespace}` is substituted at runtime) |
+| `FOURNOS_RESOLVE_IMAGE_REGISTRY` | `image-registry.openshift-image-registry.svc:5000/{namespace}/` | Registry prefix for the resolve image (`{namespace}` is substituted at runtime). The image name itself comes from `spec.executionEngineSpec.resolveImage`. |
 | `FOURNOS_RESOLVE_DEADLINE_SEC` | `300` | Deadline for the resolve Job (seconds) |
 | `FOURNOS_RESOLVE_JOB_TEMPLATE` | `config/forge/resolve_job.yaml` | Path (relative to project root) to the Job YAML template for the resolve step. Override with `dev/mock-resolve/resolve_job.yaml` for local dev/CI. |
 | `FOURNOS_ARTIFACT_PVC_SIZE` | `1Gi` | Size of the per-PipelineRun PVC used for shared artifact storage across pipeline tasks |

@@ -13,6 +13,7 @@ from kubernetes import client
 
 from fournos.core.constants import Phase
 from fournos.core.resolve import ResolveClient
+from fournos.settings import settings
 from fournos.state import ctx
 
 from .status import (
@@ -57,10 +58,18 @@ def _ensure_resolve_job(spec, name, conditions, patch, body):
     if job is not None:
         return job
 
+    engine_spec = spec["executionEngineSpec"]
+    registry = engine_spec.get(
+        "resolveImageRegistry",
+        settings.resolve_image_registry,
+    ).format(namespace=settings.namespace)
+    resolve_image = registry + engine_spec["resolveImage"]
+
     try:
         ctx.resolve.create_job(
             name=name,
             owner_ref=owner_ref(body),
+            image=resolve_image,
         )
     except client.exceptions.ApiException as exc:
         if exc.status == 409:

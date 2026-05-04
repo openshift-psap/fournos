@@ -1,7 +1,7 @@
-"""Resolving phase tests — Forge resolution via K8s Jobs.
+"""Resolving phase tests — execution engine resolution via K8s Jobs.
 
 Tests cover the happy path (with and without user-provided hardware),
-hardware validation (invalid GPU type, missing hardware), Forge Job
+hardware validation (invalid GPU type, missing hardware), resolve Job
 failures, shutdown during Resolving, and cleanup via ownerReference cascade.
 """
 
@@ -35,14 +35,19 @@ def _set_shutdown(k8s, name: str, mode: str) -> None:
 
 
 def test_happy_path_with_hardware(k8s):
-    """Job with spec.hardware: user-provided values take precedence over Forge."""
+    """Job with spec.hardware: user-provided values take precedence over the execution engine."""
     create_job(
         k8s,
         "test-resolve-hw",
         {
             "cluster": "cluster-3",
             "hardware": {"gpuType": "h200", "gpuCount": 4},
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": "forge",
+            "executionEngineSpec": {
+                "resolveImage": "fournos-mock-resolve:dev",
+                "project": "testproj/llmd",
+                "args": ["cks", "internal-test"],
+            },
         },
     )
 
@@ -88,13 +93,18 @@ def test_happy_path_with_hardware(k8s):
 
 
 def test_happy_path_without_hardware(k8s):
-    """Job without spec.hardware: Forge populates it during resolution."""
+    """Job without spec.hardware: the execution engine populates it during resolution."""
     create_job(
         k8s,
         "test-resolve-nohw",
         {
             "exclusive": False,
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": "forge",
+            "executionEngineSpec": {
+                "resolveImage": "fournos-mock-resolve:dev",
+                "project": "testproj/llmd",
+                "args": ["cks", "internal-test"],
+            },
         },
     )
 
@@ -114,7 +124,7 @@ def test_happy_path_without_hardware(k8s):
 
     gpu_req = get_workload_gpu_request("test-resolve-nohw", "a100")
     assert gpu_req == 2, (
-        f"Workload should request 2 a100 GPUs from Forge-resolved spec; got {gpu_req}"
+        f"Workload should request 2 a100 GPUs from resolved spec; got {gpu_req}"
     )
 
     phase = poll_phase(
@@ -130,13 +140,18 @@ def test_happy_path_without_hardware(k8s):
 
 
 def test_cluster_pin_without_hardware(k8s):
-    """Cluster pin without hardware — Forge provides hardware, Kueue pins to cluster."""
+    """Cluster pin without hardware — the execution engine provides hardware, Kueue pins to cluster."""
     create_job(
         k8s,
         "test-resolve-pin",
         {
             "cluster": "cluster-1",
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": "forge",
+            "executionEngineSpec": {
+                "resolveImage": "fournos-mock-resolve:dev",
+                "project": "testproj/llmd",
+                "args": ["cks", "internal-test"],
+            },
         },
     )
 
@@ -149,7 +164,7 @@ def test_cluster_pin_without_hardware(k8s):
 
     gpu_req = get_workload_gpu_request("test-resolve-pin", "a100")
     assert gpu_req == 2, (
-        f"Workload should request 2 a100 GPUs from Forge-resolved spec; got {gpu_req}"
+        f"Workload should request 2 a100 GPUs from resolved spec; got {gpu_req}"
     )
 
     phase = poll_phase(
@@ -174,7 +189,12 @@ def test_shutdown_during_resolving(k8s):
         {
             "cluster": "cluster-1",
             "hardware": {"gpuType": "a100", "gpuCount": 2},
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": "forge",
+            "executionEngineSpec": {
+                "resolveImage": "fournos-mock-resolve:dev",
+                "project": "testproj/llmd",
+                "args": ["cks", "internal-test"],
+            },
         },
     )
 
@@ -207,7 +227,12 @@ def test_delete_during_resolving_cleans_up(k8s):
         {
             "cluster": "cluster-1",
             "hardware": {"gpuType": "a100", "gpuCount": 2},
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": "forge",
+            "executionEngineSpec": {
+                "resolveImage": "fournos-mock-resolve:dev",
+                "project": "testproj/llmd",
+                "args": ["cks", "internal-test"],
+            },
         },
     )
 
@@ -240,7 +265,12 @@ def test_unknown_gpu_type(k8s):
         {
             "exclusive": False,
             "hardware": {"gpuType": "acbd1234", "gpuCount": 2},
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": "forge",
+            "executionEngineSpec": {
+                "resolveImage": "fournos-mock-resolve:dev",
+                "project": "testproj/llmd",
+                "args": ["cks", "internal-test"],
+            },
         },
     )
 
@@ -263,11 +293,11 @@ def test_unknown_gpu_type(k8s):
 
 
 def test_resolve_job_failure(k8s):
-    """Forge resolve Job fails -> FournosJob transitions to Failed.
+    """Resolve Job fails -> FournosJob transitions to Failed.
 
     A pre-created resolve Job that immediately exits with code 1 simulates
-    a Forge failure.  The operator should detect the failure and set
-    phase=Failed with a message mentioning the resolution failure.
+    an execution engine failure.  The operator should detect the failure and
+    set phase=Failed with a message mentioning the resolution failure.
     The failed Job is preserved for debugging.
     """
     create_failing_resolve_job("test-resolve-fail")
@@ -277,7 +307,12 @@ def test_resolve_job_failure(k8s):
         "test-resolve-fail",
         {
             "cluster": "cluster-1",
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": "forge",
+            "executionEngineSpec": {
+                "resolveImage": "fournos-mock-resolve:dev",
+                "project": "testproj/llmd",
+                "args": ["cks", "internal-test"],
+            },
         },
     )
 
@@ -311,9 +346,9 @@ def test_resolve_job_failure(k8s):
 def test_nonexclusive_cluster_without_hardware_fails(k8s):
     """Non-exclusive + cluster + no hardware → Failed (hardware required).
 
-    A noop resolve Job prevents Forge from populating hardware.  Since
-    the job is non-exclusive, the missing hardware is not allowed (only
-    exclusive+cluster jobs may omit it).
+    A noop resolve Job prevents the execution engine from populating
+    hardware.  Since the job is non-exclusive, the missing hardware is
+    not allowed (only exclusive+cluster jobs may omit it).
     """
     create_noop_resolve_job("test-nex-nohw")
 
@@ -323,7 +358,12 @@ def test_nonexclusive_cluster_without_hardware_fails(k8s):
         {
             "exclusive": False,
             "cluster": "cluster-1",
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": "forge",
+            "executionEngineSpec": {
+                "resolveImage": "fournos-mock-resolve:dev",
+                "project": "testproj/llmd",
+                "args": ["cks", "internal-test"],
+            },
         },
     )
 
@@ -358,7 +398,12 @@ def test_resolve_empty_hw(k8s):
         "test-resolve-noconfig",
         {
             "exclusive": False,
-            "forge": {"project": "testproj/llmd", "args": ["cks", "internal-test"]},
+            "executionEngine": "forge",
+            "executionEngineSpec": {
+                "resolveImage": "fournos-mock-resolve:dev",
+                "project": "testproj/llmd",
+                "args": ["cks", "internal-test"],
+            },
         },
     )
 

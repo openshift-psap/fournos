@@ -90,7 +90,9 @@ spec:
   owner: perf-team
   displayName: nightly-llama3-benchmark
   cluster: cluster-1
-  forge:
+  executionEngine: forge
+  executionEngineSpec:
+    resolveImage: forge-core:main
     project: testproj/llmd
     args:
       - cks
@@ -346,7 +348,7 @@ All settings via environment variables with `FOURNOS_` prefix ([fournos/settings
 | `FOURNOS_GPU_RESOURCE_PREFIX`       | `fournos/gpu-`         | Virtual resource name prefix   |
 | `FOURNOS_LOG_LEVEL`                 | `INFO`                 | Logging level                  |
 | `FOURNOS_GC_INTERVAL_SEC`           | `300`                  | Resource GC interval (seconds) |
-| `FOURNOS_RESOLVE_IMAGE`              | `image-registry.openshift-image-registry.svc:5000/{namespace}/forge-core:main` | Container image for the resolve Job (`{namespace}` is substituted at runtime) |
+| `FOURNOS_RESOLVE_IMAGE_REGISTRY`     | `image-registry.openshift-image-registry.svc:5000/{namespace}/` | Registry prefix for the resolve image (`{namespace}` is substituted at runtime). The image name comes from `spec.executionEngineSpec.resolveImage`. |
 | `FOURNOS_RESOLVE_DEADLINE_SEC`       | `300`                 | Deadline for the resolve Job (seconds) |
 | `FOURNOS_RESOLVE_JOB_TEMPLATE`       | `config/forge/resolve_job.yaml` | Path (relative to project root) to the Job YAML template for the resolve step |
 
