@@ -72,7 +72,7 @@ def on_create(spec, name, namespace, status, patch, body):
         patch.meta.setdefault("labels", {})[LABEL_EXCLUSIVE_CLUSTER] = cluster
 
     patch.status["phase"] = Phase.RESOLVING
-    patch.status["message"] = "Resolving job requirements via Forge"
+    patch.status["message"] = "Resolving job requirements"
     logger.info("Job %s: phase=Resolving", name)
 
 
