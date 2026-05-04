@@ -220,7 +220,8 @@ def _setup_kubeconfig_from_vault():
 
     # Check if vault configuration exists
     vaults = config.project.get_config("vaults", print=False)
-    vault.init(vaults, strict=False)
+    vault.disable_strict_validation()
+    vault.init(vaults)
 
     # Try to get kubeconfig vault configuration
     kubeconfig_vault_name = config.project.get_config(
