@@ -62,7 +62,9 @@ def _ensure_resolve_job(spec, name, conditions, patch, body):
     registry = engine_spec.get(
         "resolveImageRegistry",
         settings.resolve_image_registry,
-    ).format(namespace=settings.namespace)
+    ).replace("{namespace}", settings.namespace)
+    if registry and not registry.endswith("/"):
+        registry += "/"
     resolve_image = registry + engine_spec["resolveImage"]
 
     try:
