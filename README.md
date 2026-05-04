@@ -51,14 +51,13 @@ spec:
     gpuType: a100
     gpuCount: 2
   pipeline: forge-full
-  executionEngine: forge
-  executionEngineSpec:
-    resolveImage: forge-core:main
-    project: llmd
-    args:
-      - cks
-    configOverrides:
-      batch_size: 64
+  executionEngine:
+    forge:
+      project: llmd
+      args:
+        - cks
+      configOverrides:
+        batch_size: 64
   env:
     OCPCI_SUITE: regression
     OCPCI_VARIANT: nightly
@@ -77,19 +76,14 @@ oc delete FournosJob -n $FOURNOS_NAMESPACE <name>      # cleanup
 
 | Field | Required | Description |
 |---|---|---|
-| `spec.executionEngine` | yes | Execution engine to use (e.g. `forge`) |
-| `spec.executionEngineSpec.resolveImage` | yes | Short image name for the resolve Job (e.g. `forge-core:main`) |
-| `spec.executionEngineSpec.resolveImageRegistry` | no | Registry prefix override (supports `{namespace}` placeholder) |
-| `spec.executionEngineSpec.project` | yes | Execution engine project path |
-| `spec.executionEngineSpec.args` | yes | List of arguments passed to the execution engine |
-| `spec.executionEngineSpec.configOverrides` | no | Arbitrary YAML overrides passed to the test framework |
+| `spec.executionEngine` | yes | Execution engine configuration. The single top-level key is the engine name (e.g. `forge`); its value is opaque engine-specific config passed through as-is. |
 | `spec.env` | no | Environment variables available to the execution engine (read from the FournosJob spec via K8s API) |
 | `spec.cluster` | \* | Pin to a specific cluster (Kueue ResourceFlavor). Since `exclusive` defaults to `true`, this also locks the cluster — set `exclusive: false` for shared access. |
 | `spec.hardware.gpuType` | \* | Short GPU model name — e.g. `a100`, `h200`. The operator prepends the `FOURNOS_GPU_RESOURCE_PREFIX` (default `fournos/gpu-`) automatically, so do **not** include the full resource path. |
 | `spec.hardware.gpuCount` | with gpuType | Number of GPUs (minimum 1) |
 | `spec.owner` | no | Team or individual that owns this job |
 | `spec.displayName` | no | Human-readable job name (defaults to `metadata.name`) |
-| `spec.pipeline` | no | Tekton Pipeline name (default: `fournos-full`) |
+| `spec.pipeline` | no | Tekton Pipeline name (default: `fournos-full`). The Pipeline must carry a `fournos.dev/resolve-image` annotation with the full image reference for the resolve Job. |
 | `spec.priority` | no | Kueue WorkloadPriorityClass name |
 | `spec.secretRefs` | no | Vault-synced K8s Secret names (prefixed with `vault-`) to mount into the pipeline. Populated by the execution engine during the Resolving phase. The operator validates each name in `FOURNOS_SECRETS_NAMESPACE`, copies the secrets into the operator namespace, and mounts them as a projected volume at `/var/run/secrets/fournos/<entry-name>/`. |
 | `spec.exclusive` | no (default `true`) | If `true`, locks the target cluster so no other FournosJob can run there. Requires `spec.cluster`. Hardware is optional — when omitted the Workload only requests cluster-slot resources for locking. |
@@ -314,7 +308,6 @@ All settings are read from environment variables with the `FOURNOS_` prefix:
 | `FOURNOS_GPU_RESOURCE_PREFIX` | `fournos/gpu-` | Resource name prefix for GPU types |
 | `FOURNOS_LOG_LEVEL` | `INFO` | Logging level |
 | `FOURNOS_GC_INTERVAL_SEC` | `300` | Resource GC interval (seconds) |
-| `FOURNOS_RESOLVE_IMAGE_REGISTRY` | `image-registry.openshift-image-registry.svc:5000/{namespace}/` | Registry prefix for the resolve image (`{namespace}` is substituted at runtime). The image name itself comes from `spec.executionEngineSpec.resolveImage`. |
 | `FOURNOS_RESOLVE_DEADLINE_SEC` | `300` | Deadline for the resolve Job (seconds) |
 | `FOURNOS_RESOLVE_JOB_TEMPLATE` | `config/forge/resolve_job.yaml` | Path (relative to project root) to the Job YAML template for the resolve step. Override with `dev/mock-resolve/resolve_job.yaml` for local dev/CI. |
 | `FOURNOS_ARTIFACT_PVC_SIZE` | `1Gi` | Size of the per-PipelineRun PVC used for shared artifact storage across pipeline tasks |

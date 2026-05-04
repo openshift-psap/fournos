@@ -3,6 +3,8 @@ apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
   name: fournos-full
+  annotations:
+    fournos.dev/resolve-image: fournos-mock-resolve:dev
 spec:
   workspaces:
     - name: artifacts

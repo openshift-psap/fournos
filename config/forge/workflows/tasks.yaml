@@ -88,9 +88,9 @@ spec:
         fi
         git show --quiet
 
-        FORGE_PROJECT=$(cat "$ARTIFACT_DIR/fournos_fjob.yaml" | yq -r .spec.executionEngineSpec.project)
+        FORGE_PROJECT=$(cat "$ARTIFACT_DIR/fournos_fjob.yaml" | yq -r .spec.executionEngine.forge.project)
         if [[ -z "$FORGE_PROJECT" || "$FORGE_PROJECT" == null ]]; then
-          echo "ERROR: invalid .spec.executionEngineSpec.project='$FORGE_PROJECT' in $FOURNOS_NAMESPACE/$FJOB_NAME"
+          echo "ERROR: invalid .spec.executionEngine.forge.project='$FORGE_PROJECT' in $FOURNOS_NAMESPACE/$FJOB_NAME"
           exit 1
         fi
 

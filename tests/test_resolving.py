@@ -42,11 +42,11 @@ def test_happy_path_with_hardware(k8s):
         {
             "cluster": "cluster-3",
             "hardware": {"gpuType": "h200", "gpuCount": 4},
-            "executionEngine": "forge",
-            "executionEngineSpec": {
-                "resolveImage": "fournos-mock-resolve:dev",
-                "project": "testproj/llmd",
-                "args": ["cks", "internal-test"],
+            "executionEngine": {
+                "forge": {
+                    "project": "testproj/llmd",
+                    "args": ["cks", "internal-test"],
+                }
             },
         },
     )
@@ -99,11 +99,11 @@ def test_happy_path_without_hardware(k8s):
         "test-resolve-nohw",
         {
             "exclusive": False,
-            "executionEngine": "forge",
-            "executionEngineSpec": {
-                "resolveImage": "fournos-mock-resolve:dev",
-                "project": "testproj/llmd",
-                "args": ["cks", "internal-test"],
+            "executionEngine": {
+                "forge": {
+                    "project": "testproj/llmd",
+                    "args": ["cks", "internal-test"],
+                }
             },
         },
     )
@@ -146,11 +146,11 @@ def test_cluster_pin_without_hardware(k8s):
         "test-resolve-pin",
         {
             "cluster": "cluster-1",
-            "executionEngine": "forge",
-            "executionEngineSpec": {
-                "resolveImage": "fournos-mock-resolve:dev",
-                "project": "testproj/llmd",
-                "args": ["cks", "internal-test"],
+            "executionEngine": {
+                "forge": {
+                    "project": "testproj/llmd",
+                    "args": ["cks", "internal-test"],
+                }
             },
         },
     )
@@ -189,11 +189,11 @@ def test_shutdown_during_resolving(k8s):
         {
             "cluster": "cluster-1",
             "hardware": {"gpuType": "a100", "gpuCount": 2},
-            "executionEngine": "forge",
-            "executionEngineSpec": {
-                "resolveImage": "fournos-mock-resolve:dev",
-                "project": "testproj/llmd",
-                "args": ["cks", "internal-test"],
+            "executionEngine": {
+                "forge": {
+                    "project": "testproj/llmd",
+                    "args": ["cks", "internal-test"],
+                }
             },
         },
     )
@@ -227,11 +227,11 @@ def test_delete_during_resolving_cleans_up(k8s):
         {
             "cluster": "cluster-1",
             "hardware": {"gpuType": "a100", "gpuCount": 2},
-            "executionEngine": "forge",
-            "executionEngineSpec": {
-                "resolveImage": "fournos-mock-resolve:dev",
-                "project": "testproj/llmd",
-                "args": ["cks", "internal-test"],
+            "executionEngine": {
+                "forge": {
+                    "project": "testproj/llmd",
+                    "args": ["cks", "internal-test"],
+                }
             },
         },
     )
@@ -265,11 +265,11 @@ def test_unknown_gpu_type(k8s):
         {
             "exclusive": False,
             "hardware": {"gpuType": "acbd1234", "gpuCount": 2},
-            "executionEngine": "forge",
-            "executionEngineSpec": {
-                "resolveImage": "fournos-mock-resolve:dev",
-                "project": "testproj/llmd",
-                "args": ["cks", "internal-test"],
+            "executionEngine": {
+                "forge": {
+                    "project": "testproj/llmd",
+                    "args": ["cks", "internal-test"],
+                }
             },
         },
     )
@@ -307,11 +307,11 @@ def test_resolve_job_failure(k8s):
         "test-resolve-fail",
         {
             "cluster": "cluster-1",
-            "executionEngine": "forge",
-            "executionEngineSpec": {
-                "resolveImage": "fournos-mock-resolve:dev",
-                "project": "testproj/llmd",
-                "args": ["cks", "internal-test"],
+            "executionEngine": {
+                "forge": {
+                    "project": "testproj/llmd",
+                    "args": ["cks", "internal-test"],
+                }
             },
         },
     )
@@ -358,11 +358,11 @@ def test_nonexclusive_cluster_without_hardware_fails(k8s):
         {
             "exclusive": False,
             "cluster": "cluster-1",
-            "executionEngine": "forge",
-            "executionEngineSpec": {
-                "resolveImage": "fournos-mock-resolve:dev",
-                "project": "testproj/llmd",
-                "args": ["cks", "internal-test"],
+            "executionEngine": {
+                "forge": {
+                    "project": "testproj/llmd",
+                    "args": ["cks", "internal-test"],
+                }
             },
         },
     )
@@ -398,11 +398,11 @@ def test_resolve_empty_hw(k8s):
         "test-resolve-noconfig",
         {
             "exclusive": False,
-            "executionEngine": "forge",
-            "executionEngineSpec": {
-                "resolveImage": "fournos-mock-resolve:dev",
-                "project": "testproj/llmd",
-                "args": ["cks", "internal-test"],
+            "executionEngine": {
+                "forge": {
+                    "project": "testproj/llmd",
+                    "args": ["cks", "internal-test"],
+                }
             },
         },
     )

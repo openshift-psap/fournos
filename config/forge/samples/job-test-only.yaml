@@ -7,12 +7,11 @@ spec:
   displayName: forge-sample
   cluster: cluster-1
   pipeline: forge-test-only
-  executionEngine: forge
-  executionEngineSpec:
-    resolveImage: forge-core:main
-    project: llm_d
-    args:
-      - cks
+  executionEngine:
+    forge:
+      project: llm_d
+      args:
+        - cks
   env:
     OCPCI_SUITE: regression
     OCPCI_VARIANT: nightly

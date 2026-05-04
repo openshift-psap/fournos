@@ -12,7 +12,10 @@ logger = logging.getLogger(__name__)
 
 TEKTON_GROUP = "tekton.dev"
 TEKTON_VERSION = "v1"
+TEKTON_PIPELINE_PLURAL = "pipelines"
 TEKTON_PIPELINE_RUN_PLURAL = "pipelineruns"
+
+ANNOTATION_RESOLVE_IMAGE = "fournos.dev/resolve-image"
 
 
 def _build_secrets_volume(resolved: list[ResolvedSecret]) -> dict:
@@ -117,6 +120,15 @@ class TektonClient:
         )
         logger.info("Created PipelineRun %s", name)
         return result
+
+    def get_pipeline(self, name: str) -> dict:
+        return self._k8s.get_namespaced_custom_object(
+            group=TEKTON_GROUP,
+            version=TEKTON_VERSION,
+            namespace=settings.namespace,
+            plural=TEKTON_PIPELINE_PLURAL,
+            name=name,
+        )
 
     def get_pipeline_run(self, name: str) -> dict:
         return self._k8s.get_namespaced_custom_object(

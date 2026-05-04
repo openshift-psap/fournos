@@ -74,7 +74,6 @@ dev-run:
 	FOURNOS_GC_INTERVAL_SEC=5 \
 	FOURNOS_NAMESPACE=$(or $(FOURNOS_NAMESPACE),fournos-local-dev) \
 	FOURNOS_SECRETS_NAMESPACE=$(or $(FOURNOS_SECRETS_NAMESPACE),psap-secrets) \
-	FOURNOS_RESOLVE_IMAGE_REGISTRY="" \
 	FOURNOS_RESOLVE_JOB_TEMPLATE=dev/mock-resolve/resolve_job.yaml \
 	$(VENV_BIN)python -m fournos
 
@@ -94,7 +93,6 @@ ci-run:
 	FOURNOS_GC_INTERVAL_SEC=5 \
 	FOURNOS_NAMESPACE=$(or $(FOURNOS_NAMESPACE),psap-automation-ci-test) \
 	FOURNOS_SECRETS_NAMESPACE=$(or $(FOURNOS_SECRETS_NAMESPACE),psap-secrets) \
-	FOURNOS_RESOLVE_IMAGE_REGISTRY="" \
 	FOURNOS_RESOLVE_JOB_TEMPLATE=dev/mock-resolve/resolve_job.yaml \
 	  $(VENV_BIN)python -m fournos \
 	  --liveness=http://0.0.0.0:8080/healthz > fournos.log 2>&1 & \

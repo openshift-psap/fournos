@@ -10,8 +10,7 @@ spec:
   hardware:
     gpuType: a100
     gpuCount: 1
-  executionEngine: forge
-  executionEngineSpec:
-    resolveImage: forge-core:main
-    project: none
-    args: []
+  executionEngine:
+    forge:
+      project: none
+      args: []

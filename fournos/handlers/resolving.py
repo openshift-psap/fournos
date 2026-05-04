@@ -13,7 +13,7 @@ from kubernetes import client
 
 from fournos.core.constants import Phase
 from fournos.core.resolve import ResolveClient
-from fournos.settings import settings
+from fournos.core.tekton import ANNOTATION_RESOLVE_IMAGE
 from fournos.state import ctx
 
 from .status import (
@@ -49,6 +49,9 @@ def _resolve_failed(patch, conditions, name, message, *, reason, cond_message=No
 def _ensure_resolve_job(spec, name, conditions, patch, body):
     """Create the resolve Job if it doesn't exist yet.
 
+    The resolve image is read from the ``fournos.dev/resolve-image``
+    annotation on the Tekton Pipeline referenced by ``spec.pipeline``.
+
     Returns the existing Job dict, or None if the Job was just created
     (or a 409 race was hit) — the caller should return and wait for the
     next reconcile tick.  Returns ``False`` on fatal creation failure
@@ -58,14 +61,31 @@ def _ensure_resolve_job(spec, name, conditions, patch, body):
     if job is not None:
         return job
 
-    engine_spec = spec["executionEngineSpec"]
-    registry = engine_spec.get(
-        "resolveImageRegistry",
-        settings.resolve_image_registry,
-    ).replace("{namespace}", settings.namespace)
-    if registry and not registry.endswith("/"):
-        registry += "/"
-    resolve_image = registry + engine_spec["resolveImage"]
+    pipeline_name = spec.get("pipeline", "fournos-full")
+    try:
+        pipeline = ctx.tekton.get_pipeline(pipeline_name)
+    except client.exceptions.ApiException as exc:
+        _resolve_failed(
+            patch,
+            conditions,
+            name,
+            f"Failed to fetch Pipeline '{pipeline_name}': {exc.reason}",
+            reason="PipelineNotFound",
+        )
+        return False
+
+    annotations = pipeline.get("metadata", {}).get("annotations") or {}
+    resolve_image = annotations.get(ANNOTATION_RESOLVE_IMAGE)
+    if not resolve_image:
+        _resolve_failed(
+            patch,
+            conditions,
+            name,
+            f"Pipeline '{pipeline_name}' is missing the "
+            f"'{ANNOTATION_RESOLVE_IMAGE}' annotation",
+            reason="MissingResolveImage",
+        )
+        return False
 
     try:
         ctx.resolve.create_job(

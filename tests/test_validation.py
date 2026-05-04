@@ -27,11 +27,11 @@ def test_unknown_cluster(k8s):
         "test-unknown",
         {
             "cluster": "no-such-cluster",
-            "executionEngine": "forge",
-            "executionEngineSpec": {
-                "resolveImage": "fournos-mock-resolve:dev",
-                "project": "testproj/llmd",
-                "args": ["cks", "internal-test"],
+            "executionEngine": {
+                "forge": {
+                    "project": "testproj/llmd",
+                    "args": ["cks", "internal-test"],
+                }
             },
         },
     )
@@ -59,11 +59,11 @@ def test_admitted_without_flavor(k8s):
         {
             "exclusive": False,
             "hardware": {"gpuType": "a100", "gpuCount": 999},
-            "executionEngine": "forge",
-            "executionEngineSpec": {
-                "resolveImage": "fournos-mock-resolve:dev",
-                "project": "testproj/llmd",
-                "args": ["cks", "internal-test"],
+            "executionEngine": {
+                "forge": {
+                    "project": "testproj/llmd",
+                    "args": ["cks", "internal-test"],
+                }
             },
         },
     )
@@ -138,11 +138,11 @@ def test_implicit_exclusive_without_cluster_fails(k8s):
         "test-implicit-excl",
         {
             "hardware": {"gpuType": "a100", "gpuCount": 2},
-            "executionEngine": "forge",
-            "executionEngineSpec": {
-                "resolveImage": "fournos-mock-resolve:dev",
-                "project": "testproj/llmd",
-                "args": ["cks", "internal-test"],
+            "executionEngine": {
+                "forge": {
+                    "project": "testproj/llmd",
+                    "args": ["cks", "internal-test"],
+                }
             },
         },
     )

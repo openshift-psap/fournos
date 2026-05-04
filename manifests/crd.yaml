@@ -52,7 +52,6 @@ spec:
               type: object
               required:
                 - executionEngine
-                - executionEngineSpec
               properties:
                 owner:
                   type: string
@@ -84,36 +83,12 @@ spec:
                       type: integer
                       minimum: 1
                 executionEngine:
-                  type: string
-                  description: >-
-                    Execution engine to use for this job (e.g. "forge").
-                executionEngineSpec:
                   type: object
-                  required:
-                    - resolveImage
-                    - project
-                    - args
-                  properties:
-                    resolveImage:
-                      type: string
-                      description: >-
-                        Short image name for the resolve Job (e.g. "forge-core:main").
-                        The operator prepends the registry prefix automatically.
-                    resolveImageRegistry:
-                      type: string
-                      description: >-
-                        Registry prefix for the resolve image. Overrides the
-                        operator default when set. Supports {namespace} placeholder.
-                    project:
-                      type: string
-                    args:
-                      type: array
-                      items:
-                        type: string
-                    configOverrides:
-                      type: object
-                      description: Overrides passed to the test framework as YAML.
-                      x-kubernetes-preserve-unknown-fields: true
+                  description: >-
+                    Execution engine configuration. The top-level key is the
+                    engine name (e.g. "forge") and its value is the
+                    engine-specific config.
+                  x-kubernetes-preserve-unknown-fields: true
                 secretRefs:
                   type: array
                   description: >-

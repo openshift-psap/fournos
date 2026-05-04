@@ -43,11 +43,11 @@ def test_stop_pending_job(k8s):
         {
             "exclusive": False,
             "hardware": {"gpuType": "a100", "gpuCount": 100},
-            "executionEngine": "forge",
-            "executionEngineSpec": {
-                "resolveImage": "fournos-mock-resolve:dev",
-                "project": "testproj/llmd",
-                "args": ["cks", "internal-test"],
+            "executionEngine": {
+                "forge": {
+                    "project": "testproj/llmd",
+                    "args": ["cks", "internal-test"],
+                }
             },
         },
     )
@@ -83,11 +83,11 @@ def test_stop_running_job(k8s):
         "test-stop-running",
         {
             "cluster": "cluster-1",
-            "executionEngine": "forge",
-            "executionEngineSpec": {
-                "resolveImage": "fournos-mock-resolve:dev",
-                "project": "testproj/llmd",
-                "args": ["cks", "internal-test"],
+            "executionEngine": {
+                "forge": {
+                    "project": "testproj/llmd",
+                    "args": ["cks", "internal-test"],
+                }
             },
         },
     )
@@ -161,11 +161,11 @@ def test_stop_at_creation(k8s):
         "test-stop-create",
         {
             "cluster": "cluster-1",
-            "executionEngine": "forge",
-            "executionEngineSpec": {
-                "resolveImage": "fournos-mock-resolve:dev",
-                "project": "testproj/llmd",
-                "args": ["cks", "internal-test"],
+            "executionEngine": {
+                "forge": {
+                    "project": "testproj/llmd",
+                    "args": ["cks", "internal-test"],
+                }
             },
             "shutdown": "Stop",
         },
@@ -193,11 +193,11 @@ def test_stop_completed_job_is_noop(k8s):
         "test-stop-done",
         {
             "cluster": "cluster-1",
-            "executionEngine": "forge",
-            "executionEngineSpec": {
-                "resolveImage": "fournos-mock-resolve:dev",
-                "project": "testproj/llmd",
-                "args": ["cks", "internal-test"],
+            "executionEngine": {
+                "forge": {
+                    "project": "testproj/llmd",
+                    "args": ["cks", "internal-test"],
+                }
             },
         },
     )
@@ -238,11 +238,11 @@ def test_terminate_running_job(k8s):
         "test-term-running",
         {
             "cluster": "cluster-1",
-            "executionEngine": "forge",
-            "executionEngineSpec": {
-                "resolveImage": "fournos-mock-resolve:dev",
-                "project": "testproj/llmd",
-                "args": ["cks", "internal-test"],
+            "executionEngine": {
+                "forge": {
+                    "project": "testproj/llmd",
+                    "args": ["cks", "internal-test"],
+                }
             },
         },
     )

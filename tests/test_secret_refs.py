@@ -112,11 +112,11 @@ def test_vault_sync_then_fjob(k8s, core_v1):
                 "cluster": "cluster-1",
                 "hardware": {"gpuType": "a100", "gpuCount": 2},
                 "secretRefs": [VAULT_ENTRY],
-                "executionEngine": "forge",
-                "executionEngineSpec": {
-                    "resolveImage": "fournos-mock-resolve:dev",
-                    "project": "testproj/llmd",
-                    "args": ["cks", "internal-test"],
+                "executionEngine": {
+                    "forge": {
+                        "project": "testproj/llmd",
+                        "args": ["cks", "internal-test"],
+                    }
                 },
             },
         )
@@ -181,11 +181,11 @@ def test_missing_secret_ref_fails(k8s):
             "cluster": "cluster-1",
             "hardware": {"gpuType": "a100", "gpuCount": 2},
             "secretRefs": ["nonexistent-vault-entry"],
-            "executionEngine": "forge",
-            "executionEngineSpec": {
-                "resolveImage": "fournos-mock-resolve:dev",
-                "project": "testproj/llmd",
-                "args": ["cks", "internal-test"],
+            "executionEngine": {
+                "forge": {
+                    "project": "testproj/llmd",
+                    "args": ["cks", "internal-test"],
+                }
             },
         },
     )
