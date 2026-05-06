@@ -67,7 +67,7 @@ def _apply_manifest_replacements(manifest_file):
 
 def ensure_namespace():
     """
-    Create namespace with labels if it doesn't exist
+    Create execution namespace with labels if it doesn't exist
 
     Returns:
         str: The namespace name
@@ -105,6 +105,33 @@ def ensure_namespace():
         logger.warning(f"Failed to apply labels to namespace: {result.stderr}")
 
     return namespace
+
+
+def ensure_controller_namespace():
+    """
+    Create controller namespace if it doesn't exist
+
+    Returns:
+        str: The controller namespace name
+    """
+    controller_ns = config.project.get_config(
+        "fournos_deploy.controller_namespace.name"
+    )
+
+    result = run.run(
+        f"oc create namespace {controller_ns}", check=False, capture_stderr=True
+    )
+
+    if result.returncode == 0:
+        logger.info(f"Created controller namespace: {controller_ns}")
+    elif "already exists" in result.stderr:
+        logger.info(f"Controller namespace {controller_ns} already exists.")
+    else:
+        raise RuntimeError(
+            f"Failed to create controller namespace {controller_ns}: {result.stderr}"
+        )
+
+    return controller_ns
 
 
 def _deploy_manifest_list(
@@ -258,7 +285,7 @@ def init():
 
 def build_image():
     """
-    Build FOURNOS image using Shipwright
+    Build FOURNOS image using Shipwright in the controller namespace
 
     Returns:
         int: 0 on success, 1 on failure
@@ -267,7 +294,7 @@ def build_image():
 
     # Get configuration parameters
     build_config = config.project.get_config("fournos_deploy.build")
-    namespace = config.project.get_config("fournos_deploy.namespace.name")
+    namespace = config.project.get_config("fournos_deploy.controller_namespace.name")
     force_rebuild = config.project.get_config(
         "fournos_deploy.images.fournos.force_rebuild", print=False
     )
@@ -318,7 +345,9 @@ def build_image():
 
 def deploy_manifests():
     """
-    Deploy FOURNOS manifests from configured manifest list
+    Deploy FOURNOS manifests from configured manifest list.
+    Controller RBAC (SA) goes to the controller namespace,
+    execution RBAC (Role, RoleBinding) goes to the execution namespace.
 
     Returns:
         int: 0 on success, raises exception on failure
@@ -335,24 +364,40 @@ def deploy_manifests():
     if not fournos_source.exists():
         raise ValueError(f"FOURNOS source directory not found: {fournos_source}")
 
-    # Ensure namespace exists
+    # Ensure both namespaces exist
+    controller_namespace = ensure_controller_namespace()
     namespace = ensure_namespace()
 
     logger.info(f"Deploying from: {fournos_source}")
-    logger.info(f"Target namespace: {namespace}")
+    logger.info(f"Controller namespace: {controller_namespace}")
+    logger.info(f"Execution namespace: {namespace}")
 
-    # Get manifest deployment configuration
     skip_kinds = set(manifests_config["skip_kinds"])
+
+    # Deploy controller RBAC (SA) to controller namespace
+    controller_rbac_files = manifests_config.get("controller_rbac", [])
+    if controller_rbac_files:
+        logger.info(
+            f"Deploying {len(controller_rbac_files)} controller RBAC manifests to {controller_namespace}"
+        )
+        _deploy_manifest_list(
+            controller_rbac_files,
+            controller_namespace,
+            fournos_source,
+            skip_kinds,
+            "controller-manifest",
+        )
+
+    # Deploy execution RBAC + CRD to execution namespace
     rbac_files = manifests_config["rbac"]
     crd_files = manifests_config["crd"]
     manifest_files = rbac_files + crd_files
 
     logger.info(
-        f"Will deploy {len(rbac_files)} RBAC and {len(crd_files)} CRD manifest files"
+        f"Deploying {len(rbac_files)} RBAC and {len(crd_files)} CRD manifests to {namespace}"
     )
     logger.info(f"Skipping kinds: {list(skip_kinds)}")
 
-    # Deploy the manifests using common helper
     _deploy_manifest_list(
         manifest_files, namespace, fournos_source, skip_kinds, "manifest"
     )
@@ -362,9 +407,9 @@ def deploy_manifests():
         logger.info("Waiting for deployments to be ready...")
         timeout = deploy_config["rollout_timeout"]
 
-        # Get deployments in the namespace
+        # Check controller namespace for deployments
         result = run.run(
-            f"oc get deployments -n {namespace} -o jsonpath='{{.items[*].metadata.name}}'",
+            f"oc get deployments -n {controller_namespace} -o jsonpath='{{.items[*].metadata.name}}'",
             check=False,
             capture_stdout=True,
         )
@@ -376,7 +421,7 @@ def deploy_manifests():
             for deployment in deployments:
                 logger.info(f"Waiting for deployment {deployment}...")
                 result = run.run(
-                    f"oc rollout status deployment/{deployment} -n {namespace} --timeout={timeout}s",
+                    f"oc rollout status deployment/{deployment} -n {controller_namespace} --timeout={timeout}s",
                     check=False,
                 )
 
@@ -396,7 +441,7 @@ def deploy_manifests():
 
 def deploy_fournos_workload():
     """
-    Deploy FOURNOS deployment with built image
+    Deploy FOURNOS operator Deployment with built image to controller namespace
 
     Returns:
         int: 0 on success, raises exception on failure
@@ -410,8 +455,8 @@ def deploy_fournos_workload():
     manifests_config = config.project.get_config("fournos_deploy.manifests")
     build_config = config.project.get_config("fournos_deploy.build")
 
-    # Ensure namespace exists
-    namespace = ensure_namespace()
+    # Operator Deployment goes to the controller namespace
+    namespace = ensure_controller_namespace()
 
     deployment_path = manifests_config["deploy"]["fournos"]
     deployment_file = fournos_source / deployment_path
@@ -596,44 +641,30 @@ def rebuild_workflow_images():
     return 0
 
 
-def cleanup():
+def _cleanup_namespace(namespace, cleanup_resources):
     """
-    Clean up FOURNOS deployment resources
+    Clean up resources in a single namespace.
+
+    Args:
+        namespace: Target namespace to clean
+        cleanup_resources: List of resource type specs to delete
 
     Returns:
-        int: 0 on success, raises exception on failure
+        tuple: (total_errors, deleted_resources)
     """
-    logger.info("=== Cleaning up FOURNOS Resources ===")
-
-    # Get configuration
-    namespace = ensure_namespace()
-    cleanup_config = config.project.get_config("fournos_deploy.cleanup")
-    cleanup_resources = cleanup_config["resources"]
-
-    # Guard: Early return if no resources configured
-    if not cleanup_resources:
-        logger.info("No cleanup resources configured")
-        return 0
-
-    logger.info(
-        f"Will clean up {len(cleanup_resources)} resource types from namespace: {namespace}"
-    )
-
     total_errors = 0
     deleted_resources = 0
 
     for resource_spec in cleanup_resources:
-        logger.info(f"Cleaning up resource: {resource_spec}")
+        logger.info(f"Cleaning up {resource_spec} in {namespace}")
 
         try:
-            # Get list of resources first to see what exists
             result = run.run(
                 f"oc get {resource_spec} -n {namespace} --no-headers -o name 2>/dev/null || true",
                 check=False,
                 capture_stdout=True,
             )
 
-            # Guard: Skip if command failed or no resources found
             if result.returncode != 0 or not result.stdout.strip():
                 logger.info(f"No {resource_spec} resources found to delete")
                 continue
@@ -641,13 +672,11 @@ def cleanup():
             resources = result.stdout.strip().split("\n")
             logger.info(f"Found {len(resources)} {resource_spec} resources to delete")
 
-            # Delete all resources of this type
             delete_result = run.run(
                 f"oc delete {resource_spec} --all -n {namespace} --ignore-not-found",
                 check=False,
             )
 
-            # Guard: Handle deletion failure
             if delete_result.returncode != 0:
                 logger.error(
                     f"❌ Failed to delete {resource_spec}: {delete_result.stderr}"
@@ -662,7 +691,47 @@ def cleanup():
             logger.error(f"❌ Error cleaning up {resource_spec}: {e}")
             total_errors += 1
 
-    # Summary
+    return total_errors, deleted_resources
+
+
+def cleanup():
+    """
+    Clean up FOURNOS deployment resources from both controller and execution namespaces
+
+    Returns:
+        int: 0 on success, raises exception on failure
+    """
+    logger.info("=== Cleaning up FOURNOS Resources ===")
+
+    controller_namespace = ensure_controller_namespace()
+    namespace = ensure_namespace()
+    cleanup_config = config.project.get_config("fournos_deploy.cleanup")
+    cleanup_resources = cleanup_config["resources"]
+
+    if not cleanup_resources:
+        logger.info("No cleanup resources configured")
+        return 0
+
+    logger.info(
+        f"Will clean up {len(cleanup_resources)} resource types from "
+        f"namespaces: {controller_namespace}, {namespace}"
+    )
+
+    total_errors = 0
+    deleted_resources = 0
+
+    # Clean controller namespace (Deployments, ImageStreams, Builds)
+    ctrl_errors, ctrl_deleted = _cleanup_namespace(
+        controller_namespace, cleanup_resources
+    )
+    total_errors += ctrl_errors
+    deleted_resources += ctrl_deleted
+
+    # Clean execution namespace (Tekton, Kueue, FournosJobs, etc.)
+    exec_errors, exec_deleted = _cleanup_namespace(namespace, cleanup_resources)
+    total_errors += exec_errors
+    deleted_resources += exec_deleted
+
     if total_errors == 0:
         logger.info(
             f"✅ Cleanup completed successfully - deleted {deleted_resources} resources"
@@ -711,7 +780,9 @@ def cleanup_and_deploy():
 
 def deploy():
     """
-    Complete FOURNOS deployment including image build and manifest deployment
+    Complete FOURNOS deployment including image build and manifest deployment.
+    Operator resources go to the controller namespace, execution resources
+    (Tekton, Kueue, forge images) go to the execution namespace.
 
     Returns:
         int: 0 on success, non-zero on failure
@@ -720,7 +791,13 @@ def deploy():
 
     total_errors = 0
 
-    # Step 1: Build image
+    # Step 0: Ensure both namespaces exist
+    controller_namespace = ensure_controller_namespace()
+    namespace = ensure_namespace()
+    logger.info(f"Controller namespace: {controller_namespace}")
+    logger.info(f"Execution namespace: {namespace}")
+
+    # Step 1: Build image (in controller namespace)
     logger.info("Step 1: Building FOURNOS image...")
     result = build_image()
     if result != 0:

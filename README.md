@@ -152,26 +152,15 @@ make test                        # integration tests (operator must be running)
 
 **Execution engine on the hub:** [`config/forge/`](config/forge/) is the real OpenShift configuration for this repo — ImageStreams, Builds, Tekton Tasks and Pipelines, and sample jobs you apply to a cluster. It is **not** the same as the lightweight stand-ins under [`dev/mock-pipelines/`](dev/mock-pipelines/), which [`make dev-setup`](#local-development) installs on kind for local testing only.
 
-Prepare the namespaces
-```bash
-FOURNOS_NAMESPACE=fournos-$USER-dev
-FOURNOS_SECRETS_NAMESPACE=psap-secrets
-oc create ns $FOURNOS_NAMESPACE
-oc label ns/$FOURNOS_NAMESPACE fournos.dev/queue-access=true
-oc create ns $FOURNOS_SECRETS_NAMESPACE
-```
-
-Deploy the operator:
+Deploy the full stack (namespaces, CRD, RBAC, Kueue config, workflows, Deployment).
+The operator runs in a dedicated controller namespace; execution resources
+(Tekton, Kueue, FournosJobs) live in the execution namespace:
 
 ```bash
-oc apply -n $FOURNOS_NAMESPACE -f manifests/crd.yaml
-for rbac_file in manifests/rbac/*.yaml; do
-  cat $rbac_file | NAMESPACE=$FOURNOS_NAMESPACE envsubst | oc apply -f- -n $FOURNOS_NAMESPACE
-done
-cat manifests/secrets-ns-rbac.yaml \
-  | NAMESPACE=$FOURNOS_NAMESPACE SECRETS_NAMESPACE=$FOURNOS_SECRETS_NAMESPACE envsubst \
-  | oc apply -f-
-oc apply -n $FOURNOS_NAMESPACE -f manifests/deployment.yaml
+make deploy \
+  FOURNOS_CONTROLLER_NAMESPACE=fournos-controller-$USER \
+  FOURNOS_NAMESPACE=fournos-$USER-dev \
+  FOURNOS_SECRETS_NAMESPACE=psap-secrets
 ```
 
 ### Onboarding a new cluster
@@ -220,14 +209,14 @@ details.
 
 ### Deploying the execution engine workflow configuration
 
-Apply the production execution engine assets from `config/forge/` (not the kind mocks in `dev/mock-pipelines/`). Deploy the cluster configuration (Builds + Tekton):
+Apply the production execution engine assets from `config/forge/` (not the kind mocks in `dev/mock-pipelines/`). Deploy the cluster configuration (Builds + Tekton) to the **execution namespace**:
 
 ```bash
 oc apply -n $FOURNOS_NAMESPACE -f config/forge/images/is_forge.yaml
 cat config/forge/images/build_forge-main.yaml \
-   | sed 's/psap-automation/'$FOURNOS_NAMESPACE'/g' \
-   | oc apply -n $FOURNOS_NAMESPACE
-oc create -n $FOURNOS_NAMESPACE  -f config/forge/images/buildrun_forge-main.yaml
+  | NAMESPACE=$FOURNOS_NAMESPACE envsubst '$NAMESPACE' \
+  | oc apply -f- -n $FOURNOS_NAMESPACE
+oc create -n $FOURNOS_NAMESPACE -f config/forge/images/buildrun_forge-main.yaml
 
 for wf_file in config/forge/workflows/*.yaml; do
   cat "$wf_file" | NAMESPACE=$FOURNOS_NAMESPACE envsubst '$NAMESPACE' | oc apply -f- -n $FOURNOS_NAMESPACE

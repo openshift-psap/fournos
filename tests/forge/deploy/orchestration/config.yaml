@@ -11,6 +11,9 @@ secrets:
       key: kubeconfig
 
 fournos_deploy:
+  controller_namespace:
+    name: fournos-controller-wip
+
   namespace:
     name: psap-automation-wip
     labels:
@@ -42,12 +45,18 @@ fournos_deploy:
     - WorkloadPriorityClass
     # BuildRun are triggered manually
     - BuildRun
+
+    # Manifests deployed to the controller namespace
+    controller_rbac:
+    - manifests/rbac/sa_fournos.yaml
+
+    # Manifests deployed to the execution namespace
     rbac:
     - manifests/rbac/clusterrolebinding_fournos.yaml # will be skipped
     - manifests/rbac/clusterrole_fournos.yaml # will be skipped
     - manifests/rbac/rolebinding_fournos.yaml
     - manifests/rbac/role_fournos.yaml
-    - manifests/rbac/sa_fournos.yaml
+
     crd:
     - manifests/crd.yaml # will be skipped
 
@@ -72,6 +81,7 @@ fournos_deploy:
 
     replace:
       NAMESPACE: "@fournos_deploy.namespace.name"
+      CONTROLLER_NAMESPACE: "@fournos_deploy.controller_namespace.name"
 
   # Deployment configuration
   deploy:

@@ -67,7 +67,14 @@ done
 # ---------------------
 
 : "${FOURNOS_NAMESPACE:?FOURNOS_NAMESPACE must be set}"
-kubectl create ns "$FOURNOS_NAMESPACE" --dry-run -oyaml | kubectl apply -f-
+# In local dev, controller and execution share the same namespace for simplicity
+CONTROLLER_NAMESPACE="${FOURNOS_CONTROLLER_NAMESPACE:-$FOURNOS_NAMESPACE}"
+export CONTROLLER_NAMESPACE
+
+kubectl create ns "$CONTROLLER_NAMESPACE" --dry-run -oyaml | kubectl apply -f-
+if [ "$CONTROLLER_NAMESPACE" != "$FOURNOS_NAMESPACE" ]; then
+  kubectl create ns "$FOURNOS_NAMESPACE" --dry-run -oyaml | kubectl apply -f-
+fi
 kubectl label ns/$FOURNOS_NAMESPACE fournos.dev/queue-access=true
 kubectl create ns "$SECRETS_NAMESPACE" --dry-run -oyaml | kubectl apply -f-
 
@@ -83,11 +90,15 @@ kubectl apply -f manifests/crd.yaml -n $FOURNOS_NAMESPACE
 # ---------------------------------------------------------------
 echo ""
 echo "Applying Fournos manifests..."
-for rbac_file in manifests/rbac/*.yaml; do
-  cat "$rbac_file" | NAMESPACE=$FOURNOS_NAMESPACE envsubst | kubectl apply -f- -n $FOURNOS_NAMESPACE
+kubectl apply -f manifests/rbac/sa_fournos.yaml -n "$CONTROLLER_NAMESPACE"
+kubectl apply -f manifests/rbac/sa_fournos.yaml -n "$FOURNOS_NAMESPACE"
+for rbac_file in manifests/rbac/role_fournos.yaml manifests/rbac/rolebinding_fournos.yaml; do
+  cat "$rbac_file" | CONTROLLER_NAMESPACE=$CONTROLLER_NAMESPACE envsubst '$CONTROLLER_NAMESPACE' | kubectl apply -f- -n $FOURNOS_NAMESPACE
 done
+cat manifests/rbac/clusterrole_fournos.yaml | kubectl apply -f-
+cat manifests/rbac/clusterrolebinding_fournos.yaml | CONTROLLER_NAMESPACE=$CONTROLLER_NAMESPACE envsubst '$CONTROLLER_NAMESPACE' | kubectl apply -f-
 cat manifests/secrets-ns-rbac.yaml \
-  | NAMESPACE=$FOURNOS_NAMESPACE SECRETS_NAMESPACE=$SECRETS_NAMESPACE envsubst \
+  | CONTROLLER_NAMESPACE=$CONTROLLER_NAMESPACE SECRETS_NAMESPACE=$SECRETS_NAMESPACE envsubst \
   | kubectl apply -f-
 
 # ---------------------------------------------------------------

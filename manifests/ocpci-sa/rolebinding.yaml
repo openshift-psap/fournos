@@ -6,7 +6,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: ocpci
-    namespace: psap-automation
+    namespace: fournos-controller
 roleRef:
   kind: Role
   name: ocpci-fournos-job-manager

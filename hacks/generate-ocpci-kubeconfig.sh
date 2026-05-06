@@ -6,7 +6,7 @@ set -o nounset
 set -o errtrace
 
 # Configuration
-NAMESPACE="psap-automation"
+NAMESPACE="fournos-controller"
 SERVICE_ACCOUNT="ocpci"
 SECRET_NAME="ocpci-token"
 CONTEXT=$(kubectl config current-context)

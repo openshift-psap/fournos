@@ -20,6 +20,8 @@ spec:
           image: quay.io/rh_perfscale/fournos:latest
           env:
             - name: FOURNOS_NAMESPACE
+              value: "${NAMESPACE}"
+            - name: FOURNOS_CONTROLLER_NAMESPACE
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
