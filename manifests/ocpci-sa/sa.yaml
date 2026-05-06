@@ -2,4 +2,4 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: ocpci
-  namespace: fournos-controller
+  namespace: psap-automation

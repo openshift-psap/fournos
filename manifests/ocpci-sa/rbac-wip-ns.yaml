@@ -22,7 +22,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: ocpci
-    namespace: fournos-controller
+    namespace: psap-automation
   - kind: ServiceAccount
     name: pipeline
     namespace: psap-automation-wip
