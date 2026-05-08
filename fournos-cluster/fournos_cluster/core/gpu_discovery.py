@@ -81,8 +81,6 @@ class GPUDiscoveryClient:
         raw = None
         if secret.data and "kubeconfig" in secret.data:
             raw = base64.b64decode(secret.data["kubeconfig"]).decode()
-        elif secret.string_data and "kubeconfig" in secret.string_data:
-            raw = secret.string_data["kubeconfig"]
 
         if not raw:
             raise GPUDiscoveryError(
