@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from kubernetes.client.exceptions import ApiException
 
-from fournos.core.gpu_discovery import (
+from fournos_cluster.core.gpu_discovery import (
     GPUDiscoveryClient,
     GPUDiscoveryError,
     DiscoveredGPU,
@@ -88,8 +88,8 @@ class TestGPUDiscoveryClient:
         secret.string_data = None
         mock_core.read_namespaced_secret.return_value = secret
 
-    @patch("fournos.core.gpu_discovery.k8s_config")
-    @patch("fournos.core.gpu_discovery.client")
+    @patch("fournos_cluster.core.gpu_discovery.k8s_config")
+    @patch("fournos_cluster.core.gpu_discovery.client")
     def test_discover_single_gpu_type(
         self, mock_k8s_client: MagicMock, mock_k8s_config: MagicMock
     ) -> None:
@@ -116,8 +116,8 @@ class TestGPUDiscoveryClient:
         assert result.gpus[0].vendor == "nvidia"
         mock_api_client.close.assert_called_once()
 
-    @patch("fournos.core.gpu_discovery.k8s_config")
-    @patch("fournos.core.gpu_discovery.client")
+    @patch("fournos_cluster.core.gpu_discovery.k8s_config")
+    @patch("fournos_cluster.core.gpu_discovery.client")
     def test_discover_mixed_gpu_types(
         self, mock_k8s_client: MagicMock, mock_k8s_config: MagicMock
     ) -> None:
@@ -141,8 +141,8 @@ class TestGPUDiscoveryClient:
         short_names = {g.short_name for g in result.gpus}
         assert short_names == {"a100", "h200"}
 
-    @patch("fournos.core.gpu_discovery.k8s_config")
-    @patch("fournos.core.gpu_discovery.client")
+    @patch("fournos_cluster.core.gpu_discovery.k8s_config")
+    @patch("fournos_cluster.core.gpu_discovery.client")
     def test_discover_no_gpus(
         self, mock_k8s_client: MagicMock, mock_k8s_config: MagicMock
     ) -> None:
@@ -161,8 +161,8 @@ class TestGPUDiscoveryClient:
         assert result.total_gpus == 0
         assert len(result.gpus) == 0
 
-    @patch("fournos.core.gpu_discovery.k8s_config")
-    @patch("fournos.core.gpu_discovery.client")
+    @patch("fournos_cluster.core.gpu_discovery.k8s_config")
+    @patch("fournos_cluster.core.gpu_discovery.client")
     def test_discover_amd_gpus(
         self, mock_k8s_client: MagicMock, mock_k8s_config: MagicMock
     ) -> None:
@@ -199,8 +199,8 @@ class TestGPUDiscoveryClient:
         with pytest.raises(GPUDiscoveryError, match="no 'kubeconfig' key"):
             discovery.discover_gpus("cluster-1", "kubeconfig-cluster-1", "psap-secrets")
 
-    @patch("fournos.core.gpu_discovery.k8s_config")
-    @patch("fournos.core.gpu_discovery.client")
+    @patch("fournos_cluster.core.gpu_discovery.k8s_config")
+    @patch("fournos_cluster.core.gpu_discovery.client")
     def test_double_base64_kubeconfig(
         self, mock_k8s_client: MagicMock, mock_k8s_config: MagicMock
     ) -> None:
@@ -244,8 +244,8 @@ class TestGPUDiscoveryClient:
         with pytest.raises(GPUDiscoveryError, match="not valid YAML"):
             discovery.discover_gpus("cluster-1", "kubeconfig-cluster-1", "psap-secrets")
 
-    @patch("fournos.core.gpu_discovery.k8s_config")
-    @patch("fournos.core.gpu_discovery.client")
+    @patch("fournos_cluster.core.gpu_discovery.k8s_config")
+    @patch("fournos_cluster.core.gpu_discovery.client")
     def test_target_cluster_unreachable(
         self, mock_k8s_client: MagicMock, mock_k8s_config: MagicMock
     ) -> None:
@@ -263,8 +263,8 @@ class TestGPUDiscoveryClient:
 
         mock_api_client.close.assert_called_once()
 
-    @patch("fournos.core.gpu_discovery.k8s_config")
-    @patch("fournos.core.gpu_discovery.client")
+    @patch("fournos_cluster.core.gpu_discovery.k8s_config")
+    @patch("fournos_cluster.core.gpu_discovery.client")
     def test_stringdata_kubeconfig(
         self, mock_k8s_client: MagicMock, mock_k8s_config: MagicMock
     ) -> None:
@@ -291,8 +291,8 @@ class TestGPUDiscoveryClient:
         result = discovery.discover_gpus("cluster-1", "kubeconfig-cluster-1", "psap-secrets")
         assert result.total_gpus == 0
 
-    @patch("fournos.core.gpu_discovery.k8s_config")
-    @patch("fournos.core.gpu_discovery.client")
+    @patch("fournos_cluster.core.gpu_discovery.k8s_config")
+    @patch("fournos_cluster.core.gpu_discovery.client")
     def test_auto_sets_current_context(
         self, mock_k8s_client: MagicMock, mock_k8s_config: MagicMock
     ) -> None:
@@ -333,8 +333,8 @@ class TestGPUDiscoveryClient:
         with pytest.raises(GPUDiscoveryError, match="has no contexts"):
             discovery.discover_gpus("cluster-1", "kubeconfig-cluster-1", "psap-secrets")
 
-    @patch("fournos.core.gpu_discovery.k8s_config")
-    @patch("fournos.core.gpu_discovery.client")
+    @patch("fournos_cluster.core.gpu_discovery.k8s_config")
+    @patch("fournos_cluster.core.gpu_discovery.client")
     def test_sets_request_timeout(
         self, mock_k8s_client: MagicMock, mock_k8s_config: MagicMock
     ) -> None:

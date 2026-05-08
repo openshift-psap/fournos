@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fournos-cluster"
+version = "0.1.0"
+description = "FournosCluster controller — cluster discovery, GPU inventory, and ownership locking"
+requires-python = ">=3.11"
+dependencies = [
+    "kopf>=1.37",
+    "kubernetes>=31.0",
+    "pydantic-settings>=2.7",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.9",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100

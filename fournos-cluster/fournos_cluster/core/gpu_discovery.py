@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 import yaml
 from kubernetes import client, config as k8s_config
 
-from fournos.settings import settings
+from fournos_cluster.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -148,15 +148,15 @@ class GPUDiscoveryClient:
             amd_count = int(allocatable.get(GPU_RESOURCE_AMD, 0))
 
             if nvidia_count > 0:
-                raw_model = labels.get(GPU_LABEL_NVIDIA, "unknown-nvidia")
-                short = _normalize_gpu_model(raw_model)
-                key = ("nvidia", raw_model, short)
+                raw_model = labels.get(GPU_LABEL_NVIDIA, "")
+                short = _normalize_gpu_model(raw_model) if raw_model else "nvidia"
+                key = ("nvidia", raw_model or "nvidia", short)
                 gpu_counts.setdefault(key, []).append(nvidia_count)
 
             if amd_count > 0:
-                raw_model = labels.get(GPU_LABEL_AMD, "unknown-amd")
-                short = _normalize_gpu_model(raw_model)
-                key = ("amd", raw_model, short)
+                raw_model = labels.get(GPU_LABEL_AMD, "")
+                short = _normalize_gpu_model(raw_model) if raw_model else "amd"
+                key = ("amd", raw_model or "amd", short)
                 gpu_counts.setdefault(key, []).append(amd_count)
 
         gpus = tuple(

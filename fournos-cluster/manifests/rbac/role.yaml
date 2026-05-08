@@ -1,0 +1,36 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fournos-cluster
+rules:
+  # kopf CRD discovery and namespace observation
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+  # FournosCluster CRD (psap-automation namespace)
+  - apiGroups: ["fournos.dev"]
+    resources: ["fournoscluster", "fournoscluster/status", "fournoscluster/finalizers"]
+    verbs: ["create", "get", "list", "watch", "patch", "update"]
+  # Sentinel FournosJob creation for cluster locking
+  - apiGroups: ["fournos.dev"]
+    resources: ["fournosjobs"]
+    verbs: ["create", "get", "delete"]
+  # Kubeconfig secrets (psap-secrets namespace) + kopf annotations
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "patch"]
+  # Events for kopf
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create"]
+  # Kueue ResourceFlavors (cluster-scoped)
+  - apiGroups: ["kueue.x-k8s.io"]
+    resources: ["resourceflavors"]
+    verbs: ["create", "get", "list"]
+  # Kueue ClusterQueues (cluster-scoped)
+  - apiGroups: ["kueue.x-k8s.io"]
+    resources: ["clusterqueues"]
+    verbs: ["get", "list", "patch"]

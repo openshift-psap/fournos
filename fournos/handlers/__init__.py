@@ -7,13 +7,7 @@ from .execution import (
     reconcile_running,
 )
 from .lifecycle import on_create, reconcile_pending
-from .psapcluster import (
-    on_psapcluster_create,
-    on_psapcluster_owner_change,
-    reconcile_psapcluster,
-)
 from .resolving import reconcile_resolving
-from .discovery import scan_clusters
 
 __all__ = [
     "on_create",
@@ -23,8 +17,4 @@ __all__ = [
     "reconcile_running",
     "handle_shutdown",
     "reconcile_stopping",
-    "on_psapcluster_create",
-    "on_psapcluster_owner_change",
-    "reconcile_psapcluster",
-    "scan_clusters",
 ]

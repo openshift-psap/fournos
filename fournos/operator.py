@@ -15,8 +15,6 @@ from kubernetes import client, config
 
 from fournos.core.clusters import ClusterRegistry
 from fournos.core.constants import LABEL_JOB_NAME, Phase
-from fournos.core.discovery import ClusterDiscovery
-from fournos.core.gpu_discovery import GPUDiscoveryClient
 from fournos.core.kueue import KueueClient
 from fournos.core.resolve import ResolveClient
 from fournos.core.tekton import TektonClient
@@ -61,10 +59,6 @@ def startup(**_):
     ctx.tekton = TektonClient(custom_objects)
     ctx.registry = ClusterRegistry(client.CoreV1Api())
     ctx.resolve = ResolveClient(client.BatchV1Api())
-    ctx.gpu_discovery = GPUDiscoveryClient(client.CoreV1Api())
-    ctx.discovery = ClusterDiscovery(
-        client.CoreV1Api(), custom_objects, ctx.kueue
-    )
 
     logger.info("Operating in namespace %s", settings.namespace)
     logger.info("Secrets namespace: %s", settings.secrets_namespace)
@@ -72,13 +66,6 @@ def startup(**_):
     gc_thread = threading.Thread(target=_gc_loop, daemon=True)
     gc_thread.start()
     logger.info("Resource GC started (interval=%ss)", settings.gc_interval_sec)
-
-    discovery_thread = threading.Thread(target=_discovery_loop, daemon=True)
-    discovery_thread.start()
-    logger.info(
-        "Cluster discovery started (interval=%ss)",
-        settings.cluster_discovery_interval_sec,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -136,44 +123,8 @@ def reconcile(spec, name, namespace, status, patch, body, **_):
 
 
 # ---------------------------------------------------------------------------
-# PSAPCLUSTER — cluster inventory, GPU discovery, locking
-# ---------------------------------------------------------------------------
-
-
-@kopf.on.create("fournos.dev", "v1", "psapclusters")
-@kopf.on.resume("fournos.dev", "v1", "psapclusters")
-def on_psapcluster_create(spec, name, namespace, status, patch, body, **_):
-    handlers.on_psapcluster_create(spec, name, namespace, status, patch, body)
-
-
-@kopf.on.update("fournos.dev", "v1", "psapclusters", field="spec.owner")
-def on_psapcluster_owner_change(spec, name, namespace, status, patch, body, old, new, **_):
-    handlers.on_psapcluster_owner_change(spec, name, namespace, status, patch, body, old, new)
-
-
-@kopf.timer(
-    "fournos.dev",
-    "v1",
-    "psapclusters",
-    interval=settings.psapcluster_timer_interval_sec,
-)
-def reconcile_psapcluster(spec, name, namespace, status, patch, body, **_):
-    handlers.reconcile_psapcluster(spec, name, namespace, status, patch, body)
-
-
-# ---------------------------------------------------------------------------
 # RESOURCE GC — delete stale Workloads/PipelineRuns whose FournosJob is gone
 # ---------------------------------------------------------------------------
-
-
-def _discovery_loop():
-    interval = settings.cluster_discovery_interval_sec
-    while True:
-        time.sleep(interval)
-        try:
-            handlers.scan_clusters()
-        except Exception:
-            logger.exception("Cluster discovery scan failed")
 
 
 def _gc_loop():

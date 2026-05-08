@@ -28,10 +28,3 @@ class Shutdown(StrEnum):
     STOP = "Stop"
     TERMINATE = "Terminate"
 
-
-# PSAPCluster constants
-LABEL_PSAPCLUSTER_LOCK = "fournos.dev/psapcluster-lock"
-LABEL_AUTO_DISCOVERED = "fournos.dev/auto-discovered"
-
-COND_KUBECONFIG_VALID = "KubeconfigValid"
-COND_GPU_DISCOVERED = "GPUDiscovered"

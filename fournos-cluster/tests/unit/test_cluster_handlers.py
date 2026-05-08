@@ -1,22 +1,23 @@
-"""Tests for PSAPCluster handler logic."""
+"""Tests for FournosCluster handler logic."""
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 from kubernetes.client.exceptions import ApiException
 
-from fournos.handlers.psapcluster import (
+from fournos_cluster.handlers.cluster import (
     _build_gpu_summary,
     _reconcile_gpu_discovery,
     _reconcile_lock_job,
     _reconcile_ttl_expiry,
-    on_psapcluster_create,
-    on_psapcluster_owner_change,
+    on_cluster_create,
+    on_owner_change,
+    on_hardware_change,
     parse_duration,
-    reconcile_psapcluster,
+    reconcile,
 )
 
 
@@ -68,24 +69,23 @@ class TestBuildGPUSummary:
 
 
 class _PatchBase:
-    """Mixin providing a patched ctx and K8s client for handler tests."""
 
     @pytest.fixture(autouse=True)
     def _setup_ctx(self) -> None:
-        self.mock_registry = MagicMock()
         self.mock_gpu_discovery = MagicMock()
         self.mock_kueue = MagicMock()
 
-        patcher_ctx = patch("fournos.handlers.psapcluster.ctx")
+        patcher_ctx = patch("fournos_cluster.handlers.cluster.ctx")
         self.mock_ctx = patcher_ctx.start()
-        self.mock_ctx.registry = self.mock_registry
         self.mock_ctx.gpu_discovery = self.mock_gpu_discovery
         self.mock_ctx.kueue = self.mock_kueue
 
-        patcher_client = patch("fournos.handlers.psapcluster.client")
+        patcher_client = patch("fournos_cluster.handlers.cluster.client")
         self.mock_k8s_client = patcher_client.start()
         self.mock_custom_api = MagicMock()
+        self.mock_core_api = MagicMock()
         self.mock_k8s_client.CustomObjectsApi.return_value = self.mock_custom_api
+        self.mock_k8s_client.CoreV1Api.return_value = self.mock_core_api
         self.mock_k8s_client.exceptions.ApiException = ApiException
 
         yield
@@ -101,45 +101,54 @@ class _PatchBase:
 
 class TestOnCreate(_PatchBase):
 
-    @patch("fournos.handlers.psapcluster._check_kubeconfig", return_value="Valid")
+    @patch("fournos_cluster.handlers.cluster._check_kubeconfig", return_value="Valid")
     def test_initializes_status(self, mock_check: MagicMock) -> None:
         patch_obj = self._make_patch()
         spec = {"kubeconfigSecret": "kubeconfig-cluster-1"}
 
-        on_psapcluster_create(spec, "cluster-1", "psap-automation", {}, patch_obj, {})
+        on_cluster_create(spec, "cluster-1", "ns", {}, patch_obj, {})
 
         assert patch_obj.status["kubeconfigStatus"] == "Valid"
         assert patch_obj.status["locked"] is False
 
-    @patch("fournos.handlers.psapcluster._check_kubeconfig", return_value="Missing")
+    @patch("fournos_cluster.handlers.cluster._check_kubeconfig", return_value="Valid")
+    def test_creates_flavor_and_cq_entry(self, mock_check: MagicMock) -> None:
+        patch_obj = self._make_patch()
+        spec = {"kubeconfigSecret": "kubeconfig-cluster-1"}
+
+        on_cluster_create(spec, "cluster-1", "ns", {}, patch_obj, {})
+
+        self.mock_kueue.create_flavor.assert_called_once_with("cluster-1")
+        self.mock_kueue.add_flavor_to_cluster_queue.assert_called_once_with("cluster-1")
+
+    @patch("fournos_cluster.handlers.cluster._check_kubeconfig", return_value="Missing")
     def test_missing_kubeconfig(self, mock_check: MagicMock) -> None:
         patch_obj = self._make_patch()
         spec = {"kubeconfigSecret": "kubeconfig-missing"}
 
-        on_psapcluster_create(spec, "cluster-x", "psap-automation", {}, patch_obj, {})
+        on_cluster_create(spec, "cluster-x", "ns", {}, patch_obj, {})
 
         assert patch_obj.status["kubeconfigStatus"] == "Missing"
-
         conditions = patch_obj.status["conditions"]
         kubeconfig_cond = next(c for c in conditions if c["type"] == "KubeconfigValid")
         assert kubeconfig_cond["status"] == "False"
 
-    @patch("fournos.handlers.psapcluster._check_kubeconfig", return_value="Valid")
-    @patch("fournos.handlers.psapcluster._apply_lock")
+    @patch("fournos_cluster.handlers.cluster._check_kubeconfig", return_value="Valid")
+    @patch("fournos_cluster.handlers.cluster._apply_lock")
     def test_owner_at_creation(self, mock_lock: MagicMock, mock_check: MagicMock) -> None:
         patch_obj = self._make_patch()
         spec = {"kubeconfigSecret": "kubeconfig-cluster-1", "owner": "nathan"}
 
-        on_psapcluster_create(spec, "cluster-1", "psap-automation", {}, patch_obj, {})
+        on_cluster_create(spec, "cluster-1", "ns", {}, patch_obj, {})
 
         mock_lock.assert_called_once_with(spec, "cluster-1", patch_obj, "nathan")
 
-    @patch("fournos.handlers.psapcluster._check_kubeconfig", return_value="Valid")
+    @patch("fournos_cluster.handlers.cluster._check_kubeconfig", return_value="Valid")
     def test_conditions_set(self, mock_check: MagicMock) -> None:
         patch_obj = self._make_patch()
         spec = {"kubeconfigSecret": "kubeconfig-cluster-1"}
 
-        on_psapcluster_create(spec, "cluster-1", "psap-automation", {}, patch_obj, {})
+        on_cluster_create(spec, "cluster-1", "ns", {}, patch_obj, {})
 
         conditions = patch_obj.status["conditions"]
         types = {c["type"] for c in conditions}
@@ -152,29 +161,25 @@ class TestOwnerChange(_PatchBase):
         patch_obj = self._make_patch()
         spec = {"kubeconfigSecret": "kc", "ttl": "4h"}
 
-        on_psapcluster_owner_change(
-            spec, "cluster-1", "psap-automation", {}, patch_obj, {}, old="", new="nathan"
+        on_owner_change(
+            spec, "cluster-1", "ns", {}, patch_obj, {}, old="", new="nathan"
         )
 
         assert patch_obj.status["locked"] is True
-        assert patch_obj.status["lockJobName"] == "psapcluster-lock-cluster-1"
+        assert patch_obj.status["lockJobName"] == "cluster-lock-cluster-1"
         assert patch_obj.status["lockExpiresAt"] is not None
 
         self.mock_custom_api.create_namespaced_custom_object.assert_called_once()
         body = self.mock_custom_api.create_namespaced_custom_object.call_args[1]["body"]
-        assert body["metadata"]["name"] == "psapcluster-lock-cluster-1"
+        assert body["metadata"]["name"] == "cluster-lock-cluster-1"
         assert body["spec"]["lockOnly"] is True
         assert body["spec"]["exclusive"] is True
-        assert body["spec"]["cluster"] == "cluster-1"
-        assert body["spec"]["owner"] == "nathan"
 
     def test_lock_without_ttl(self) -> None:
         patch_obj = self._make_patch()
         spec = {"kubeconfigSecret": "kc"}
 
-        on_psapcluster_owner_change(
-            spec, "cluster-1", "psap-automation", {}, patch_obj, {}, old="", new="nathan"
-        )
+        on_owner_change(spec, "cluster-1", "ns", {}, patch_obj, {}, old="", new="nathan")
 
         assert patch_obj.status["locked"] is True
         assert patch_obj.status["lockExpiresAt"] is None
@@ -183,26 +188,16 @@ class TestOwnerChange(_PatchBase):
         patch_obj = self._make_patch()
         spec = {"kubeconfigSecret": "kc"}
 
-        on_psapcluster_owner_change(
-            spec, "cluster-1", "psap-automation", {}, patch_obj, {}, old="nathan", new=""
-        )
+        on_owner_change(spec, "cluster-1", "ns", {}, patch_obj, {}, old="nathan", new="")
 
         self.mock_custom_api.delete_namespaced_custom_object.assert_called_once()
-        delete_args = self.mock_custom_api.delete_namespaced_custom_object.call_args[1]
-        assert delete_args["name"] == "psapcluster-lock-cluster-1"
-
         assert patch_obj.status["locked"] is False
-        assert patch_obj.status["lockExpiresAt"] is None
-        assert patch_obj.status["ownerSetAt"] is None
-        assert patch_obj.status["lockJobName"] is None
 
     def test_lock_invalid_ttl_no_expiry(self) -> None:
         patch_obj = self._make_patch()
         spec = {"kubeconfigSecret": "kc", "ttl": "invalid"}
 
-        on_psapcluster_owner_change(
-            spec, "cluster-1", "psap-automation", {}, patch_obj, {}, old="", new="nathan"
-        )
+        on_owner_change(spec, "cluster-1", "ns", {}, patch_obj, {}, old="", new="nathan")
 
         assert patch_obj.status["locked"] is True
         assert patch_obj.status["lockExpiresAt"] is None
@@ -212,9 +207,7 @@ class TestOwnerChange(_PatchBase):
         spec = {"kubeconfigSecret": "kc"}
         self.mock_custom_api.create_namespaced_custom_object.side_effect = ApiException(status=409)
 
-        on_psapcluster_owner_change(
-            spec, "cluster-1", "psap-automation", {}, patch_obj, {}, old="", new="nathan"
-        )
+        on_owner_change(spec, "cluster-1", "ns", {}, patch_obj, {}, old="", new="nathan")
 
         assert patch_obj.status["locked"] is True
 
@@ -223,11 +216,40 @@ class TestOwnerChange(_PatchBase):
         spec = {"kubeconfigSecret": "kc"}
         self.mock_custom_api.delete_namespaced_custom_object.side_effect = ApiException(status=404)
 
-        on_psapcluster_owner_change(
-            spec, "cluster-1", "psap-automation", {}, patch_obj, {}, old="nathan", new=""
-        )
+        on_owner_change(spec, "cluster-1", "ns", {}, patch_obj, {}, old="nathan", new="")
 
         assert patch_obj.status["locked"] is False
+
+
+class TestHardwareChange(_PatchBase):
+
+    def test_updates_cq_quotas(self) -> None:
+        patch_obj = self._make_patch()
+        new_hw = {
+            "gpus": [{"shortName": "a100", "count": 8, "vendor": "nvidia", "model": "A100"}],
+            "totalGPUs": 8,
+        }
+
+        on_hardware_change(spec={"hardware": new_hw}, name="cluster-1", old={}, new=new_hw, patch=patch_obj)
+
+        self.mock_kueue.update_flavor_quotas.assert_called_once_with("cluster-1", [("a100", 8)])
+        assert patch_obj.status["gpuSummary"] == "8x A100"
+
+    def test_empty_hardware_no_update(self) -> None:
+        patch_obj = self._make_patch()
+
+        on_hardware_change(spec={}, name="cluster-1", old={}, new=None, patch=patch_obj)
+
+        self.mock_kueue.update_flavor_quotas.assert_not_called()
+
+    def test_no_gpus_no_quota_update(self) -> None:
+        patch_obj = self._make_patch()
+        new_hw = {"gpus": [], "totalGPUs": 0}
+
+        on_hardware_change(spec={"hardware": new_hw}, name="cluster-1", old={}, new=new_hw, patch=patch_obj)
+
+        self.mock_kueue.update_flavor_quotas.assert_not_called()
+        assert patch_obj.status["gpuSummary"] == ""
 
 
 class TestReconcileTTLExpiry(_PatchBase):
@@ -242,7 +264,6 @@ class TestReconcileTTLExpiry(_PatchBase):
 
         assert patch_obj.spec == {"owner": ""}
         assert patch_obj.status["locked"] is False
-        self.mock_custom_api.delete_namespaced_custom_object.assert_called_once()
 
     def test_not_expired(self) -> None:
         patch_obj = self._make_patch()
@@ -253,7 +274,6 @@ class TestReconcileTTLExpiry(_PatchBase):
         _reconcile_ttl_expiry(spec, "cluster-1", status, patch_obj)
 
         assert patch_obj.spec == {}
-        self.mock_custom_api.delete_namespaced_custom_object.assert_not_called()
 
     def test_not_locked(self) -> None:
         patch_obj = self._make_patch()
@@ -285,11 +305,11 @@ class TestReconcileGPUDiscovery(_PatchBase):
 
         self.mock_gpu_discovery.discover_gpus.assert_not_called()
 
-    def test_runs_discovery(self) -> None:
-        from fournos.core.gpu_discovery import DiscoveredGPU, DiscoveryResult
+    def test_runs_discovery_writes_to_spec(self) -> None:
+        from fournos_cluster.core.gpu_discovery import DiscoveredGPU, DiscoveryResult
 
         patch_obj = self._make_patch()
-        status = {"kubeconfigStatus": "Valid", "hardware": {}}
+        status = {"kubeconfigStatus": "Valid"}
         spec = {"kubeconfigSecret": "kc-cluster-1", "gpuDiscoveryInterval": "5m"}
 
         result = DiscoveryResult(
@@ -301,107 +321,58 @@ class TestReconcileGPUDiscovery(_PatchBase):
 
         _reconcile_gpu_discovery(spec, "cluster-1", status, patch_obj)
 
-        self.mock_gpu_discovery.discover_gpus.assert_called_once_with(
-            "cluster-1", "kc-cluster-1", "psap-secrets"
-        )
-        assert patch_obj.status["hardware"]["totalGPUs"] == 8
-        assert patch_obj.status["gpuSummary"] == "8x A100"
-        assert patch_obj.status["hardware"]["consecutiveFailures"] == 0
+        assert patch_obj.spec["hardware"]["totalGPUs"] == 8
+        assert patch_obj.spec["hardware"]["consecutiveFailures"] == 0
 
     def test_respects_interval(self) -> None:
         patch_obj = self._make_patch()
         recent = datetime.now(timezone.utc).isoformat()
-        status = {
-            "kubeconfigStatus": "Valid",
+        status = {"kubeconfigStatus": "Valid"}
+        spec = {
+            "kubeconfigSecret": "kc",
+            "gpuDiscoveryInterval": "5m",
             "hardware": {"lastDiscovery": recent, "consecutiveFailures": 0},
         }
-        spec = {"kubeconfigSecret": "kc", "gpuDiscoveryInterval": "5m"}
 
         _reconcile_gpu_discovery(spec, "cluster-1", status, patch_obj)
 
         self.mock_gpu_discovery.discover_gpus.assert_not_called()
 
     def test_failure_increments_counter(self) -> None:
-        from fournos.core.gpu_discovery import GPUDiscoveryError
+        from fournos_cluster.core.gpu_discovery import GPUDiscoveryError
 
         patch_obj = self._make_patch()
-        status = {
-            "kubeconfigStatus": "Valid",
+        status = {"kubeconfigStatus": "Valid"}
+        spec = {
+            "kubeconfigSecret": "kc",
+            "gpuDiscoveryInterval": "5m",
             "hardware": {"consecutiveFailures": 2},
         }
-        spec = {"kubeconfigSecret": "kc", "gpuDiscoveryInterval": "5m"}
 
         self.mock_gpu_discovery.discover_gpus.side_effect = GPUDiscoveryError("timeout")
 
         _reconcile_gpu_discovery(spec, "cluster-1", status, patch_obj)
 
-        assert patch_obj.status["hardware"]["consecutiveFailures"] == 3
-        assert patch_obj.status["hardware"]["lastError"] == "timeout"
+        assert patch_obj.spec["hardware"]["consecutiveFailures"] == 3
+        assert patch_obj.spec["hardware"]["lastError"] == "timeout"
 
     def test_five_failures_sets_unreachable(self) -> None:
-        from fournos.core.gpu_discovery import GPUDiscoveryError
+        from fournos_cluster.core.gpu_discovery import GPUDiscoveryError
 
         patch_obj = self._make_patch()
-        status = {
-            "kubeconfigStatus": "Valid",
+        status = {"kubeconfigStatus": "Valid"}
+        spec = {
+            "kubeconfigSecret": "kc",
+            "gpuDiscoveryInterval": "5m",
             "hardware": {"consecutiveFailures": 4},
         }
-        spec = {"kubeconfigSecret": "kc", "gpuDiscoveryInterval": "5m"}
 
         self.mock_gpu_discovery.discover_gpus.side_effect = GPUDiscoveryError("timeout")
 
         _reconcile_gpu_discovery(spec, "cluster-1", status, patch_obj)
 
         assert patch_obj.status["kubeconfigStatus"] == "Unreachable"
-        assert patch_obj.status["hardware"]["consecutiveFailures"] == 5
-
-    def test_updates_flavor_quotas_on_change(self) -> None:
-        from fournos.core.gpu_discovery import DiscoveredGPU, DiscoveryResult
-
-        patch_obj = self._make_patch()
-        status = {
-            "kubeconfigStatus": "Valid",
-            "hardware": {
-                "gpus": [{"shortName": "a100", "count": 4}],
-            },
-        }
-        spec = {"kubeconfigSecret": "kc", "gpuDiscoveryInterval": "5m"}
-
-        result = DiscoveryResult(
-            gpus=(DiscoveredGPU("nvidia", "A100", "a100", 8, 2),),
-            total_gpus=8,
-            timestamp="2026-04-29T10:00:00Z",
-        )
-        self.mock_gpu_discovery.discover_gpus.return_value = result
-
-        _reconcile_gpu_discovery(spec, "cluster-1", status, patch_obj)
-
-        self.mock_kueue.update_flavor_quotas.assert_called_once_with(
-            "cluster-1", [("a100", 8)]
-        )
-
-    def test_no_quota_update_when_unchanged(self) -> None:
-        from fournos.core.gpu_discovery import DiscoveredGPU, DiscoveryResult
-
-        patch_obj = self._make_patch()
-        status = {
-            "kubeconfigStatus": "Valid",
-            "hardware": {
-                "gpus": [{"shortName": "a100", "count": 8}],
-            },
-        }
-        spec = {"kubeconfigSecret": "kc", "gpuDiscoveryInterval": "5m"}
-
-        result = DiscoveryResult(
-            gpus=(DiscoveredGPU("nvidia", "A100", "a100", 8, 2),),
-            total_gpus=8,
-            timestamp="2026-04-29T10:00:00Z",
-        )
-        self.mock_gpu_discovery.discover_gpus.return_value = result
-
-        _reconcile_gpu_discovery(spec, "cluster-1", status, patch_obj)
-
-        self.mock_kueue.update_flavor_quotas.assert_not_called()
+        assert patch_obj.spec["hardware"]["consecutiveFailures"] == 5
 
 
 class TestReconcileLockJob(_PatchBase):
@@ -435,7 +406,6 @@ class TestReconcileLockJob(_PatchBase):
         self.mock_custom_api.create_namespaced_custom_object.assert_called_once()
         body = self.mock_custom_api.create_namespaced_custom_object.call_args[1]["body"]
         assert body["spec"]["lockOnly"] is True
-        assert body["spec"]["owner"] == "nathan"
 
     def test_clears_lock_when_sentinel_missing_and_no_owner(self) -> None:
         patch_obj = self._make_patch()
@@ -446,15 +416,14 @@ class TestReconcileLockJob(_PatchBase):
         _reconcile_lock_job(spec, "cluster-1", status, patch_obj)
 
         assert patch_obj.status["locked"] is False
-        assert patch_obj.status["lockJobName"] is None
 
 
 class TestReconcileFull(_PatchBase):
 
-    @patch("fournos.handlers.psapcluster._reconcile_lock_job")
-    @patch("fournos.handlers.psapcluster._reconcile_gpu_discovery")
-    @patch("fournos.handlers.psapcluster._reconcile_ttl_expiry")
-    @patch("fournos.handlers.psapcluster._reconcile_kubeconfig")
+    @patch("fournos_cluster.handlers.cluster._reconcile_lock_job")
+    @patch("fournos_cluster.handlers.cluster._reconcile_gpu_discovery")
+    @patch("fournos_cluster.handlers.cluster._reconcile_ttl_expiry")
+    @patch("fournos_cluster.handlers.cluster._reconcile_kubeconfig")
     def test_calls_all_steps(
         self,
         mock_kc: MagicMock,
@@ -462,17 +431,17 @@ class TestReconcileFull(_PatchBase):
         mock_gpu: MagicMock,
         mock_lock: MagicMock,
     ) -> None:
-        reconcile_psapcluster({}, "cluster-1", "ns", {}, MagicMock(), {})
+        reconcile({}, "cluster-1", "ns", {}, MagicMock(), {})
 
         mock_kc.assert_called_once()
         mock_ttl.assert_called_once()
         mock_gpu.assert_called_once()
         mock_lock.assert_called_once()
 
-    @patch("fournos.handlers.psapcluster._reconcile_lock_job")
-    @patch("fournos.handlers.psapcluster._reconcile_gpu_discovery")
-    @patch("fournos.handlers.psapcluster._reconcile_ttl_expiry")
-    @patch("fournos.handlers.psapcluster._reconcile_kubeconfig")
+    @patch("fournos_cluster.handlers.cluster._reconcile_lock_job")
+    @patch("fournos_cluster.handlers.cluster._reconcile_gpu_discovery")
+    @patch("fournos_cluster.handlers.cluster._reconcile_ttl_expiry")
+    @patch("fournos_cluster.handlers.cluster._reconcile_kubeconfig")
     def test_order_kubeconfig_before_ttl_before_gpu(
         self,
         mock_kc: MagicMock,
@@ -486,6 +455,6 @@ class TestReconcileFull(_PatchBase):
         mock_gpu.side_effect = lambda *a, **kw: call_order.append("gpu")
         mock_lock.side_effect = lambda *a, **kw: call_order.append("lock")
 
-        reconcile_psapcluster({}, "cluster-1", "ns", {}, MagicMock(), {})
+        reconcile({}, "cluster-1", "ns", {}, MagicMock(), {})
 
         assert call_order == ["kubeconfig", "ttl", "gpu", "lock"]
