@@ -1,8 +1,10 @@
 name: Image Push
 on:
-  workflow_dispatch:
   release:
     types: [published]
+  push:
+    branches: [main]
+  workflow_dispatch: {}
 
 jobs:
   image-push:
@@ -10,13 +12,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Determine tags
+        id: tags
+        run: |
+          TAGS="$(git rev-parse --short HEAD)"
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            TAGS="latest ${TAGS}"
+          fi
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            TAGS="stable ${TAGS} ${{ github.event.release.tag_name }}"
+          fi
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+
       - name: Build Fournos Image
         id: build
         uses: redhat-actions/buildah-build@v2
         with:
           image: fournos
           context: .
-          tags: latest ${{ github.sha }}
+          tags: ${{ steps.tags.outputs.tags }}
           containerfiles: |
             ./Containerfile
 
