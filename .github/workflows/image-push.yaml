@@ -15,7 +15,7 @@ jobs:
       - name: Determine tags
         id: tags
         run: |
-          TAGS="${{ github.sha }}"
+          TAGS="$(git rev-parse --short HEAD)"
           if [[ "${{ github.event_name }}" == "push" ]]; then
             TAGS="latest ${TAGS}"
           fi
