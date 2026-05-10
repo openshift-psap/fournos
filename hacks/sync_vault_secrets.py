@@ -51,9 +51,9 @@ import re
 import urllib.error
 import urllib.request
 
-# Set FOURNOS_NAMESPACE if not set (required for fournos imports)
-if not os.environ.get("FOURNOS_NAMESPACE"):
-    os.environ["FOURNOS_NAMESPACE"] = "not used"
+# Set FOURNOS_WORKLOAD_NAMESPACE if not set (required for fournos imports)
+if not os.environ.get("FOURNOS_WORKLOAD_NAMESPACE"):
+    os.environ["FOURNOS_WORKLOAD_NAMESPACE"] = "not used"
 
 from fournos.core.constants import LABEL_VAULT_ENTRY
 from fournos.settings import settings

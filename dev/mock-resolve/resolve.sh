@@ -8,20 +8,20 @@
 #
 # Expected env vars (set by the operator):
 #   FJOB_NAME    — FournosJob name to patch
-#   FOURNOS_NAMESPACE   — target namespace
+#   FOURNOS_WORKLOAD_NAMESPACE   — namespace where FournosJobs live
 set -euo pipefail
 
 echo "[mock-resolve] job=${FJOB_NAME}"
-echo "[mock-resolve] namespace=${FOURNOS_NAMESPACE}"
+echo "[mock-resolve] namespace=${FOURNOS_WORKLOAD_NAMESPACE}"
 
 EXISTING_HW=$(kubectl get fournosjob "${FJOB_NAME}" \
-  -n "${FOURNOS_NAMESPACE}" \
+  -n "${FOURNOS_WORKLOAD_NAMESPACE}" \
   -o jsonpath='{.spec.hardware.gpuType}' 2>/dev/null || true)
 
 if [[ -z "${EXISTING_HW}" ]]; then
   echo "[mock-resolve] no user-provided hardware, setting defaults"
   kubectl patch fournosjob "${FJOB_NAME}" \
-    -n "${FOURNOS_NAMESPACE}" \
+    -n "${FOURNOS_WORKLOAD_NAMESPACE}" \
     --type=merge \
     -p '{"spec":{"hardware":{"gpuType":"a100","gpuCount":2}}}'
 else
@@ -30,7 +30,7 @@ fi
 
 echo "[mock-resolve] setting secretRefs"
 kubectl patch fournosjob "${FJOB_NAME}" \
-  -n "${FOURNOS_NAMESPACE}" \
+  -n "${FOURNOS_WORKLOAD_NAMESPACE}" \
   --type=merge \
   -p '{"spec":{"secretRefs":["placeholder"]}}'
 

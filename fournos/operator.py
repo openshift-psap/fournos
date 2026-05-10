@@ -60,7 +60,7 @@ def startup(**_):
     ctx.registry = ClusterRegistry(client.CoreV1Api())
     ctx.resolve = ResolveClient(client.BatchV1Api())
 
-    logger.info("Operating in namespace %s", settings.namespace)
+    logger.info("Operating in namespace %s", settings.workload_namespace)
     logger.info("Secrets namespace: %s", settings.secrets_namespace)
 
     gc_thread = threading.Thread(target=_gc_loop, daemon=True)
@@ -142,7 +142,7 @@ def _gc_stale_resources():
     jobs = custom.list_namespaced_custom_object(
         "fournos.dev",
         "v1",
-        settings.namespace,
+        settings.workload_namespace,
         "fournosjobs",
     )
     job_names = {j["metadata"]["name"] for j in jobs.get("items", [])}

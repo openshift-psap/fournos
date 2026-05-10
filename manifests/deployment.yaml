@@ -19,7 +19,7 @@ spec:
         - name: fournos
           image: quay.io/rh_perfscale/fournos:latest
           env:
-            - name: FOURNOS_NAMESPACE
+            - name: FOURNOS_WORKLOAD_NAMESPACE
               value: "${NAMESPACE}"
           ports:
             - containerPort: 8080

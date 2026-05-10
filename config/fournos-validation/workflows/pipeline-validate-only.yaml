@@ -9,7 +9,7 @@ spec:
   params:
     - name: fjob-name
       type: string
-    - name: fournos-namespace
+    - name: fournos-workload-namespace
       type: string
     - name: kubeconfig-secret
       type: string

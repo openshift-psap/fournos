@@ -10,7 +10,7 @@ from kubernetes import client, config
 
 from fournos.settings import settings
 
-NAMESPACE = settings.namespace
+NAMESPACE = settings.workload_namespace
 SECRETS_NAMESPACE = settings.secrets_namespace
 GROUP = "fournos.dev"
 VERSION = "v1"
@@ -458,7 +458,7 @@ def create_stale_pipelinerun(k8s, name: str) -> None:
             "pipelineRef": {"name": "fournos-run-only"},
             "params": [
                 {"name": "fjob-name", "value": name},
-                {"name": "fournos-namespace", "value": NAMESPACE},
+                {"name": "fournos-workload-namespace", "value": NAMESPACE},
                 {"name": "kubeconfig-secret", "value": f"{name}-kubeconfig"},
             ],
         },

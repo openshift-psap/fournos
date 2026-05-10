@@ -5,7 +5,9 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     model_config = {"env_prefix": "FOURNOS_"}
 
-    namespace: str = Field(description="Kubernetes namespace (FOURNOS_NAMESPACE)")
+    workload_namespace: str = Field(
+        description="Namespace for FournosJobs and execution resources"
+    )
     secrets_namespace: str = Field(
         default="psap-secrets",
         description="Namespace where kubeconfig and vault-synced secrets are stored",

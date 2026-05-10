@@ -20,7 +20,7 @@ spec:
           imagePullPolicy: Always
           env:
             - name: FJOB_NAME
-            - name: FOURNOS_NAMESPACE
+            - name: FOURNOS_WORKLOAD_NAMESPACE
             - name: FOURNOS_STEP
               value: resolve-fournos-config
             - name: FOURNOS_CI
@@ -38,7 +38,7 @@ spec:
 
               exec &> >(tee -a "$ARTIFACT_DIR/run.log")
 
-              oc get "fjob/$FJOB_NAME" -n "$FOURNOS_NAMESPACE" -oyaml > $ARTIFACT_DIR/fournos_fjob.yaml
+              oc get "fjob/$FJOB_NAME" -n "$FOURNOS_WORKLOAD_NAMESPACE" -oyaml > $ARTIFACT_DIR/fournos_fjob.yaml
 
               PULL_BASE_SHA=$(cat "$ARTIFACT_DIR/fournos_fjob.yaml" | yq -r .spec.env.PULL_BASE_SHA)
               if [[ "$PULL_BASE_SHA" != null ]]; then
@@ -67,7 +67,7 @@ spec:
 
               FORGE_PROJECT=$(cat "$ARTIFACT_DIR/fournos_fjob.yaml" | yq -r .spec.executionEngine.forge.project)
               if [[ -z "$FORGE_PROJECT" || "$FORGE_PROJECT" == null ]]; then
-                echo "ERROR: invalid .spec.executionEngine.forge.project='$FORGE_PROJECT' in $FOURNOS_NAMESPACE/$FJOB_NAME"
+                echo "ERROR: invalid .spec.executionEngine.forge.project='$FORGE_PROJECT' in $FOURNOS_WORKLOAD_NAMESPACE/$FJOB_NAME"
                 exit 1
               fi
 

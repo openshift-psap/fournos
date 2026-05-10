@@ -17,4 +17,4 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: FJOB_NAME
-            - name: FOURNOS_NAMESPACE
+            - name: FOURNOS_WORKLOAD_NAMESPACE
