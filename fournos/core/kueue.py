@@ -64,7 +64,7 @@ class KueueClient:
 
         metadata: dict = {
             "name": name,
-            "namespace": settings.namespace,
+            "namespace": settings.workload_namespace,
             "labels": {
                 "kueue.x-k8s.io/queue-name": settings.kueue_local_queue_name,
                 LABEL_MANAGED_BY: "fournos",
@@ -96,7 +96,7 @@ class KueueClient:
         result = self._k8s.create_namespaced_custom_object(
             group=KUEUE_GROUP,
             version=KUEUE_VERSION,
-            namespace=settings.namespace,
+            namespace=settings.workload_namespace,
             plural=KUEUE_WORKLOAD_PLURAL,
             body=body,
         )
@@ -107,7 +107,7 @@ class KueueClient:
         return self._k8s.get_namespaced_custom_object(
             group=KUEUE_GROUP,
             version=KUEUE_VERSION,
-            namespace=settings.namespace,
+            namespace=settings.workload_namespace,
             plural=KUEUE_WORKLOAD_PLURAL,
             name=name,
         )
@@ -124,7 +124,7 @@ class KueueClient:
         result = self._k8s.list_namespaced_custom_object(
             group=KUEUE_GROUP,
             version=KUEUE_VERSION,
-            namespace=settings.namespace,
+            namespace=settings.workload_namespace,
             plural=KUEUE_WORKLOAD_PLURAL,
             label_selector=f"{LABEL_MANAGED_BY}=fournos",
         )
@@ -190,7 +190,7 @@ class KueueClient:
             self._k8s.delete_namespaced_custom_object(
                 group=KUEUE_GROUP,
                 version=KUEUE_VERSION,
-                namespace=settings.namespace,
+                namespace=settings.workload_namespace,
                 plural=KUEUE_WORKLOAD_PLURAL,
                 name=name,
             )

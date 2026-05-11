@@ -57,7 +57,7 @@ class ResolveClient:
         body = copy.deepcopy(_RESOLVE_JOB_TEMPLATE)
         body["metadata"] = {
             "name": job_name,
-            "namespace": settings.namespace,
+            "namespace": settings.workload_namespace,
             "labels": labels,
             "ownerReferences": [_make_owner_ref(owner_ref)],
         }
@@ -69,7 +69,7 @@ class ResolveClient:
 
         env_values = {
             "FJOB_NAME": name,
-            "FOURNOS_NAMESPACE": settings.namespace,
+            "FOURNOS_WORKLOAD_NAMESPACE": settings.workload_namespace,
         }
         for env_var in container["env"]:
             if env_var["name"] not in env_values:
@@ -77,7 +77,7 @@ class ResolveClient:
             env_var["value"] = env_values[env_var["name"]]
 
         result = self._batch.create_namespaced_job(
-            namespace=settings.namespace,
+            namespace=settings.workload_namespace,
             body=body,
         )
         logger.info("Created resolve Job %s for job %s", job_name, name)
@@ -88,7 +88,7 @@ class ResolveClient:
         try:
             result = self._batch.read_namespaced_job(
                 name=job_name,
-                namespace=settings.namespace,
+                namespace=settings.workload_namespace,
             )
             return result.to_dict()
         except client.exceptions.ApiException as exc:

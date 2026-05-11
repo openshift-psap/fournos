@@ -64,12 +64,12 @@ spec:
 ```
 
 ```bash
-FOURNOS_NAMESPACE=fournos-$USER-dev
-oc create -f config/forge/samples/job-full.yaml -n $FOURNOS_NAMESPACE     # returns the generated name, e.g. forge-full-sample-x7k2m
-oc get FournosJobs -n $FOURNOS_NAMESPACE -w            # watch status transitions
-oc patch FournosJob <name> -n $FOURNOS_NAMESPACE --type merge -p '{"spec":{"shutdown":"Stop"}}'        # graceful stop (runs finally tasks)
-oc patch FournosJob <name> -n $FOURNOS_NAMESPACE --type merge -p '{"spec":{"shutdown":"Terminate"}}'   # immediate terminate (skips finally tasks)
-oc delete FournosJob -n $FOURNOS_NAMESPACE <name>      # cleanup
+FOURNOS_WORKLOAD_NAMESPACE=fournos-$USER-dev
+oc create -f config/forge/samples/job-full.yaml -n $FOURNOS_WORKLOAD_NAMESPACE     # returns the generated name, e.g. forge-full-sample-x7k2m
+oc get FournosJobs -n $FOURNOS_WORKLOAD_NAMESPACE -w            # watch status transitions
+oc patch FournosJob <name> -n $FOURNOS_WORKLOAD_NAMESPACE --type merge -p '{"spec":{"shutdown":"Stop"}}'        # graceful stop (runs finally tasks)
+oc patch FournosJob <name> -n $FOURNOS_WORKLOAD_NAMESPACE --type merge -p '{"spec":{"shutdown":"Terminate"}}'   # immediate terminate (skips finally tasks)
+oc delete FournosJob -n $FOURNOS_WORKLOAD_NAMESPACE <name>      # cleanup
 ```
 
 ### Spec fields
@@ -122,12 +122,12 @@ make dev-run      # starts the operator locally (connects to the kind cluster)
 ```
 
 Both targets default to the `fournos-local-dev` namespace. Override with
-`FOURNOS_NAMESPACE=<YOUR_NAMESPACE> make dev-setup dev-run`.
+`FOURNOS_WORKLOAD_NAMESPACE=<YOUR_NAMESPACE> make dev-setup dev-run`.
 
 In another terminal:
 
 ```bash
-FOURNOS_NAMESPACE=fournos-local-dev make test   # run the integration test suite
+FOURNOS_WORKLOAD_NAMESPACE=fournos-local-dev make test   # run the integration test suite
 ```
 
 ```bash
@@ -152,26 +152,15 @@ make test                        # integration tests (operator must be running)
 
 **Execution engine on the hub:** [`config/forge/`](config/forge/) is the real OpenShift configuration for this repo — ImageStreams, Builds, Tekton Tasks and Pipelines, and sample jobs you apply to a cluster. It is **not** the same as the lightweight stand-ins under [`dev/mock-pipelines/`](dev/mock-pipelines/), which [`make dev-setup`](#local-development) installs on kind for local testing only.
 
-Prepare the namespaces
-```bash
-FOURNOS_NAMESPACE=fournos-$USER-dev
-FOURNOS_SECRETS_NAMESPACE=psap-secrets
-oc create ns $FOURNOS_NAMESPACE
-oc label ns/$FOURNOS_NAMESPACE fournos.dev/queue-access=true
-oc create ns $FOURNOS_SECRETS_NAMESPACE
-```
-
-Deploy the operator:
+Deploy the full stack (namespaces, CRD, RBAC, Kueue config, workflows, Deployment).
+The operator runs in a dedicated controller namespace; execution resources
+(Tekton, Kueue, FournosJobs) live in the execution namespace:
 
 ```bash
-oc apply -n $FOURNOS_NAMESPACE -f manifests/crd.yaml
-for rbac_file in manifests/rbac/*.yaml; do
-  cat $rbac_file | NAMESPACE=$FOURNOS_NAMESPACE envsubst | oc apply -f- -n $FOURNOS_NAMESPACE
-done
-cat manifests/secrets-ns-rbac.yaml \
-  | NAMESPACE=$FOURNOS_NAMESPACE SECRETS_NAMESPACE=$FOURNOS_SECRETS_NAMESPACE envsubst \
-  | oc apply -f-
-oc apply -n $FOURNOS_NAMESPACE -f manifests/deployment.yaml
+make deploy \
+  FOURNOS_CONTROLLER_NAMESPACE=fournos-controller-$USER \
+  FOURNOS_WORKLOAD_NAMESPACE=fournos-$USER-dev \
+  FOURNOS_SECRETS_NAMESPACE=psap-secrets
 ```
 
 ### Onboarding a new cluster
@@ -207,9 +196,9 @@ oc apply -f config/kueue-config.yaml
    match the new target, then:
 
 ```bash
-FOURNOS_NAMESPACE=fournos-$USER-dev
-oc create -f config/fournos-validation/samples/test-connectivity-job.yaml -n $FOURNOS_NAMESPACE
-oc get fournosjobs -n $FOURNOS_NAMESPACE -w        # should reach Succeeded
+FOURNOS_WORKLOAD_NAMESPACE=fournos-$USER-dev
+oc create -f config/fournos-validation/samples/test-connectivity-job.yaml -n $FOURNOS_WORKLOAD_NAMESPACE
+oc get fournosjobs -n $FOURNOS_WORKLOAD_NAMESPACE -w        # should reach Succeeded
 ```
 
 This runs the `fournos-validate-only` pipeline, which only checks `oc
@@ -220,17 +209,17 @@ details.
 
 ### Deploying the execution engine workflow configuration
 
-Apply the production execution engine assets from `config/forge/` (not the kind mocks in `dev/mock-pipelines/`). Deploy the cluster configuration (Builds + Tekton):
+Apply the production execution engine assets from `config/forge/` (not the kind mocks in `dev/mock-pipelines/`). Deploy the cluster configuration (Builds + Tekton) to the **execution namespace**:
 
 ```bash
-oc apply -n $FOURNOS_NAMESPACE -f config/forge/images/is_forge.yaml
+oc apply -n $FOURNOS_WORKLOAD_NAMESPACE -f config/forge/images/is_forge.yaml
 cat config/forge/images/build_forge-main.yaml \
-   | sed 's/psap-automation/'$FOURNOS_NAMESPACE'/g' \
-   | oc apply -n $FOURNOS_NAMESPACE
-oc create -n $FOURNOS_NAMESPACE  -f config/forge/images/buildrun_forge-main.yaml
+  | NAMESPACE=$FOURNOS_WORKLOAD_NAMESPACE envsubst '$NAMESPACE' \
+  | oc apply -f- -n $FOURNOS_WORKLOAD_NAMESPACE
+oc create -n $FOURNOS_WORKLOAD_NAMESPACE -f config/forge/images/buildrun_forge-main.yaml
 
 for wf_file in config/forge/workflows/*.yaml; do
-  cat "$wf_file" | NAMESPACE=$FOURNOS_NAMESPACE envsubst '$NAMESPACE' | oc apply -f- -n $FOURNOS_NAMESPACE
+  cat "$wf_file" | NAMESPACE=$FOURNOS_WORKLOAD_NAMESPACE envsubst '$NAMESPACE' | oc apply -f- -n $FOURNOS_WORKLOAD_NAMESPACE
 done
 ```
 
@@ -299,7 +288,7 @@ All settings are read from environment variables with the `FOURNOS_` prefix:
 
 | Variable | Default | Description |
 |---|---|---|
-| `FOURNOS_NAMESPACE` | **required** | Kubernetes namespace |
+| `FOURNOS_WORKLOAD_NAMESPACE` | **required** | Namespace for FournosJobs and execution resources |
 | `FOURNOS_SECRETS_NAMESPACE` | `psap-secrets` | Namespace where kubeconfig and vault-synced secrets are stored |
 | `FOURNOS_TEKTON_DASHBOARD_URL` | | Tekton Dashboard base URL |
 | `FOURNOS_KUBECONFIG_SECRET_PATTERN` | `kubeconfig-{cluster}` | Pattern for resolving cluster names to Secret names |
@@ -324,7 +313,7 @@ The operator runs as a single-replica Deployment using
 1. **Resolves** job requirements by launching a resolve K8s Job (using the configured execution engine image) that populates the FournosJob spec with GPU type/count and secret references
 2. **Creates** a Kueue Workload with the resolved GPU resources (owned by the FournosJob via `ownerReferences`)
 3. **Polls** (5 s timer) for Kueue admission and assigned cluster
-4. **Copies** referenced Vault secrets from the secrets namespace into the operator namespace (per-job copies with `ownerReferences` for automatic cleanup) and **launches** a Tekton PipelineRun with `FJOB_NAME` + `FOURNOS_NAMESPACE` (so the execution engine can look up the full FournosJob spec), the secrets mounted as a projected volume at `/var/run/secrets/fournos/` (owned by the FournosJob via `ownerReferences`), and a shared `artifacts` workspace backed by a `volumeClaimTemplate` PVC for cross-task artifact storage (managed by Tekton)
+4. **Copies** referenced Vault secrets from the secrets namespace into the operator namespace (per-job copies with `ownerReferences` for automatic cleanup) and **launches** a Tekton PipelineRun with `FJOB_NAME` + `FOURNOS_WORKLOAD_NAMESPACE` (so the execution engine can look up the full FournosJob spec), the secrets mounted as a projected volume at `/var/run/secrets/fournos/` (owned by the FournosJob via `ownerReferences`), and a shared `artifacts` workspace backed by a `volumeClaimTemplate` PVC for cross-task artifact storage (managed by Tekton)
 5. **Watches** the PipelineRun until completion
 6. **Deletes** the Workload to release Kueue quota
 

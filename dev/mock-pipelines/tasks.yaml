@@ -30,7 +30,7 @@ spec:
   params:
     - name: fjob-name
       type: string
-    - name: fournos-namespace
+    - name: fournos-workload-namespace
       type: string
     - name: kubeconfig-secret
       type: string
@@ -52,7 +52,7 @@ spec:
         #!/bin/sh
         MOCK_SLEEP="${MOCK_SLEEP:-3}"
         echo "[mock-run] fjob-name=$(params.fjob-name)"
-        echo "[mock-run] fournos-namespace=$(params.fournos-namespace)"
+        echo "[mock-run] fournos-workload-namespace=$(params.fournos-workload-namespace)"
         echo "[mock-run] vault-secrets:"
         find /var/run/secrets/fournos -type f 2>/dev/null | sort | while read f; do echo "  $f ($(wc -c < "$f") bytes)"; done
         ARTIFACT_DIR="$(workspaces.artifacts.path)/run"
@@ -95,7 +95,7 @@ spec:
   params:
     - name: fjob-name
       type: string
-    - name: fournos-namespace
+    - name: fournos-workload-namespace
       type: string
     - name: kubeconfig-secret
       type: string
@@ -109,8 +109,8 @@ spec:
       params:
         - name: fjob-name
           value: "$(params.fjob-name)"
-        - name: fournos-namespace
-          value: "$(params.fournos-namespace)"
+        - name: fournos-workload-namespace
+          value: "$(params.fournos-workload-namespace)"
         - name: kubeconfig-secret
           value: "$(params.kubeconfig-secret)"
 

@@ -11,7 +11,7 @@ spec:
   params:
     - name: fjob-name
       type: string
-    - name: fournos-namespace
+    - name: fournos-workload-namespace
       type: string
     - name: kubeconfig-secret
       type: string
@@ -26,8 +26,8 @@ spec:
       params:
         - name: fjob-name
           value: "$(params.fjob-name)"
-        - name: fournos-namespace
-          value: "$(params.fournos-namespace)"
+        - name: fournos-workload-namespace
+          value: "$(params.fournos-workload-namespace)"
         - name: kubeconfig-secret
           value: "$(params.kubeconfig-secret)"
         - name: job-step
@@ -44,8 +44,8 @@ spec:
       params:
         - name: fjob-name
           value: "$(params.fjob-name)"
-        - name: fournos-namespace
-          value: "$(params.fournos-namespace)"
+        - name: fournos-workload-namespace
+          value: "$(params.fournos-workload-namespace)"
         - name: kubeconfig-secret
           value: "$(params.kubeconfig-secret)"
         - name: job-step
@@ -63,8 +63,8 @@ spec:
       params:
         - name: fjob-name
           value: "$(params.fjob-name)"
-        - name: fournos-namespace
-          value: "$(params.fournos-namespace)"
+        - name: fournos-workload-namespace
+          value: "$(params.fournos-workload-namespace)"
         - name: kubeconfig-secret
           value: "$(params.kubeconfig-secret)"
         - name: job-step
@@ -82,8 +82,8 @@ spec:
       params:
         - name: fjob-name
           value: "$(params.fjob-name)"
-        - name: fournos-namespace
-          value: "$(params.fournos-namespace)"
+        - name: fournos-workload-namespace
+          value: "$(params.fournos-workload-namespace)"
         - name: kubeconfig-secret
           value: "$(params.kubeconfig-secret)"
         - name: job-step
@@ -100,8 +100,8 @@ spec:
       params:
         - name: fjob-name
           value: "$(params.fjob-name)"
-        - name: fournos-namespace
-          value: "$(params.fournos-namespace)"
+        - name: fournos-workload-namespace
+          value: "$(params.fournos-workload-namespace)"
         - name: kubeconfig-secret
           value: "$(params.kubeconfig-secret)"
         - name: job-step

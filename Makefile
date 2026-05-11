@@ -3,7 +3,8 @@ KIND_CLUSTER_NAME              ?= fournos-dev
 KIND_EXPERIMENTAL_PROVIDER     ?= podman
 KIND_CONTEXT                   := kind-$(KIND_CLUSTER_NAME)
 VENV_BIN                       := $(if $(wildcard .venv/bin/),.venv/bin/,)
-FOURNOS_NAMESPACE              ?= fournos-local-dev
+FOURNOS_CONTROLLER_NAMESPACE   ?= fournos-controller-local
+FOURNOS_WORKLOAD_NAMESPACE     ?= fournos-local-dev
 FOURNOS_SECRETS_NAMESPACE      ?= psap-secrets
 
 .PHONY: lint format test docker-build docker-push \
@@ -32,24 +33,31 @@ install:
 	kubectl apply -f manifests/crd.yaml
 
 deploy: install
-	kubectl create ns $(FOURNOS_SECRETS_NAMESPACE) --dry-run -oyaml | kubectl apply -f-
-	for rbac_file in manifests/rbac/*.yaml; do \
-		cat $$rbac_file | NAMESPACE=$(FOURNOS_NAMESPACE) envsubst | kubectl apply -f- -n $(FOURNOS_NAMESPACE); \
+	kubectl create ns $(FOURNOS_CONTROLLER_NAMESPACE) --dry-run=client -oyaml | kubectl apply -f-
+	kubectl create ns $(FOURNOS_WORKLOAD_NAMESPACE) --dry-run=client -oyaml | kubectl apply -f-
+	kubectl label ns $(FOURNOS_WORKLOAD_NAMESPACE) fournos.dev/queue-access=true --overwrite
+	kubectl create ns $(FOURNOS_SECRETS_NAMESPACE) --dry-run=client -oyaml | kubectl apply -f-
+	kubectl apply -f manifests/rbac/sa_fournos.yaml -n $(FOURNOS_CONTROLLER_NAMESPACE)
+	kubectl apply -f manifests/rbac/sa_fournos.yaml -n $(FOURNOS_WORKLOAD_NAMESPACE)
+	for rbac_file in manifests/rbac/role_fournos.yaml manifests/rbac/rolebinding_fournos.yaml; do \
+		cat $$rbac_file | CONTROLLER_NAMESPACE=$(FOURNOS_CONTROLLER_NAMESPACE) envsubst '$$CONTROLLER_NAMESPACE' | kubectl apply -f- -n $(FOURNOS_WORKLOAD_NAMESPACE); \
 	done
+	cat manifests/rbac/clusterrole_fournos.yaml | kubectl apply -f-
+	cat manifests/rbac/clusterrolebinding_fournos.yaml | CONTROLLER_NAMESPACE=$(FOURNOS_CONTROLLER_NAMESPACE) envsubst '$$CONTROLLER_NAMESPACE' | kubectl apply -f-
 	cat manifests/secrets-ns-rbac.yaml \
-		| NAMESPACE=$(FOURNOS_NAMESPACE) SECRETS_NAMESPACE=$(FOURNOS_SECRETS_NAMESPACE) envsubst \
+		| CONTROLLER_NAMESPACE=$(FOURNOS_CONTROLLER_NAMESPACE) SECRETS_NAMESPACE=$(FOURNOS_SECRETS_NAMESPACE) envsubst \
 		| kubectl apply -f-
 	kubectl apply -f config/kueue-cluster-config.yaml
-	kubectl apply -f config/kueue-config.yaml -n $(FOURNOS_NAMESPACE)
+	kubectl apply -f config/kueue-config.yaml -n $(FOURNOS_WORKLOAD_NAMESPACE)
 	for wf in config/forge/workflows/*.yaml; do \
-		cat $$wf | NAMESPACE=$(FOURNOS_NAMESPACE) envsubst '$$NAMESPACE' | kubectl apply -f- -n $(FOURNOS_NAMESPACE); \
+		cat $$wf | NAMESPACE=$(FOURNOS_WORKLOAD_NAMESPACE) envsubst '$$NAMESPACE' | kubectl apply -f- -n $(FOURNOS_WORKLOAD_NAMESPACE); \
 	done
-	kubectl apply -f manifests/deployment.yaml -n $(FOURNOS_NAMESPACE)
+	cat manifests/deployment.yaml | NAMESPACE=$(FOURNOS_WORKLOAD_NAMESPACE) envsubst '$$NAMESPACE' | kubectl apply -f- -n $(FOURNOS_CONTROLLER_NAMESPACE)
 
 ##@ Testing
 
 test:
-	FOURNOS_NAMESPACE=$(or $(FOURNOS_NAMESPACE),fournos-local-dev) \
+	FOURNOS_WORKLOAD_NAMESPACE=$(or $(FOURNOS_WORKLOAD_NAMESPACE),fournos-local-dev) \
 	FOURNOS_SECRETS_NAMESPACE=$(or $(FOURNOS_SECRETS_NAMESPACE),psap-secrets) \
 	$(VENV_BIN)pytest -v tests/
 
@@ -66,13 +74,15 @@ sync-vault-secrets-dry-run:
 dev-setup:
 	@KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 	 KIND_EXPERIMENTAL_PROVIDER=$(KIND_EXPERIMENTAL_PROVIDER) \
-	 FOURNOS_NAMESPACE=$(or $(FOURNOS_NAMESPACE),fournos-local-dev) \
+	 FOURNOS_CONTROLLER_NAMESPACE=$(FOURNOS_CONTROLLER_NAMESPACE) \
+	 FOURNOS_WORKLOAD_NAMESPACE=$(or $(FOURNOS_WORKLOAD_NAMESPACE),fournos-local-dev) \
 	 FOURNOS_SECRETS_NAMESPACE=$(or $(FOURNOS_SECRETS_NAMESPACE),psap-secrets) \
 	 bash dev/setup.sh
 
 dev-run:
 	FOURNOS_GC_INTERVAL_SEC=5 \
-	FOURNOS_NAMESPACE=$(or $(FOURNOS_NAMESPACE),fournos-local-dev) \
+	FOURNOS_CONTROLLER_NAMESPACE=$(FOURNOS_CONTROLLER_NAMESPACE) \
+	FOURNOS_WORKLOAD_NAMESPACE=$(or $(FOURNOS_WORKLOAD_NAMESPACE),fournos-local-dev) \
 	FOURNOS_SECRETS_NAMESPACE=$(or $(FOURNOS_SECRETS_NAMESPACE),psap-secrets) \
 	FOURNOS_RESOLVE_JOB_TEMPLATE=dev/mock-resolve/resolve_job.yaml \
 	$(VENV_BIN)python -m fournos
@@ -85,13 +95,15 @@ dev-teardown:
 ci-setup:
 	@KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 	 KIND_EXPERIMENTAL_PROVIDER=docker \
-	 FOURNOS_NAMESPACE=$(or $(FOURNOS_NAMESPACE),psap-automation-ci-test) \
+	 FOURNOS_CONTROLLER_NAMESPACE=$(or $(FOURNOS_CONTROLLER_NAMESPACE),fournos-controller-ci-test) \
+	 FOURNOS_WORKLOAD_NAMESPACE=$(or $(FOURNOS_WORKLOAD_NAMESPACE),psap-automation-ci-test) \
 	 FOURNOS_SECRETS_NAMESPACE=$(or $(FOURNOS_SECRETS_NAMESPACE),psap-secrets) \
 	 bash dev/setup.sh
 
 ci-run:
 	FOURNOS_GC_INTERVAL_SEC=5 \
-	FOURNOS_NAMESPACE=$(or $(FOURNOS_NAMESPACE),psap-automation-ci-test) \
+	FOURNOS_CONTROLLER_NAMESPACE=$(or $(FOURNOS_CONTROLLER_NAMESPACE),fournos-controller-ci-test) \
+	FOURNOS_WORKLOAD_NAMESPACE=$(or $(FOURNOS_WORKLOAD_NAMESPACE),psap-automation-ci-test) \
 	FOURNOS_SECRETS_NAMESPACE=$(or $(FOURNOS_SECRETS_NAMESPACE),psap-secrets) \
 	FOURNOS_RESOLVE_JOB_TEMPLATE=dev/mock-resolve/resolve_job.yaml \
 	  $(VENV_BIN)python -m fournos \

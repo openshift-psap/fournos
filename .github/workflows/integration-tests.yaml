@@ -6,7 +6,7 @@ on:
 env:
   KIND_CLUSTER_NAME: fournos-ci
   KIND_EXPERIMENTAL_PROVIDER: docker
-  FOURNOS_NAMESPACE: psap-automation-ci-test
+  FOURNOS_WORKLOAD_NAMESPACE: psap-automation-ci-test
 
 jobs:
   integration:

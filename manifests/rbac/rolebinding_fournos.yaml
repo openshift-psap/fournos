@@ -9,3 +9,6 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: fournos
+    namespace: ${CONTROLLER_NAMESPACE}
+  - kind: ServiceAccount
+    name: fournos

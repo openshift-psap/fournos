@@ -1,11 +1,11 @@
-"""Entry point: bridges FOURNOS_NAMESPACE env var to kopf --namespace."""
+"""Entry point: bridges FOURNOS_WORKLOAD_NAMESPACE env var to kopf --namespace."""
 
 import os
 import sys
 
-ns = os.environ.get("FOURNOS_NAMESPACE")
+ns = os.environ.get("FOURNOS_WORKLOAD_NAMESPACE")
 if not ns:
-    print("ERROR: FOURNOS_NAMESPACE env var is required", file=sys.stderr)
+    print("ERROR: FOURNOS_WORKLOAD_NAMESPACE env var is required", file=sys.stderr)
     sys.exit(1)
 
 # Build the kopf CLI invocation, forwarding any extra args (e.g. --liveness)

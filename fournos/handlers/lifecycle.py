@@ -92,7 +92,7 @@ def _find_exclusive_locker(cluster: str, exclude_job: str) -> str | None:
         jobs = custom.list_namespaced_custom_object(
             CRD_GROUP,
             CRD_VERSION,
-            settings.namespace,
+            settings.workload_namespace,
             "fournosjobs",
             label_selector=f"{LABEL_EXCLUSIVE_CLUSTER}={cluster}",
         )

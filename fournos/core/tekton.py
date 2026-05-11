@@ -63,7 +63,7 @@ class TektonClient:
         }
         metadata: dict = {
             "name": name,
-            "namespace": settings.namespace,
+            "namespace": settings.workload_namespace,
             "labels": labels,
             "annotations": {
                 "fournos.dev/cluster": cluster,
@@ -88,7 +88,10 @@ class TektonClient:
                 },
                 "params": [
                     {"name": "fjob-name", "value": name},
-                    {"name": "fournos-namespace", "value": settings.namespace},
+                    {
+                        "name": "fournos-workload-namespace",
+                        "value": settings.workload_namespace,
+                    },
                     {"name": "kubeconfig-secret", "value": kubeconfig_secret},
                 ],
                 "workspaces": [
@@ -114,7 +117,7 @@ class TektonClient:
         result = self._k8s.create_namespaced_custom_object(
             group=TEKTON_GROUP,
             version=TEKTON_VERSION,
-            namespace=settings.namespace,
+            namespace=settings.workload_namespace,
             plural=TEKTON_PIPELINE_RUN_PLURAL,
             body=body,
         )
@@ -125,7 +128,7 @@ class TektonClient:
         return self._k8s.get_namespaced_custom_object(
             group=TEKTON_GROUP,
             version=TEKTON_VERSION,
-            namespace=settings.namespace,
+            namespace=settings.workload_namespace,
             plural=TEKTON_PIPELINE_PLURAL,
             name=name,
         )
@@ -134,7 +137,7 @@ class TektonClient:
         return self._k8s.get_namespaced_custom_object(
             group=TEKTON_GROUP,
             version=TEKTON_VERSION,
-            namespace=settings.namespace,
+            namespace=settings.workload_namespace,
             plural=TEKTON_PIPELINE_RUN_PLURAL,
             name=name,
         )
@@ -151,7 +154,7 @@ class TektonClient:
         result = self._k8s.list_namespaced_custom_object(
             group=TEKTON_GROUP,
             version=TEKTON_VERSION,
-            namespace=settings.namespace,
+            namespace=settings.workload_namespace,
             plural=TEKTON_PIPELINE_RUN_PLURAL,
             label_selector=f"{LABEL_MANAGED_BY}=fournos",
         )
@@ -168,7 +171,7 @@ class TektonClient:
             self._k8s.patch_namespaced_custom_object(
                 group=TEKTON_GROUP,
                 version=TEKTON_VERSION,
-                namespace=settings.namespace,
+                namespace=settings.workload_namespace,
                 plural=TEKTON_PIPELINE_RUN_PLURAL,
                 name=name,
                 body={"spec": {"status": tekton_status}},
@@ -184,7 +187,7 @@ class TektonClient:
             self._k8s.delete_namespaced_custom_object(
                 group=TEKTON_GROUP,
                 version=TEKTON_VERSION,
-                namespace=settings.namespace,
+                namespace=settings.workload_namespace,
                 plural=TEKTON_PIPELINE_RUN_PLURAL,
                 name=name,
             )

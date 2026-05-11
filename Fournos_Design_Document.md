@@ -196,7 +196,7 @@ sequenceDiagram
 1. **on_create**: Operator validates the spec (cluster exists if specified, `exclusive` requires `cluster` — and `exclusive` defaults to `true`). If `spec.shutdown` is set (`Stop` or `Terminate`), immediately sets `phase=Stopped`. Otherwise sets `phase=Resolving`.
 2. **timer (Resolving)**: Reads the `fournos.dev/resolve-image` annotation from the Tekton Pipeline referenced by `spec.pipeline` and launches a resolve K8s Job using that image. The resolve Job patches the FournosJob spec with `hardware` (if not user-provided) and `secretRefs`. Polls the Job for completion. On success, reads the FournosJob spec, validates hardware (GPU type checked against Kueue; hardware is optional for exclusive+cluster jobs), validates `secretRefs` against Vault secrets, creates the Kueue Workload (exclusive jobs request all 100 `fournos/cluster-slot` units; non-exclusive jobs request 1), and sets `phase=Pending`. Failed resolve Jobs are preserved for debugging.
 3. **timer (Pending)**: Polls the Workload for Kueue admission. On admission, extracts the assigned cluster and sets `phase=Admitted`.
-4. **timer (Admitted)**: Reads `secretRefs` from the FournosJob spec, copies each referenced secret from `secrets_namespace` into the operator namespace (per-job name `<fjob-name>-<ref>`, with `ownerReferences` for automatic cleanup), resolves the kubeconfig Secret, creates the Tekton PipelineRun with `FJOB_NAME` + `FOURNOS_NAMESPACE` params (so the execution engine can look up the full spec), a projected `vault-secrets` volume mounting all copied secrets at `/var/run/secrets/fournos/<entry-name>/`, and `ownerReferences` pointing at the FournosJob, sets `phase=Running`.
+4. **timer (Admitted)**: Reads `secretRefs` from the FournosJob spec, copies each referenced secret from `secrets_namespace` into the operator namespace (per-job name `<fjob-name>-<ref>`, with `ownerReferences` for automatic cleanup), resolves the kubeconfig Secret, creates the Tekton PipelineRun with `FJOB_NAME` + `FOURNOS_WORKLOAD_NAMESPACE` params (so the execution engine can look up the full spec), a projected `vault-secrets` volume mounting all copied secrets at `/var/run/secrets/fournos/<entry-name>/`, and `ownerReferences` pointing at the FournosJob, sets `phase=Running`.
 5. **timer (Running)**: Polls the PipelineRun for completion. On success/failure, deletes the Workload and sets `phase=Succeeded` or `phase=Failed`.
 6. **timer (any non-terminal phase, shutdown)**: If `spec.shutdown` is set (`Stop` or `Terminate`) and the job has a PipelineRun (Admitted/Running), the timer cancels the PipelineRun — `Stop` uses Tekton's `CancelledRunFinally` (runs `finally` tasks), `Terminate` uses `Cancelled` (skips `finally` tasks) — and sets `phase=Stopping`. The Workload is **not** deleted yet — it stays alive to hold the cluster slot while the PipelineRun winds down. If no PipelineRun exists (Pending), the Workload is deleted immediately and the job goes straight to `phase=Stopped`.
 7. **timer (Stopping)**: Polls the PipelineRun until it reaches a terminal state (`succeeded` or `failed`). Once complete, deletes the Workload to release Kueue quota and sets `phase=Stopped`.
@@ -258,7 +258,7 @@ The execution engine is the benchmark framework that runs on the hub cluster ins
 Instead of extracting individual fields from the FournosJob spec and passing them as separate pipeline params, the operator passes two identifiers to both the resolve Job and the Tekton Pipeline:
 
 - **`FJOB_NAME`** — the FournosJob `metadata.name`
-- **`FOURNOS_NAMESPACE`** — the operator namespace
+- **`FOURNOS_WORKLOAD_NAMESPACE`** — the namespace where FournosJobs and their execution resources (PipelineRuns, Workloads) live
 
 The execution engine uses these to look up the full FournosJob spec via the Kubernetes API, giving it access to all configuration in one go (`spec.executionEngine`, `spec.env`, etc.) without the operator needing to serialize and forward individual fields.
 
@@ -324,7 +324,7 @@ Namespace-scoped tenant on a shared OpenShift management cluster:
 ```bash
 kubectl apply -f manifests/crd.yaml
 for rbac_file in manifests/rbac/*.yaml; do
-  cat "$rbac_file" | NAMESPACE=$FOURNOS_NAMESPACE envsubst | oc apply -f- -n $FOURNOS_NAMESPACE
+  cat "$rbac_file" | NAMESPACE=$FOURNOS_WORKLOAD_NAMESPACE envsubst | oc apply -f- -n $FOURNOS_WORKLOAD_NAMESPACE
 done
 kubectl apply -f config/kueue-config.yaml
 kubectl apply -f config/kueue-cluster-config.yaml
@@ -338,7 +338,7 @@ All settings via environment variables with `FOURNOS_` prefix ([fournos/settings
 
 | Variable                            | Default                | Description                    |
 | ----------------------------------- | ---------------------- | ------------------------------ |
-| `FOURNOS_NAMESPACE`                 | `psap-automation`      | Kubernetes namespace           |
+| `FOURNOS_WORKLOAD_NAMESPACE`                 | `psap-automation`      | Namespace for FournosJobs and execution resources |
 | `FOURNOS_SECRETS_NAMESPACE`         | `psap-secrets`         | Dedicated namespace for secrets |
 | `FOURNOS_TEKTON_DASHBOARD_URL`      | *(empty)*              | Tekton Dashboard base URL      |
 | `FOURNOS_KUBECONFIG_SECRET_PATTERN` | `kubeconfig-{cluster}` | Secret name pattern            |
@@ -408,7 +408,7 @@ README.md
 - **CRD-based operator** (kopf) — consumers interact via `kubectl` / Kubernetes API, getting RBAC, audit logging, and `kubectl wait` for free
 - **Unified Kueue scheduling** — all jobs flow through Kueue for consistent quota tracking and priority ordering. Cluster-pinned jobs use `nodeSelector` to constrain admission to a single ResourceFlavor; hardware-request jobs leave all flavors eligible.
 - **Separation of concerns** — Fournos owns scheduling, bookkeeping, and parameter passing; the execution engine (e.g. FORGE) owns all target-cluster operations (setup, execution, cleanup). Fournos never touches target clusters directly.
-- **Execution engine is opaque** — Fournos never validates execution engine config; it passes `FJOB_NAME` and `FOURNOS_NAMESPACE` so the execution engine can look up the full FournosJob spec via the K8s API
+- **Execution engine is opaque** — Fournos never validates execution engine config; it passes `FJOB_NAME` and `FOURNOS_WORKLOAD_NAMESPACE` so the execution engine can look up the full FournosJob spec via the K8s API
 - **Tekton for execution, Kueue for scheduling** — virtual Workload pattern with `fournos/gpu-`* resources
 - **Stateless operator** — all job state lives in Kubernetes resources (FournosJob CRs, PipelineRuns, Workloads), not in memory. Crash-safe via `on_resume`.
 - **Timer-based reconciliation** — the operator polls Workload admission and PipelineRun completion via a kopf timer (5s interval), eliminating the need for callback tasks or watch streams on third-party resources

@@ -46,7 +46,7 @@ class ClusterRegistry:
         copy_body = client.V1Secret(
             metadata=client.V1ObjectMeta(
                 name=copied_name,
-                namespace=settings.namespace,
+                namespace=settings.workload_namespace,
                 labels={LABEL_MANAGED_BY: "fournos"},
                 owner_references=[
                     client.V1OwnerReference(
@@ -64,7 +64,7 @@ class ClusterRegistry:
         )
 
         try:
-            self._k8s.create_namespaced_secret(settings.namespace, copy_body)
+            self._k8s.create_namespaced_secret(settings.workload_namespace, copy_body)
             logger.info(
                 "Copied kubeconfig %s from %s as %s",
                 source_name,
@@ -149,7 +149,7 @@ class ClusterRegistry:
         copy_body = client.V1Secret(
             metadata=client.V1ObjectMeta(
                 name=copied_name,
-                namespace=settings.namespace,
+                namespace=settings.workload_namespace,
                 labels={
                     LABEL_MANAGED_BY: "fournos",
                     LABEL_VAULT_ENTRY: "true",
@@ -170,7 +170,7 @@ class ClusterRegistry:
         )
 
         try:
-            self._k8s.create_namespaced_secret(settings.namespace, copy_body)
+            self._k8s.create_namespaced_secret(settings.workload_namespace, copy_body)
             logger.info(
                 "Copied secret %s (ref %s) from %s as %s",
                 secret_name,
