@@ -142,6 +142,13 @@ def _finish_stop(name, conditions, patch, pr_message):
 
 
 def reconcile_admitted(spec, name, namespace, status, patch, body):
+    if spec.get("lockOnly", False):
+        cluster = status.get("cluster", spec.get("cluster", ""))
+        new_msg = f"Cluster lock held on {cluster}"
+        if status.get("message") != new_msg:
+            patch.status["message"] = new_msg
+        return
+
     pr = ctx.tekton.get_pipeline_run_or_none(name)
     conditions = list(status.get("conditions") or [])
 
