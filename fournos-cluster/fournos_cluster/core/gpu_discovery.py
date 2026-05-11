@@ -121,14 +121,11 @@ class GPUDiscoveryClient:
                 )
 
         api_client = k8s_config.new_client_from_config_dict(kubeconfig_dict)
-        api_client.configuration.request_timeout = (
-            settings.gpu_discovery_timeout_sec,
-            settings.gpu_discovery_timeout_sec,
-        )
+        timeout = (settings.gpu_discovery_timeout_sec, settings.gpu_discovery_timeout_sec)
 
         try:
             target_core = client.CoreV1Api(api_client)
-            nodes = target_core.list_node()
+            nodes = target_core.list_node(_request_timeout=timeout)
         except Exception as exc:
             raise GPUDiscoveryError(
                 f"Failed to connect to cluster {cluster_name!r}: {exc}"

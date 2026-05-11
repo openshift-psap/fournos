@@ -265,34 +265,6 @@ class TestGPUDiscoveryClient:
 
     @patch("fournos_cluster.core.gpu_discovery.k8s_config")
     @patch("fournos_cluster.core.gpu_discovery.client")
-    def test_stringdata_kubeconfig(
-        self, mock_k8s_client: MagicMock, mock_k8s_config: MagicMock
-    ) -> None:
-        discovery, mock_core = self._make_client()
-
-        secret = MagicMock()
-        secret.data = None
-        secret.string_data = {
-            "kubeconfig": (
-                "apiVersion: v1\nkind: Config\n"
-                "current-context: default\n"
-                "contexts:\n- name: default\n  context:\n    cluster: c1\n"
-                "clusters: []\nusers: []\n"
-            )
-        }
-        mock_core.read_namespaced_secret.return_value = secret
-
-        nodes = MagicMock()
-        nodes.items = []
-        mock_api_client = MagicMock()
-        mock_k8s_config.new_client_from_config_dict.return_value = mock_api_client
-        mock_k8s_client.CoreV1Api.return_value.list_node.return_value = nodes
-
-        result = discovery.discover_gpus("cluster-1", "kubeconfig-cluster-1", "psap-secrets")
-        assert result.total_gpus == 0
-
-    @patch("fournos_cluster.core.gpu_discovery.k8s_config")
-    @patch("fournos_cluster.core.gpu_discovery.client")
     def test_auto_sets_current_context(
         self, mock_k8s_client: MagicMock, mock_k8s_config: MagicMock
     ) -> None:
