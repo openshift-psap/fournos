@@ -442,7 +442,7 @@ class TestReconcileFull(_PatchBase):
     @patch("fournos_cluster.handlers.cluster._reconcile_gpu_discovery")
     @patch("fournos_cluster.handlers.cluster._reconcile_ttl_expiry")
     @patch("fournos_cluster.handlers.cluster._reconcile_kubeconfig")
-    def test_order_kubeconfig_before_ttl_before_gpu(
+    def test_reconcile_order(
         self,
         mock_kc: MagicMock,
         mock_ttl: MagicMock,
