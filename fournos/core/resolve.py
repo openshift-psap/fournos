@@ -26,7 +26,7 @@ _RESOLVE_JOB_TEMPLATE: dict = _load_job_template()
 
 
 def _resolve_job_name(name: str) -> str:
-    return f"resolve-{name}"
+    return f"{name}-resolve"
 
 
 def _make_owner_ref(ref: dict) -> dict:

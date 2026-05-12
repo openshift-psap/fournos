@@ -297,7 +297,7 @@ def get_pipelinerun_workspaces(name: str) -> list[dict]:
 def resolve_job_exists(name: str) -> bool:
     """Check whether the resolve Job for *name* exists."""
     result = subprocess.run(
-        ["kubectl", "get", "job", f"resolve-{name}", "-n", NAMESPACE],
+        ["kubectl", "get", "job", f"{name}-resolve", "-n", NAMESPACE],
         capture_output=True,
     )
     return result.returncode == 0
@@ -310,7 +310,7 @@ def poll_resolve_job_complete(
     timeout: float = 60.0,
 ) -> None:
     """Poll until the resolve Job for *name* has completed (succeeded or failed)."""
-    resolve_name = f"resolve-{name}"
+    resolve_name = f"{name}-resolve"
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if not resolve_job_exists(name):
@@ -355,7 +355,7 @@ def _create_resolve_job(name: str, *, command: list[str]) -> None:
             "apiVersion": "batch/v1",
             "kind": "Job",
             "metadata": {
-                "name": f"resolve-{name}",
+                "name": f"{name}-resolve",
                 "namespace": NAMESPACE,
                 "labels": {
                     "app.kubernetes.io/managed-by": "fournos",
