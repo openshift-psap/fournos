@@ -63,22 +63,6 @@ fournos_deploy:
     deploy:
       fournos: manifests/deployment.yaml
 
-    config:
-      forge_image:
-      - config/forge/images/build_forge-main.yaml
-      - config/forge/images/buildrun_forge-main.yaml # will be skipped
-      - config/forge/images/is_forge.yaml
-      forge_workflow:
-      - config/forge/workflows/pipeline-full.yaml
-      - config/forge/workflows/pipeline-test-only.yaml
-      - config/forge/workflows/tasks.yaml
-      kueue_config:
-      - config/kueue-cluster-config.yaml # will be skipped
-      - config/kueue-config.yaml
-
-    to_build:
-    - config/forge/images/build_forge-main.yaml
-
     replace:
       NAMESPACE: "@fournos_deploy.namespace.name"
       CONTROLLER_NAMESPACE: "@fournos_deploy.controller_namespace.name"
