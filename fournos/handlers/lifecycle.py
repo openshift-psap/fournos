@@ -59,7 +59,9 @@ def on_create(spec, name, namespace, status, patch, body):
 
     if not lock_only and not spec.get("executionEngine"):
         patch.status["phase"] = Phase.FAILED
-        patch.status["message"] = "spec.executionEngine is required for non-lockOnly jobs"
+        patch.status["message"] = (
+            "spec.executionEngine is required for non-lockOnly jobs"
+        )
         return
 
     if exclusive and not cluster:
