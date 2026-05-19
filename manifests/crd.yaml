@@ -50,8 +50,7 @@ spec:
           properties:
             spec:
               type: object
-              required:
-                - executionEngine
+              required: []
               properties:
                 owner:
                   type: string
@@ -116,6 +115,16 @@ spec:
                     Requires 'cluster' to be set.  Hardware is optional — when
                     omitted the Workload only requests cluster-slot resources
                     for locking.
+                lockOnly:
+                  type: boolean
+                  default: false
+                  description: >-
+                    Sentinel lock job that holds cluster quota without running
+                    a pipeline. Created by the hearth controller to
+                    implement human-driven cluster ownership. Implies
+                    exclusive: true and requires 'cluster'. Skips execution
+                    engine resolution and PipelineRun creation — the job
+                    stays Admitted indefinitely until deleted.
                 priority:
                   type: string
                 shutdown:
