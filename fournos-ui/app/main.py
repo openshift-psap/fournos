@@ -562,6 +562,7 @@ async def submit_job(
     owner: str = Form(""),
     exclusive: str = Form("false"),
     config_overrides_raw: str = Form(""),
+    pull_sha: str = Form(""),
 ):
     exclusive_bool = exclusive.lower() in ("true", "on", "1", "yes")
 
@@ -580,6 +581,11 @@ async def submit_job(
     args = [preset] if preset else []
 
     job_name = sanitize_job_name(f"forge-{project}")
+
+    pull_sha = pull_sha.strip()
+    env: dict[str, str] = {}
+    if pull_sha:
+        env["PULL_PULL_SHA"] = pull_sha
 
     body = {
         "apiVersion": f"{settings.fournos_api_group}/{settings.fournos_api_version}",
@@ -603,6 +609,9 @@ async def submit_job(
             },
         },
     }
+
+    if env:
+        body["spec"]["env"] = env
 
     try:
         created = await asyncio.to_thread(k8s_client.create_fournos_job, body)

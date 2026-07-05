@@ -47,15 +47,24 @@
             <span class="form-hint" id="preset-hint">Select a project first to see available presets.</span>
         </div>
 
-        <div class="form-group">
-            <label for="version">Version / Commit SHA</label>
-            <input type="text" name="version" id="version" placeholder="e.g. 3fb7379e8fb5...">
-            <span class="form-hint">Leave empty to use the default version from config.</span>
+        <div class="form-group" id="version-group" style="display:none">
+            <label for="version">MCP Gateway Version</label>
+            <input type="text" name="version" id="version" placeholder="e.g. 0.7.0 or a commit SHA">
+            <span class="form-hint">Semver tag or 40-char commit SHA for nightly builds.</span>
         </div>
 
         <div class="form-group">
             <label for="owner">Owner</label>
             <input type="text" name="owner" id="owner" placeholder="Your username">
+        </div>
+
+        <div class="form-group">
+            <label for="pull_sha">PR Commit SHA <span style="font-weight:normal;color:var(--text-muted,#888)">(optional)</span></label>
+            <input type="text" name="pull_sha" id="pull_sha"
+                   placeholder="e.g. a1b2c3d4e5f6..."
+                   pattern="[0-9a-fA-F]{7,40}"
+                   title="Git commit SHA (7-40 hex characters)">
+            <span class="form-hint">Forge will build from this commit instead of the default image. Paste the HEAD SHA of your PR.</span>
         </div>
 
         <div class="form-group form-full-width">
@@ -81,17 +90,29 @@
 </form>
 
 <script>
+const VERSION_PROJECTS = ['mcp_gateway'];
+
 async function loadPresets(projectName) {
     const presetSelect = document.getElementById('preset');
     const clusterInput = document.getElementById('cluster');
     const hint = document.getElementById('preset-hint');
+    const versionGroup = document.getElementById('version-group');
+    const versionInput = document.getElementById('version');
 
     presetSelect.innerHTML = '<option value="">none (default)</option>';
     clusterInput.value = '';
     hint.textContent = 'Loading...';
 
+    if (VERSION_PROJECTS.includes(projectName)) {
+        versionGroup.style.display = '';
+    } else {
+        versionGroup.style.display = 'none';
+        versionInput.value = '';
+    }
+
     if (!projectName) {
         hint.textContent = 'Select a project first to see available presets.';
+        versionGroup.style.display = 'none';
         return;
     }
 
