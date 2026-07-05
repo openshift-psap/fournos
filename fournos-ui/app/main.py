@@ -328,12 +328,14 @@ async def jobs_list(
         if owner:
             jobs = [j for j in jobs if j.get("spec", {}).get("owner") == owner]
         total = len(jobs)
+        all_clusters = _collect_clusters(jobs)
         offset = (page - 1) * per_page
         jobs = jobs[offset:offset + per_page]
         history_jobs = []
         total_history = 0
     else:
         jobs = []
+        all_clusters = []
         async with db.async_session() as session:
             history_jobs_db, total_history = await db.list_jobs(
                 session,
@@ -348,7 +350,7 @@ async def jobs_list(
         total = total_history
 
     projects_list = [p.name for p in discover_projects()]
-    clusters = _collect_clusters(jobs)
+    clusters = all_clusters
     current_steps = await _compute_current_steps(jobs) if tab == "live" else {}
 
     return _render(
@@ -506,22 +508,31 @@ async def stream_logs(job_name: str, pod_name: str):
         raise HTTPException(status_code=404, detail="Pod not found for this job")
 
     async def generate():
+        stop = asyncio.Event()
         queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=64)
         loop = asyncio.get_event_loop()
 
         def _reader():
             try:
                 for line in k8s_client.read_pod_log(pod_name, follow=True):
-                    loop.call_soon_threadsafe(queue.put_nowait, line)
+                    if stop.is_set():
+                        break
+                    try:
+                        loop.call_soon_threadsafe(queue.put_nowait, line)
+                    except asyncio.QueueFull:
+                        pass
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, None)
 
-        asyncio.get_event_loop().run_in_executor(None, _reader)
-        while True:
-            line = await queue.get()
-            if line is None:
-                break
-            yield f"data: {line}\n\n"
+        task = asyncio.get_event_loop().run_in_executor(None, _reader)
+        try:
+            while True:
+                line = await queue.get()
+                if line is None:
+                    break
+                yield f"data: {line}\n\n"
+        finally:
+            stop.set()
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
