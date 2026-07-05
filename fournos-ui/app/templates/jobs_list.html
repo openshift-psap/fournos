@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+
+{% block header_extra %}
+{% if tab == 'live' and jobs %}
+<div class="header-stats">
+    {% set running = jobs | selectattr("status.phase", "equalto", "Running") | list | length %}
+    {% set succeeded = jobs | selectattr("status.phase", "equalto", "Succeeded") | list | length %}
+    {% set failed = jobs | selectattr("status.phase", "equalto", "Failed") | list | length %}
+    {% if running %}<span class="stat"><span class="dot dot-running"></span> {{ running }} running</span>{% endif %}
+    {% if succeeded %}<span class="stat"><span class="dot dot-succeeded"></span> {{ succeeded }} succeeded</span>{% endif %}
+    {% if failed %}<span class="stat"><span class="dot dot-failed"></span> {{ failed }} failed</span>{% endif %}
+    <span class="stat">{{ jobs | length }} total</span>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="tabs">
+    <a href="/?tab=live" class="tab {% if tab == 'live' %}active{% endif %}">Live</a>
+    <a href="/?tab=history" class="tab {% if tab == 'history' %}active{% endif %}">History</a>
+</div>
+
+<div class="filter-bar">
+    <select name="project" onchange="applyFilters()" id="filter-project">
+        <option value="">All projects</option>
+        {% for p in projects %}
+        <option value="{{ p }}" {% if filters.project == p %}selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+    </select>
+    <select name="status" onchange="applyFilters()" id="filter-status">
+        <option value="">All statuses</option>
+        <option value="Running" {% if filters.status == 'Running' %}selected{% endif %}>Running</option>
+        <option value="Succeeded" {% if filters.status == 'Succeeded' %}selected{% endif %}>Succeeded</option>
+        <option value="Failed" {% if filters.status == 'Failed' %}selected{% endif %}>Failed</option>
+        <option value="Stopped" {% if filters.status == 'Stopped' %}selected{% endif %}>Stopped</option>
+        <option value="Pending" {% if filters.status == 'Pending' %}selected{% endif %}>Pending</option>
+    </select>
+    <input type="text" placeholder="Filter by owner" id="filter-owner" value="{{ filters.owner }}"
+           onchange="applyFilters()">
+    <input type="text" placeholder="Filter by cluster" id="filter-cluster" value="{{ filters.cluster }}"
+           onchange="applyFilters()">
+</div>
+
+{% if tab == 'live' %}
+<div hx-get="/api/jobs-table?project={{ filters.project }}&cluster={{ filters.cluster }}&status={{ filters.status }}&owner={{ filters.owner }}"
+     hx-trigger="every 5s" hx-target="#jobs-tbody" hx-swap="innerHTML">
+    <div class="table-wrap">
+    <table class="jobs-table">
+        <thead>
+            <tr>
+                <th>Status</th>
+                <th>Job</th>
+                <th>Project</th>
+                <th>Preset</th>
+                <th>Owner</th>
+                <th>Cluster</th>
+                <th>Progress</th>
+                <th>Age</th>
+                <th>PR</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody id="jobs-tbody">
+            {% include "components/jobs_table_body.html" %}
+        </tbody>
+    </table>
+    </div>
+</div>
+
+{% if not jobs %}
+<div class="empty-state">
+    <p>No live FournosJobs found.</p>
+    <a href="/submit" class="btn btn-primary">Submit a new job</a>
+</div>
+{% endif %}
+
+{% else %}
+<div class="table-wrap">
+<table class="jobs-table">
+    <thead>
+        <tr>
+            <th>Status</th>
+            <th>Job</th>
+            <th>Project</th>
+            <th>Preset</th>
+            <th>Owner</th>
+            <th>Cluster</th>
+            <th>Trigger</th>
+            <th>Duration</th>
+            <th>Date</th>
+            <th>MLflow</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody id="history-tbody">
+        {% for job in history_jobs %}
+        <tr id="history-row-{{ job.name }}">
+            <td>
+                <span class="phase-badge {{ phase_class(job.phase) }}">{{ job.phase }}</span>
+            </td>
+            <td>
+                <a href="/jobs/{{ job.name }}" class="job-name">{{ job.name }}</a>
+            </td>
+            <td><span class="project-badge">{{ job.project }}</span></td>
+            <td><code>{{ job.preset or "default" }}</code></td>
+            <td><span class="owner-badge">{{ job.owner }}</span></td>
+            <td><span class="cluster-name">{{ job.cluster }}</span></td>
+            <td>
+                {% if job.trigger_type == "scheduled" %}
+                <span class="phase-badge phase-running" style="font-size:11px;">scheduled</span>
+                {% elif job.triggered_by_schedule %}
+                <span class="phase-badge phase-stopped" style="font-size:11px;">manual</span>
+                {% else %}
+                <span class="text-muted" style="font-size:11px;">direct</span>
+                {% endif %}
+                {% if job.triggered_by_schedule %}
+                <a href="/schedules/{{ job.triggered_by_schedule }}/runs" style="color:var(--accent);font-size:11px;margin-left:4px;">{{ job.triggered_by_schedule }}</a>
+                {% endif %}
+            </td>
+            <td><span class="text-muted">{{ format_duration(job.duration_seconds) }}</span></td>
+            <td><span class="text-muted">{{ format_age(job.created_at) }}</span></td>
+            <td>
+                {% if job.mlflow_url %}
+                <a href="{{ job.mlflow_url }}" target="_blank">View</a>
+                {% else %}
+                <span class="text-muted">-</span>
+                {% endif %}
+            </td>
+            <td>
+                <div class="actions-cell">
+                    <button class="actions-trigger" onclick="toggleActions(this, event)" aria-label="Actions">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                            <circle cx="8" cy="3" r="1.5"/>
+                            <circle cx="8" cy="8" r="1.5"/>
+                            <circle cx="8" cy="13" r="1.5"/>
+                        </svg>
+                    </button>
+                    <div class="actions-menu">
+                        <button class="actions-menu-item" onclick="rerunJob('{{ job.name }}', this)">
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36A.25.25 0 0 1 11.534 7zm-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9z"/><path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.418A6 6 0 1 1 8 2v1z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/></svg>
+                            Run Again
+                        </button>
+                        <button class="actions-menu-item actions-danger" onclick="deleteHistoryJob('{{ job.name }}', this)">
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M6.5 1.75a.25.25 0 01.25-.25h2.5a.25.25 0 01.25.25V3h-3V1.75zm4.5 0V3h2.25a.75.75 0 010 1.5H2.75a.75.75 0 010-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75zM4.496 6.675a.75.75 0 10-1.492.15l.66 6.6A1.75 1.75 0 005.405 15h5.19a1.75 1.75 0 001.741-1.575l.66-6.6a.75.75 0 00-1.492-.15l-.66 6.6a.25.25 0 01-.249.225h-5.19a.25.25 0 01-.249-.225l-.66-6.6z"/></svg>
+                            Delete
+                        </button>
+                    </div>
+                </div>
+            </td>
+        </tr>
+        {% endfor %}
+        {% if not history_jobs %}
+        <tr>
+            <td colspan="11" style="text-align: center; padding: 40px;">
+                <span class="text-muted">No archived jobs found.</span>
+            </td>
+        </tr>
+        {% endif %}
+    </tbody>
+</table>
+</div>
+
+{% if total > per_page %}
+<div class="pagination">
+    {% if page > 1 %}
+    <a href="/?tab=history&page={{ page - 1 }}&project={{ filters.project }}&cluster={{ filters.cluster }}&status={{ filters.status }}&owner={{ filters.owner }}" class="btn btn-sm">&larr; Previous</a>
+    {% endif %}
+    <span class="text-muted">Page {{ page }} of {{ ((total - 1) // per_page) + 1 }} ({{ total }} jobs)</span>
+    {% if page * per_page < total %}
+    <a href="/?tab=history&page={{ page + 1 }}&project={{ filters.project }}&cluster={{ filters.cluster }}&status={{ filters.status }}&owner={{ filters.owner }}" class="btn btn-sm">Next &rarr;</a>
+    {% endif %}
+</div>
+{% endif %}
+{% endif %}
+
+<script>
+function applyFilters() {
+    const project = document.getElementById('filter-project').value;
+    const status = document.getElementById('filter-status').value;
+    const owner = document.getElementById('filter-owner').value;
+    const cluster = document.getElementById('filter-cluster').value;
+    const tab = '{{ tab }}';
+    const params = new URLSearchParams({tab, project, status, owner, cluster});
+    window.location.href = '/?' + params.toString();
+}
+
+function toggleActions(btn, event) {
+    event.stopPropagation();
+    const menu = btn.nextElementSibling;
+    const wasOpen = menu.classList.contains('open');
+
+    document.querySelectorAll('.actions-menu.open').forEach(m => {
+        m.classList.remove('open', 'open-upward');
+    });
+
+    if (!wasOpen) {
+        const row = btn.closest('tr');
+        const tbody = row ? row.parentElement : null;
+        const isLastRow = tbody && row === tbody.lastElementChild;
+
+        menu.classList.add('open');
+        if (isLastRow) {
+            menu.classList.add('open-upward');
+        }
+    }
+}
+
+document.addEventListener('click', () => {
+    document.querySelectorAll('.actions-menu.open').forEach(m => m.classList.remove('open', 'open-upward'));
+});
+
+function stopJob(jobName, btn) {
+    if (!confirm('Stop job ' + jobName + '?')) return;
+    const menu = btn.closest('.actions-menu');
+    menu.classList.remove('open');
+    fetch('/api/jobs/' + jobName + '/cancel', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'ok') {
+                showToast('Stop requested for ' + jobName);
+            } else {
+                showToast('Error: ' + (data.detail || 'Unknown error'), true);
+            }
+        })
+        .catch(err => showToast('Error: ' + err.message, true));
+}
+
+function rerunJob(jobName, btn) {
+    const menu = btn.closest('.actions-menu');
+    menu.classList.remove('open');
+    fetch('/api/jobs/' + jobName + '/rerun', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'ok') {
+                showToast('Rerun submitted as ' + data.job_name);
+                if (data.redirect) {
+                    setTimeout(() => window.location.href = data.redirect, 800);
+                }
+            } else {
+                showToast('Error: ' + (data.detail || 'Unknown error'), true);
+            }
+        })
+        .catch(err => showToast('Error: ' + err.message, true));
+}
+
+function deleteHistoryJob(jobName, btn) {
+    if (!confirm('Delete job ' + jobName + ' from history? This cannot be undone.')) return;
+    const menu = btn.closest('.actions-menu');
+    menu.classList.remove('open');
+    fetch('/api/history/' + jobName, { method: 'DELETE' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'ok') {
+                const row = document.getElementById('history-row-' + jobName);
+                if (row) {
+                    row.style.transition = 'opacity 0.3s';
+                    row.style.opacity = '0';
+                    setTimeout(() => row.remove(), 300);
+                }
+                showToast('Deleted ' + jobName);
+            } else {
+                showToast('Error: ' + (data.detail || 'Unknown error'), true);
+            }
+        })
+        .catch(err => showToast('Error: ' + err.message, true));
+}
+
+function showToast(message, isError) {
+    const existing = document.querySelector('.toast');
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+    toast.className = 'toast' + (isError ? ' toast-error' : '');
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    requestAnimationFrame(() => toast.classList.add('toast-visible'));
+    setTimeout(() => {
+        toast.classList.remove('toast-visible');
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+</script>
+{% endblock %}

@@ -1,0 +1,451 @@
+{% extends "base.html" %}
+
+{% block title %}Schedules - Fournos{% endblock %}
+
+{% block content %}
+<div class="page-header" style="display: flex; justify-content: space-between; align-items: center;">
+    <div>
+        <h2>Scheduled Runs</h2>
+        <p class="text-muted">Manage CronJob-based scheduled FournosJob submissions.</p>
+    </div>
+    <button class="btn btn-primary" onclick="toggleCreateForm()">+ New Schedule</button>
+</div>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<!-- Create form (hidden by default, slides open) -->
+<div id="create-form-wrapper" style="display: none; margin-bottom: 24px;">
+<div class="card">
+    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <span id="form-title">Create New Schedule</span>
+        <button class="btn btn-sm" onclick="closeForm()" style="font-size: 16px;">&times;</button>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="/schedules" id="schedule-form" class="submit-form">
+            <input type="hidden" name="edit_target" id="sched-edit-target" value="">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="sched-name">Schedule Name</label>
+                    <input type="text" name="name" id="sched-name" required
+                           placeholder="e.g. nightly-mcp-gateway">
+                </div>
+
+                <div class="form-group">
+                    <label for="sched-project">Project</label>
+                    <select name="project" id="sched-project" required>
+                        <option value="">Select a project</option>
+                        {% for p in projects %}
+                        <option value="{{ p.name }}">{{ p.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="sched-cluster">Cluster</label>
+                    <input type="text" name="cluster" id="sched-cluster" required
+                           placeholder="e.g. agentic-cpt-8xa100">
+                </div>
+
+                <div class="form-group">
+                    <label for="sched-pipeline">Pipeline</label>
+                    <select name="pipeline" id="sched-pipeline">
+                        {% for pl in pipelines %}
+                        <option value="{{ pl }}" {% if pl == 'forge-test-only' %}selected{% endif %}>{{ pl }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="sched-preset">Preset</label>
+                    <input type="text" name="preset" id="sched-preset" placeholder="e.g. demo">
+                </div>
+
+                <div class="form-group">
+                    <label for="sched-cron">Cron Expression</label>
+                    <input type="text" name="cron_expr" id="sched-cron" required
+                           placeholder="25 20 * * *"
+                           oninput="previewCron(this.value)">
+                    <span class="form-hint" id="cron-preview">Enter a cron expression (min hour dom mon dow).</span>
+                </div>
+
+                <div class="form-group">
+                    <label for="sched-owner">Owner</label>
+                    <input type="text" name="owner" id="sched-owner" placeholder="Your username">
+                </div>
+            </div>
+
+            <div style="margin-top: 16px; border-top: 1px solid var(--border); padding-top: 16px;">
+                <h4 style="margin: 0 0 8px 0; font-size: 14px;">Version Resolver (optional)</h4>
+                <p class="text-muted" style="margin: 0 0 12px 0; font-size: 13px;">
+                    Upload a <code>.py</code> or <code>.sh</code> script that runs before the FournosJob is submitted.
+                    The script should write KEY=VALUE pairs to <code>/shared/resolved.env</code> to inject configOverrides.
+                </p>
+
+                <div class="form-group">
+                    <label>Resolver Script File</label>
+                    <input type="hidden" name="resolver_script" id="sched-resolver-script" value="">
+                    <input type="hidden" name="resolver_filename" id="sched-resolver-filename" value="">
+                    <div id="resolver-dropzone"
+                         style="border: 2px dashed var(--border, #444); border-radius: 8px; padding: 24px;
+                                text-align: center; cursor: pointer; transition: border-color 0.2s, background 0.2s;"
+                         onclick="document.getElementById('resolver-file-input').click()">
+                        <input type="file" id="resolver-file-input" accept=".py,.sh"
+                               style="display: none;" onchange="handleResolverFile(this)">
+                        <div id="resolver-dropzone-content">
+                            <div style="font-size: 28px; margin-bottom: 8px; opacity: 0.5;">&#128196;</div>
+                            <p style="margin: 0; font-size: 14px;">Drop a <code>.py</code> or <code>.sh</code> file here, or click to browse</p>
+                        </div>
+                        <div id="resolver-file-info" style="display: none;">
+                            <div style="display: flex; align-items: center; justify-content: center; gap: 12px;">
+                                <span id="resolver-file-icon" style="font-size: 24px;">&#128220;</span>
+                                <div style="text-align: left;">
+                                    <div id="resolver-file-name" style="font-weight: 600;"></div>
+                                    <div id="resolver-file-size" class="text-muted" style="font-size: 12px;"></div>
+                                </div>
+                                <button type="button" class="btn btn-sm btn-danger" onclick="clearResolverFile(event)"
+                                        style="margin-left: 8px;">&times; Remove</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary" id="form-submit-btn">Create Schedule</button>
+            </div>
+        </form>
+    </div>
+</div>
+</div>
+
+{% if cronjobs %}
+<table class="jobs-table" style="margin-bottom: 32px;">
+    <thead>
+        <tr>
+            <th>Status</th>
+            <th>Name</th>
+            <th>Project</th>
+            <th>Preset</th>
+            <th>Schedule</th>
+            <th>Cluster</th>
+            <th>Resolver</th>
+            <th>Owner</th>
+            <th>Last Run</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for cj in cronjobs %}
+        <tr>
+            <td>
+                {% if cj.suspend %}
+                <span class="phase-badge phase-stopped">Paused</span>
+                {% else %}
+                <span class="phase-badge phase-succeeded">Active</span>
+                {% endif %}
+            </td>
+            <td><a href="/schedules/{{ cj.name }}/runs" style="color: var(--accent);"><code class="job-name">{{ cj.name }}</code></a></td>
+            <td><span class="project-badge">{{ cj.project }}</span></td>
+            <td><code>{{ cj.preset or "default" }}</code></td>
+            <td><code>{{ cj.schedule }}</code></td>
+            <td><span class="cluster-name">{{ cj.cluster }}</span></td>
+            <td>
+                {% if cj.has_resolver %}
+                <div style="display: flex; gap: 6px; align-items: center;">
+                    <span class="phase-badge phase-running" style="cursor:pointer;"
+                          onclick="showResolverScript('{{ cj.name }}')">View</span>
+                    <button class="btn btn-sm" style="padding: 2px 6px; font-size: 11px;"
+                            onclick="downloadResolverScript('{{ cj.name }}')">&#11015;</button>
+                </div>
+                {% else %}
+                <span class="text-muted">--</span>
+                {% endif %}
+            </td>
+            <td><span class="owner-badge">{{ cj.owner }}</span></td>
+            <td>
+                {% if cj.last_schedule %}
+                <span class="text-muted">{{ format_age(cj.last_schedule) }} ago</span>
+                {% else %}
+                <span class="text-muted">Never</span>
+                {% endif %}
+            </td>
+            <td>
+                <button class="btn btn-sm actions-trigger" data-schedule="{{ cj.name }}"
+                        onclick="toggleActionsMenu(event, '{{ cj.name }}')"
+                        style="font-size: 18px; padding: 2px 8px; line-height: 1;">&#8942;</button>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="empty-state" style="margin-bottom: 32px;">
+    <p>No scheduled runs configured.</p>
+</div>
+{% endif %}
+
+<!-- Floating actions dropdown (outside table to avoid overflow clipping) -->
+<div id="actions-dropdown" class="actions-dropdown" style="display:none;">
+    <button onclick="triggerSchedule(activeSchedule)">Trigger Now</button>
+    <button onclick="editSchedule(activeSchedule)">Edit</button>
+    <button id="actions-toggle-btn" onclick="toggleSchedule(activeSchedule)">Pause</button>
+    <button onclick="deleteSchedule(activeSchedule)" style="color: var(--red, #f38ba8);">Delete</button>
+</div>
+
+<!-- Resolver script modal -->
+<div id="resolver-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0;
+     background:rgba(0,0,0,0.6); z-index:1000; align-items:center; justify-content:center;">
+    <div style="background:var(--bg-card,#1e1e2e); border:1px solid var(--border,#333);
+                border-radius:8px; padding:24px; max-width:700px; width:90%; max-height:80vh; overflow:auto;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <h3 style="margin:0;" id="resolver-modal-title">Resolver Script</h3>
+            <button class="btn btn-sm" onclick="closeResolverModal()">&times;</button>
+        </div>
+        <pre id="resolver-modal-body"
+             style="background:var(--bg,#11111b); padding:12px; border-radius:4px;
+                    overflow-x:auto; font-size:13px; white-space:pre-wrap; word-break:break-all;"></pre>
+    </div>
+</div>
+
+<style>
+.actions-dropdown {
+    position: fixed; z-index: 1000;
+    background: var(--bg-card, #1e1e2e); border: 1px solid var(--border, #444);
+    border-radius: 6px; padding: 4px 0; min-width: 150px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+.actions-dropdown button {
+    display: block; width: 100%; text-align: left; padding: 8px 16px;
+    background: none; border: none; color: inherit; font-size: 13px; cursor: pointer;
+}
+.actions-dropdown button:hover { background: rgba(255,255,255,0.08); }
+</style>
+
+<script>
+const cronjobData = {
+    {% for cj in cronjobs %}
+    '{{ cj.name }}': {
+        name: '{{ cj.name }}', project: '{{ cj.project }}', cluster: '{{ cj.cluster }}',
+        pipeline: '{{ cj.pipeline }}', preset: '{{ cj.preset }}', schedule: '{{ cj.schedule }}',
+        owner: '{{ cj.owner }}', resolver_filename: '{{ cj.resolver_filename }}',
+        has_resolver: {{ 'true' if cj.has_resolver else 'false' }},
+        suspend: {{ 'true' if cj.suspend else 'false' }}
+    },
+    {% endfor %}
+};
+const resolverCache = {};
+
+async function fetchResolverScript(name) {
+    if (resolverCache[name]) return resolverCache[name];
+    const resp = await fetch('/api/schedules/' + name + '/resolver');
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    resolverCache[name] = data;
+    return data;
+}
+
+/* --- Resolver file upload / drag-drop --- */
+function handleResolverFile(input) {
+    if (input.files && input.files[0]) processResolverFile(input.files[0]);
+}
+
+function processResolverFile(file) {
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (ext !== 'py' && ext !== 'sh') { alert('Only .py and .sh files are accepted.'); return; }
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        document.getElementById('sched-resolver-script').value = e.target.result;
+        document.getElementById('sched-resolver-filename').value = file.name;
+        document.getElementById('resolver-dropzone-content').style.display = 'none';
+        const info = document.getElementById('resolver-file-info');
+        info.style.display = 'block';
+        document.getElementById('resolver-file-name').textContent = file.name;
+        document.getElementById('resolver-file-size').textContent = formatFileSize(file.size);
+        document.getElementById('resolver-file-icon').textContent = ext === 'py' ? '\uD83D\uDC0D' : '\uD83D\uDCDC';
+    };
+    reader.readAsText(file);
+}
+
+function clearResolverFile(e) {
+    e.stopPropagation();
+    document.getElementById('sched-resolver-script').value = '';
+    document.getElementById('sched-resolver-filename').value = '';
+    document.getElementById('resolver-file-input').value = '';
+    document.getElementById('resolver-dropzone-content').style.display = 'block';
+    document.getElementById('resolver-file-info').style.display = 'none';
+}
+
+function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    return (bytes / 1024).toFixed(1) + ' KB';
+}
+
+(function() {
+    const dz = document.getElementById('resolver-dropzone');
+    if (!dz) return;
+    ['dragenter','dragover'].forEach(ev => dz.addEventListener(ev, function(e) {
+        e.preventDefault(); e.stopPropagation();
+        dz.style.borderColor = 'var(--accent, #7c3aed)';
+        dz.style.background = 'rgba(124,58,237,0.05)';
+    }));
+    ['dragleave','drop'].forEach(ev => dz.addEventListener(ev, function(e) {
+        e.preventDefault(); e.stopPropagation();
+        dz.style.borderColor = ''; dz.style.background = '';
+    }));
+    dz.addEventListener('drop', function(e) {
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) processResolverFile(e.dataTransfer.files[0]);
+    });
+})();
+
+/* --- View / download resolver scripts --- */
+async function showResolverScript(name) {
+    const data = await fetchResolverScript(name);
+    if (!data) { alert('Could not load resolver script'); return; }
+    document.getElementById('resolver-modal-title').textContent = 'Resolver: ' + name + ' (' + data.filename + ')';
+    document.getElementById('resolver-modal-body').textContent = data.content;
+    document.getElementById('resolver-modal').style.display = 'flex';
+}
+
+function closeResolverModal() { document.getElementById('resolver-modal').style.display = 'none'; }
+document.getElementById('resolver-modal').addEventListener('click', function(e) { if (e.target === this) closeResolverModal(); });
+
+async function downloadResolverScript(name) {
+    const data = await fetchResolverScript(name);
+    if (!data) { alert('Could not load resolver script'); return; }
+    const blob = new Blob([data.content], {type: 'text/plain'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = data.filename; a.click();
+    URL.revokeObjectURL(url);
+}
+
+/* --- Form open / close --- */
+function openForm(mode, editName) {
+    const wrapper = document.getElementById('create-form-wrapper');
+    const title = document.getElementById('form-title');
+    const btn = document.getElementById('form-submit-btn');
+    const nameField = document.getElementById('sched-name');
+    const editField = document.getElementById('sched-edit-target');
+
+    if (mode === 'edit' && editName) {
+        const cj = cronjobData[editName];
+        if (!cj) return;
+        title.textContent = 'Edit Schedule: ' + editName;
+        btn.textContent = 'Save Changes';
+        editField.value = editName;
+        nameField.value = cj.name;
+        document.getElementById('sched-project').value = cj.project;
+        document.getElementById('sched-cluster').value = cj.cluster;
+        document.getElementById('sched-pipeline').value = cj.pipeline;
+        document.getElementById('sched-preset').value = cj.preset;
+        document.getElementById('sched-cron').value = cj.schedule;
+        document.getElementById('sched-owner').value = cj.owner;
+        previewCron(cj.schedule);
+        clearResolverFile(new Event('click'));
+        if (cj.has_resolver) {
+            fetchResolverScript(editName).then(data => {
+                if (data) {
+                    document.getElementById('sched-resolver-script').value = data.content;
+                    document.getElementById('sched-resolver-filename').value = data.filename;
+                    document.getElementById('resolver-dropzone-content').style.display = 'none';
+                    document.getElementById('resolver-file-info').style.display = 'block';
+                    document.getElementById('resolver-file-name').textContent = data.filename;
+                    document.getElementById('resolver-file-size').textContent = 'existing';
+                    const ext = data.filename.split('.').pop().toLowerCase();
+                    document.getElementById('resolver-file-icon').textContent = ext === 'py' ? '\uD83D\uDC0D' : '\uD83D\uDCDC';
+                }
+            });
+        }
+    } else {
+        title.textContent = 'Create New Schedule';
+        btn.textContent = 'Create Schedule';
+        editField.value = '';
+        document.getElementById('schedule-form').reset();
+        clearResolverFile(new Event('click'));
+    }
+    wrapper.style.display = 'block';
+    wrapper.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+function closeForm() {
+    document.getElementById('create-form-wrapper').style.display = 'none';
+    document.getElementById('sched-edit-target').value = '';
+}
+
+function toggleCreateForm() {
+    const wrapper = document.getElementById('create-form-wrapper');
+    if (wrapper.style.display === 'none') openForm('create');
+    else closeForm();
+}
+
+{% if error %}
+document.getElementById('create-form-wrapper').style.display = 'block';
+{% endif %}
+
+/* --- 3-dot actions menu --- */
+let activeSchedule = null;
+function toggleActionsMenu(e, name) {
+    e.stopPropagation();
+    const menu = document.getElementById('actions-dropdown');
+    if (menu.style.display === 'block' && activeSchedule === name) {
+        menu.style.display = 'none'; activeSchedule = null; return;
+    }
+    activeSchedule = name;
+    const cj = cronjobData[name];
+    document.getElementById('actions-toggle-btn').textContent = cj && cj.suspend ? 'Resume' : 'Pause';
+    const rect = e.currentTarget.getBoundingClientRect();
+    menu.style.top = (rect.bottom + 4) + 'px';
+    menu.style.left = (rect.right - 150) + 'px';
+    menu.style.display = 'block';
+}
+document.addEventListener('click', function() {
+    const menu = document.getElementById('actions-dropdown');
+    if (menu) { menu.style.display = 'none'; activeSchedule = null; }
+});
+
+/* --- Schedule actions --- */
+async function triggerSchedule(name) {
+    if (!confirm('Trigger "' + name + '" now?')) return;
+    const resp = await fetch('/api/schedules/' + name + '/trigger', {method: 'POST'});
+    if (resp.ok) {
+        const data = await resp.json();
+        alert('Job triggered: ' + data.job_name);
+    } else {
+        const err = await resp.json().catch(() => ({}));
+        alert('Failed to trigger: ' + (err.detail || 'unknown error'));
+    }
+}
+
+function editSchedule(name) { openForm('edit', name); }
+
+async function toggleSchedule(name) {
+    const resp = await fetch('/api/schedules/' + name + '/toggle', {method: 'POST'});
+    if (resp.ok) location.reload();
+    else alert('Failed to toggle schedule');
+}
+
+async function deleteSchedule(name) {
+    if (!confirm('Delete schedule "' + name + '"?')) return;
+    const resp = await fetch('/api/schedules/' + name + '/delete', {method: 'POST'});
+    if (resp.ok) location.reload();
+    else alert('Failed to delete schedule');
+}
+
+function previewCron(expr) {
+    const hint = document.getElementById('cron-preview');
+    const parts = expr.trim().split(/\s+/);
+    if (parts.length !== 5) { hint.textContent = 'Enter a cron expression (min hour dom mon dow).'; return; }
+    const [min, hour, dom, mon, dow] = parts;
+    const dowNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    let desc = '';
+    if (dom === '*' && mon === '*' && dow === '*') {
+        desc = 'Every day at ' + hour.padStart(2,'0') + ':' + min.padStart(2,'0') + ' UTC';
+    } else if (dom === '*' && mon === '*' && dow !== '*') {
+        const days = dow.split(',').map(d => dowNames[parseInt(d)] || d).join(', ');
+        desc = 'Every ' + days + ' at ' + hour.padStart(2,'0') + ':' + min.padStart(2,'0') + ' UTC';
+    } else { desc = 'Custom: ' + expr; }
+    hint.textContent = desc;
+}
+</script>
+{% endblock %}

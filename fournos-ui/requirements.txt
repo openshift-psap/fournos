@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+jinja2
+python-dateutil
+kubernetes
+pyyaml
+sqlalchemy[asyncio]
+asyncpg
+alembic
+pydantic
+python-multipart

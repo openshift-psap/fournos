@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{% block title %}Submit Job - Fournos{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>Submit Job</h2>
+    <p class="text-muted">Create a new FournosJob on the cluster.</p>
+</div>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<form method="POST" action="/submit" class="submit-form">
+    <div class="form-grid">
+        <div class="form-group">
+            <label for="project">Project</label>
+            <select name="project" id="project" required onchange="loadPresets(this.value)">
+                <option value="">Select a project</option>
+                {% for p in projects %}
+                <option value="{{ p.name }}">{{ p.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="cluster">Cluster</label>
+            <input type="text" name="cluster" id="cluster" required readonly
+                   placeholder="Select a project" class="input-readonly">
+        </div>
+
+        <div class="form-group">
+            <label for="pipeline">Pipeline</label>
+            <select name="pipeline" id="pipeline">
+                {% for pl in pipelines %}
+                <option value="{{ pl }}" {% if pl == 'forge-test-only' %}selected{% endif %}>{{ pl }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="preset">Preset</label>
+            <select name="preset" id="preset">
+                <option value="">none (default)</option>
+            </select>
+            <span class="form-hint" id="preset-hint">Select a project first to see available presets.</span>
+        </div>
+
+        <div class="form-group">
+            <label for="version">Version / Commit SHA</label>
+            <input type="text" name="version" id="version" placeholder="e.g. 3fb7379e8fb5...">
+            <span class="form-hint">Leave empty to use the default version from config.</span>
+        </div>
+
+        <div class="form-group">
+            <label for="owner">Owner</label>
+            <input type="text" name="owner" id="owner" placeholder="Your username">
+        </div>
+
+        <div class="form-group form-full-width">
+            <label for="config_overrides_raw">Config Overrides</label>
+            <textarea name="config_overrides_raw" id="config_overrides_raw" rows="4"
+                      placeholder="key: value (one per line)&#10;e.g.&#10;infrastructure.mcp_gateway_version: 0.7.0&#10;experiment.concurrency: [32]"></textarea>
+            <span class="form-hint">Same as /var directives. One key: value per line.</span>
+        </div>
+
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="hidden" name="exclusive" value="false">
+                <input type="checkbox" name="exclusive" value="true" checked>
+                Exclusive (lock cluster for this job)
+            </label>
+        </div>
+    </div>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Submit Job</button>
+        <a href="/" class="btn btn-secondary">Cancel</a>
+    </div>
+</form>
+
+<script>
+async function loadPresets(projectName) {
+    const presetSelect = document.getElementById('preset');
+    const clusterInput = document.getElementById('cluster');
+    const hint = document.getElementById('preset-hint');
+
+    presetSelect.innerHTML = '<option value="">none (default)</option>';
+    clusterInput.value = '';
+    hint.textContent = 'Loading...';
+
+    if (!projectName) {
+        hint.textContent = 'Select a project first to see available presets.';
+        return;
+    }
+
+    try {
+        const resp = await fetch('/api/project-info/' + projectName);
+        const data = await resp.json();
+
+        if (data.cluster) {
+            clusterInput.value = data.cluster;
+        }
+
+        if (data.presets && data.presets.length > 0) {
+            for (const p of data.presets) {
+                const opt = document.createElement('option');
+                opt.value = p;
+                opt.textContent = p;
+                presetSelect.appendChild(opt);
+            }
+            hint.textContent = data.presets.length + ' preset(s) available.';
+        } else {
+            hint.textContent = 'No presets defined for this project.';
+        }
+    } catch (err) {
+        hint.textContent = 'Failed to load project info.';
+    }
+}
+</script>
+{% endblock %}

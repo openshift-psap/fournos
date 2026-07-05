@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgresql
+  namespace: fournos-dashboard
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/part-of: fournos-dashboard
+spec:
+  type: ClusterIP
+  ports:
+    - name: postgresql
+      port: 5432
+      protocol: TCP
+      targetPort: 5432
+  selector:
+    app.kubernetes.io/name: postgresql

@@ -1,0 +1,7 @@
+projects:
+  - name: my-project
+    cluster: my-cluster
+    presets:
+      - smoke
+      - nightly
+      - default

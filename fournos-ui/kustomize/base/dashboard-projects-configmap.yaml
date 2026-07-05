@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fournos-projects
+  namespace: fournos-dashboard
+  labels:
+    app.kubernetes.io/name: fournos-dashboard
+data:
+  projects.yaml: |
+    projects:
+      - name: example-project
+        cluster: my-cluster
+        presets:
+          - smoke
+          - nightly
+          - default
+      - name: skeleton
+        cluster: dev-cluster
+        presets:
+          - quick_test
