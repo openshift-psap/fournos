@@ -113,13 +113,19 @@ async def _archive_job(job: dict) -> None:
 
     async with _watcher_session() as session:
         async with session.begin():
+            existing = await db.get_job_by_name(session, job_name)
+            previous_phase = existing.status if existing else None
+            previous_message = existing.message if existing else None
+
             db_job = await db.upsert_job(session, **fields)
-            await db.add_job_event(
-                session,
-                job_id=db_job.id,
-                phase=fields["status"],
-                message=fields["message"],
-            )
+
+            if fields["status"] != previous_phase or fields["message"] != previous_message:
+                await db.add_job_event(
+                    session,
+                    job_id=db_job.id,
+                    phase=fields["status"],
+                    message=fields["message"],
+                )
 
     logger.info("Archived FournosJob %s (phase=%s)", job_name, fields["status"])
 

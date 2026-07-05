@@ -60,14 +60,21 @@ Edit each file with your values:
 ### 3. Deploy to the cluster
 
 ```bash
-oc apply -k kustomize/overlays/ocp/
+cd kustomize/overlays/ocp/
+
+# Apply the main stack
+oc kustomize . | oc apply -f -
+
+# Apply the cross-namespace RoleBinding (grants dashboard access to the jobs namespace)
+oc apply -f rolebinding-psap-automation.yaml
 ```
 
 This creates:
 - A `fournos-dashboard` namespace
 - PostgreSQL StatefulSet with persistent storage
 - Dashboard Deployment, Service, ServiceAccount
-- ClusterRole and ClusterRoleBinding for FournosJob/CronJob/Pod access
+- ClusterRole for FournosJob/CronJob/Pod access
+- RoleBinding in the target namespace (e.g. `psap-automation`)
 - Projects ConfigMap
 
 ### 4. Access the dashboard
@@ -86,8 +93,9 @@ All configuration is via environment variables (set in the deployment manifest):
 | Variable | Description | Default |
 |---|---|---|
 | `DATABASE_URL` | PostgreSQL connection string (required) | *none -- must be set* |
-| `FOURNOS_NAMESPACE` | Namespace where FournosJobs run | `fournos-jobs` |
+| `FOURNOS_NAMESPACE` | Namespace where FournosJobs run | *set via overlay* |
 | `PROJECTS_CONFIG_PATH` | Path to projects YAML | `/etc/fournos-dashboard/projects.yaml` |
+| `K8S_REQUEST_TIMEOUT` | Timeout for K8s API calls (seconds) | `30` |
 | `LOG_LEVEL` | Logging level | `INFO` |
 | `KUBECONFIG` | Path to kubeconfig (local dev only) | in-cluster config |
 
@@ -107,18 +115,20 @@ uvicorn app.main:app --reload --port 8000
 ## Project Structure
 
 ```
-fournous_UI/
+fournos-ui/
 ├── app/
 │   ├── main.py              # FastAPI routes and Jinja2 rendering
-│   ├── config.py             # Environment-based settings
-│   ├── db.py                 # SQLAlchemy models and queries
-│   ├── k8s_client.py         # Kubernetes API wrapper
-│   ├── watcher.py            # Background FournosJob event watcher
-│   ├── forge_discovery.py    # Project discovery from ConfigMap
-│   └── templates/            # Jinja2 HTML templates
+│   ├── config.py            # Environment-based settings
+│   ├── db.py                # SQLAlchemy models and queries
+│   ├── k8s_client.py        # Kubernetes API wrapper (with timeouts)
+│   ├── watcher.py           # Background FournosJob event watcher
+│   ├── forge_discovery.py   # Project discovery from ConfigMap
+│   ├── models.py            # Pydantic/dataclass models
+│   ├── static/              # CSS, HTMX, htmx-sse.js
+│   └── templates/           # Jinja2 HTML templates
 ├── kustomize/
-│   ├── base/                 # Generic K8s manifests
-│   └── overlays/ocp/         # Environment-specific overrides
+│   ├── base/                # Generic K8s manifests
+│   └── overlays/ocp/        # Environment-specific overrides
 ├── Dockerfile
 └── requirements.txt
 ```

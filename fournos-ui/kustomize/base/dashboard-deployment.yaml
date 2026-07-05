@@ -33,9 +33,19 @@ spec:
           envFrom:
             - secretRef:
                 name: postgresql-secret
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
       containers:
         - name: dashboard
           image: YOUR_REGISTRY/fournos-dashboard:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           ports:
             - containerPort: 8000
               name: http
@@ -69,7 +79,7 @@ spec:
             - name: DATABASE_URL
               value: "postgresql+asyncpg://$(PGUSER):$(PGPASSWORD)@$(PGHOST):$(PGPORT)/$(PGDATABASE)"
             - name: FOURNOS_NAMESPACE
-              value: fournos-jobs
+              value: SET_VIA_OVERLAY
             - name: PROJECTS_CONFIG_PATH
               value: /etc/fournos-dashboard/projects.yaml
             - name: LOG_LEVEL

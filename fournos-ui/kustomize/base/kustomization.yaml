@@ -8,8 +8,15 @@ resources:
   - postgresql-statefulset.yaml
   - postgresql-service.yaml
   - dashboard-serviceaccount.yaml
-  - dashboard-projects-configmap.yaml
   - dashboard-deployment.yaml
   - dashboard-service.yaml
   - dashboard-clusterrole.yaml
-  - dashboard-clusterrolebinding.yaml
+
+configMapGenerator:
+  - name: fournos-projects
+    files:
+      - projects.yaml=dashboard-projects-configmap-data.yaml
+    options:
+      disableNameSuffixHash: true
+      labels:
+        app.kubernetes.io/name: fournos-dashboard

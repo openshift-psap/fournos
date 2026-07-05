@@ -40,6 +40,10 @@ class Settings:
         default_factory=lambda: os.environ.get("LOG_LEVEL", "INFO")
     )
 
+    k8s_request_timeout_seconds: int = field(
+        default_factory=lambda: int(os.environ.get("K8S_REQUEST_TIMEOUT", "30"))
+    )
+
     jobs_poll_interval_seconds: int = 5
 
     default_pipelines: tuple[str, ...] = (

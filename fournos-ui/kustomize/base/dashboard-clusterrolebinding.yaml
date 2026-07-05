@@ -1,7 +1,8 @@
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
-  name: fournos-dashboard-reader
+  name: fournos-dashboard
+  namespace: SET_VIA_OVERLAY
   labels:
     app.kubernetes.io/name: fournos-dashboard
 subjects:
@@ -11,4 +12,4 @@ subjects:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: fournos-dashboard-reader
+  name: fournos-dashboard

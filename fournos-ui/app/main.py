@@ -40,7 +40,7 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 _jinja_env = Environment(
     loader=FileSystemLoader(str(BASE_DIR / "templates")),
     autoescape=True,
-    cache_size=0,
+    auto_reload=False,
 )
 
 # ---------------------------------------------------------------------------
@@ -221,7 +221,7 @@ def _render(template_name: str, **context: Any) -> HTMLResponse:
 _COMPLETED_GRACE_SECONDS = 180  # keep completed jobs on Live tab for 3 minutes
 
 
-def _get_live_jobs() -> list[dict]:
+def _get_live_jobs_sync() -> list[dict]:
     """Get FournosJobs from K8s, sorted newest-first, hiding old completed jobs."""
     from dateutil.parser import parse
 
@@ -251,7 +251,12 @@ def _get_live_jobs() -> list[dict]:
     return visible
 
 
-def _compute_current_steps(jobs: list[dict]) -> dict[str, dict]:
+async def _get_live_jobs() -> list[dict]:
+    """Async wrapper -- offloads blocking K8s I/O to a thread."""
+    return await asyncio.to_thread(_get_live_jobs_sync)
+
+
+def _compute_current_steps_sync(jobs: list[dict]) -> dict[str, dict]:
     """For each running job, fetch the currently active pipeline step."""
     steps: dict[str, dict] = {}
     for j in jobs:
@@ -268,7 +273,12 @@ def _compute_current_steps(jobs: list[dict]) -> dict[str, dict]:
     return steps
 
 
-def _get_pipeline_stages(job: dict) -> list[dict]:
+async def _compute_current_steps(jobs: list[dict]) -> dict[str, dict]:
+    """Async wrapper -- offloads blocking K8s I/O to a thread."""
+    return await asyncio.to_thread(_compute_current_steps_sync, jobs)
+
+
+def _get_pipeline_stages_sync(job: dict) -> list[dict]:
     """Get pipeline stages for a job from its PipelineRun."""
     job_name = job.get("metadata", {}).get("name", "")
 
@@ -283,6 +293,11 @@ def _get_pipeline_stages(job: dict) -> list[dict]:
         return k8s_client.extract_pipeline_stages(prs[0])
 
     return []
+
+
+async def _get_pipeline_stages(job: dict) -> list[dict]:
+    """Async wrapper -- offloads blocking K8s I/O to a thread."""
+    return await asyncio.to_thread(_get_pipeline_stages_sync, job)
 
 
 # ---------------------------------------------------------------------------
@@ -303,7 +318,7 @@ async def jobs_list(
     filters = {"project": project, "cluster": cluster, "status": status, "owner": owner}
 
     if tab == "live":
-        jobs = _get_live_jobs()
+        jobs = await _get_live_jobs()
         if project:
             jobs = [j for j in jobs if _extract_forge_info(j).get("project") == project]
         if cluster:
@@ -313,6 +328,8 @@ async def jobs_list(
         if owner:
             jobs = [j for j in jobs if j.get("spec", {}).get("owner") == owner]
         total = len(jobs)
+        offset = (page - 1) * per_page
+        jobs = jobs[offset:offset + per_page]
         history_jobs = []
         total_history = 0
     else:
@@ -332,7 +349,7 @@ async def jobs_list(
 
     projects_list = [p.name for p in discover_projects()]
     clusters = _collect_clusters(jobs)
-    current_steps = _compute_current_steps(jobs) if tab == "live" else {}
+    current_steps = await _compute_current_steps(jobs) if tab == "live" else {}
 
     return _render(
         "jobs_list.html",
@@ -357,7 +374,7 @@ async def jobs_table_partial(
     status: str = Query(""),
     owner: str = Query(""),
 ):
-    jobs = _get_live_jobs()
+    jobs = await _get_live_jobs()
     if project:
         jobs = [j for j in jobs if _extract_forge_info(j).get("project") == project]
     if cluster:
@@ -366,7 +383,7 @@ async def jobs_table_partial(
         jobs = [j for j in jobs if j.get("status", {}).get("phase") == status]
     if owner:
         jobs = [j for j in jobs if j.get("spec", {}).get("owner") == owner]
-    current_steps = _compute_current_steps(jobs)
+    current_steps = await _compute_current_steps(jobs)
     return _render("components/jobs_table_body.html", jobs=jobs, current_steps=current_steps)
 
 
@@ -377,10 +394,10 @@ async def job_detail(request: Request, job_name: str):
     pods: list[dict] = []
     stages: list[dict] = []
 
-    job = k8s_client.get_fournos_job(job_name)
+    job = await asyncio.to_thread(k8s_client.get_fournos_job, job_name)
     if job:
-        pods = k8s_client.list_pods_for_job(job_name)
-        stages = _get_pipeline_stages(job)
+        pods = await asyncio.to_thread(k8s_client.list_pods_for_job, job_name)
+        stages = await _get_pipeline_stages(job)
 
     if not job:
         source = "history"
@@ -403,11 +420,11 @@ async def job_detail(request: Request, job_name: str):
 @app.get("/api/jobs/{job_name}/detail-partial", response_class=HTMLResponse)
 async def job_detail_partial(request: Request, job_name: str):
     """Return the dynamic portions of the job detail page for HTMX polling."""
-    job = k8s_client.get_fournos_job(job_name)
+    job = await asyncio.to_thread(k8s_client.get_fournos_job, job_name)
     if not job:
         return HTMLResponse("")
-    pods = k8s_client.list_pods_for_job(job_name)
-    stages = _get_pipeline_stages(job)
+    pods = await asyncio.to_thread(k8s_client.list_pods_for_job, job_name)
+    stages = await _get_pipeline_stages(job)
     return _render(
         "components/job_detail_dynamic.html",
         job=job,
@@ -419,7 +436,7 @@ async def job_detail_partial(request: Request, job_name: str):
 @app.post("/api/jobs/{job_name}/cancel")
 async def cancel_job(job_name: str):
     try:
-        k8s_client.shutdown_fournos_job(job_name)
+        await asyncio.to_thread(k8s_client.shutdown_fournos_job, job_name)
         return {"status": "ok", "message": f"Shutdown requested for {job_name}"}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -450,7 +467,7 @@ async def rerun_job(job_name: str):
     }
 
     try:
-        created = k8s_client.create_fournos_job(body)
+        created = await asyncio.to_thread(k8s_client.create_fournos_job, body)
         created_name = created.get("metadata", {}).get("name", new_name)
         return {"status": "ok", "job_name": created_name, "redirect": f"/jobs/{created_name}"}
     except Exception as exc:
@@ -459,7 +476,7 @@ async def rerun_job(job_name: str):
 
 async def _get_job_for_rerun(job_name: str) -> dict | None:
     """Fetch a FournosJob by name from live K8s or DB history."""
-    live = k8s_client.get_fournos_job(job_name)
+    live = await asyncio.to_thread(k8s_client.get_fournos_job, job_name)
     if live:
         return live
     async with db.async_session() as session:
@@ -483,15 +500,28 @@ async def delete_history_job(job_name: str):
 @app.get("/api/jobs/{job_name}/logs/{pod_name}")
 async def stream_logs(job_name: str, pod_name: str):
     """Stream live pod logs via SSE (only for running jobs)."""
-    job_pods = k8s_client.list_pods_for_job(job_name)
+    job_pods = await asyncio.to_thread(k8s_client.list_pods_for_job, job_name)
     pod_names = {p["name"] for p in job_pods}
     if pod_name not in pod_names:
         raise HTTPException(status_code=404, detail="Pod not found for this job")
 
     async def generate():
-        for line in k8s_client.read_pod_log(pod_name, follow=True):
+        queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=64)
+        loop = asyncio.get_event_loop()
+
+        def _reader():
+            try:
+                for line in k8s_client.read_pod_log(pod_name, follow=True):
+                    loop.call_soon_threadsafe(queue.put_nowait, line)
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, None)
+
+        asyncio.get_event_loop().run_in_executor(None, _reader)
+        while True:
+            line = await queue.get()
+            if line is None:
+                break
             yield f"data: {line}\n\n"
-            await asyncio.sleep(0.01)
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -575,9 +605,19 @@ async def submit_job(
     }
 
     try:
-        created = k8s_client.create_fournos_job(body)
-        created_name = created.get("metadata", {}).get("name", job_name)
+        created = await asyncio.to_thread(k8s_client.create_fournos_job, body)
+    except Exception as exc:
+        projects = discover_projects()
+        return _render(
+            "submit_job.html",
+            projects=projects,
+            pipelines=list(settings.default_pipelines),
+            error=str(exc),
+        )
 
+    created_name = created.get("metadata", {}).get("name", job_name)
+
+    try:
         async with db.async_session() as session:
             async with session.begin():
                 await db.upsert_job(
@@ -592,16 +632,10 @@ async def submit_job(
                     config_overrides=config_overrides,
                     fjob_spec=body.get("spec", {}),
                 )
-
-        return RedirectResponse(url=f"/jobs/{created_name}", status_code=303)
     except Exception as exc:
-        projects = discover_projects()
-        return _render(
-            "submit_job.html",
-            projects=projects,
-            pipelines=list(settings.default_pipelines),
-            error=str(exc),
-        )
+        logger.error("DB upsert failed for job %s (job was created in K8s): %s", created_name, exc)
+
+    return RedirectResponse(url=f"/jobs/{created_name}", status_code=303)
 
 
 # ---------------------------------------------------------------------------
@@ -610,7 +644,7 @@ async def submit_job(
 
 @app.get("/schedules", response_class=HTMLResponse)
 async def schedules_list(request: Request):
-    cronjobs = k8s_client.list_managed_cronjobs()
+    cronjobs = await asyncio.to_thread(k8s_client.list_managed_cronjobs)
     projects = discover_projects()
     return _render(
         "schedules.html",
@@ -656,28 +690,46 @@ async def create_schedule(
     edit_target: str = Form(""),
 ):
     try:
-        if edit_target:
+        if edit_target and edit_target != name:
+            await asyncio.to_thread(
+                k8s_client.create_cronjob,
+                name=name,
+                schedule=cron_expr,
+                project=project,
+                cluster=cluster,
+                pipeline=pipeline,
+                preset=preset,
+                image=image_source,
+                owner=owner,
+                resolver_script=resolver_script.strip().replace("\r\n", "\n").replace("\r", "\n"),
+                resolver_image=resolver_image.strip(),
+                resolver_filename=resolver_filename.strip(),
+            )
             try:
-                k8s_client.delete_cronjob(edit_target)
-            except Exception:
-                pass
+                await asyncio.to_thread(k8s_client.delete_cronjob, edit_target)
+            except Exception as del_exc:
+                logger.warning("Failed to delete old schedule %s after replacement: %s", edit_target, del_exc)
+        else:
+            if edit_target:
+                await asyncio.to_thread(k8s_client.delete_cronjob, edit_target)
+            await asyncio.to_thread(
+                k8s_client.create_cronjob,
+                name=name,
+                schedule=cron_expr,
+                project=project,
+                cluster=cluster,
+                pipeline=pipeline,
+                preset=preset,
+                image=image_source,
+                owner=owner,
+                resolver_script=resolver_script.strip().replace("\r\n", "\n").replace("\r", "\n"),
+                resolver_image=resolver_image.strip(),
+                resolver_filename=resolver_filename.strip(),
+            )
 
-        k8s_client.create_cronjob(
-            name=name,
-            schedule=cron_expr,
-            project=project,
-            cluster=cluster,
-            pipeline=pipeline,
-            preset=preset,
-            image=image_source,
-            owner=owner,
-            resolver_script=resolver_script.strip().replace("\r\n", "\n").replace("\r", "\n"),
-            resolver_image=resolver_image.strip(),
-            resolver_filename=resolver_filename.strip(),
-        )
         return RedirectResponse(url="/schedules", status_code=303)
     except Exception as exc:
-        cronjobs = k8s_client.list_managed_cronjobs()
+        cronjobs = await asyncio.to_thread(k8s_client.list_managed_cronjobs)
         projects = discover_projects()
         return _render(
             "schedules.html",
@@ -690,23 +742,23 @@ async def create_schedule(
 
 @app.post("/api/schedules/{name}/toggle")
 async def toggle_schedule(name: str):
-    cj = k8s_client.get_managed_cronjob(name)
+    cj = await asyncio.to_thread(k8s_client.get_managed_cronjob, name)
     if cj is None:
         raise HTTPException(404, "Schedule not found")
-    k8s_client.patch_cronjob_suspend(name, suspend=not cj["suspend"])
+    await asyncio.to_thread(k8s_client.patch_cronjob_suspend, name, not cj["suspend"])
     return {"status": "ok"}
 
 
 @app.get("/api/schedules/{name}/resolver")
 async def get_resolver_script(name: str):
     """Return the resolver script content for a schedule."""
-    cj = k8s_client.get_managed_cronjob(name)
+    cj = await asyncio.to_thread(k8s_client.get_managed_cronjob, name)
     if cj is None:
         raise HTTPException(404, "Schedule not found")
     cm_name = cj.get("resolver_configmap", "")
     if not cm_name:
         raise HTTPException(404, "No resolver script configured for this schedule")
-    filename, content = k8s_client.get_resolver_script(cm_name)
+    filename, content = await asyncio.to_thread(k8s_client.get_resolver_script, cm_name)
     if not content:
         raise HTTPException(404, "Resolver ConfigMap not found")
     return {"filename": filename, "content": content}
@@ -716,7 +768,7 @@ async def get_resolver_script(name: str):
 async def trigger_schedule(name: str):
     """Manually trigger a CronJob by creating a one-off Job from it."""
     try:
-        job = k8s_client.trigger_cronjob(name)
+        job = await asyncio.to_thread(k8s_client.trigger_cronjob, name)
         return {"status": "ok", "job_name": job}
     except Exception as exc:
         raise HTTPException(500, str(exc))
@@ -725,7 +777,7 @@ async def trigger_schedule(name: str):
 @app.post("/api/schedules/{name}/delete")
 async def delete_schedule(name: str):
     try:
-        k8s_client.delete_cronjob(name)
+        await asyncio.to_thread(k8s_client.delete_cronjob, name)
         return {"status": "ok"}
     except Exception as exc:
         raise HTTPException(500, str(exc))

@@ -64,3 +64,10 @@ patches:
       - op: replace
         path: /spec/volumeClaimTemplates/0/spec/storageClassName
         value: YOUR_STORAGE_CLASS
+
+# NOTE: The cross-namespace RoleBinding (granting access to YOUR_FOURNOS_NAMESPACE)
+# must be applied separately since kustomize's global namespace override interferes:
+#
+#   cp rolebinding-psap-automation.yaml rolebinding-YOUR_NAMESPACE.yaml
+#   # Edit the file: set metadata.namespace to YOUR_FOURNOS_NAMESPACE
+#   oc apply -f rolebinding-YOUR_NAMESPACE.yaml

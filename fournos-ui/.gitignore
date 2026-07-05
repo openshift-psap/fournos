@@ -33,3 +33,4 @@ app/mock_data.py
 kustomize/overlays/*/params.env
 kustomize/overlays/*/projects.yaml
 kustomize/overlays/*/kustomization.yaml
+kustomize/overlays/*/rolebinding-*.yaml

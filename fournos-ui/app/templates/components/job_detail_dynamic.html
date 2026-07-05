@@ -1,6 +1,41 @@
 {% set info = extract_forge_info(job) %}
 {% set phase = job.status.phase %}
 {% set progress = parse_task_progress(job.status.message) %}
+{% set mlflow_url = extract_mlflow_url(job.get('status', {})) %}
+
+{# OOB swap: keep the header phase badge and cancel button in sync #}
+<span id="job-header-status" hx-swap-oob="true">
+<span class="phase-badge {{ phase_class(phase) }}">
+    {% if phase == "Running" %}<span class="pulse"></span>{% endif %}
+    {{ phase }}
+</span>
+{% if phase in ('Succeeded', 'Failed', 'Stopped') and job.status.get('completionTime') and job.status.get('startTime') %}
+<span class="duration-badge">{{ format_age(job.status.startTime) }}</span>
+{% endif %}
+{% if phase == "Running" %}
+<button class="btn btn-danger btn-sm" onclick="cancelJob('{{ job.metadata.name }}')">Cancel Job</button>
+{% endif %}
+</span>
+
+{# OOB swap: show status banner when job completes #}
+<div id="job-status-banner" hx-swap-oob="true">
+{% if phase in ('Succeeded', 'Failed', 'Stopped') %}
+<div class="status-banner {% if phase == 'Succeeded' %}banner-success{% elif phase == 'Failed' %}banner-error{% else %}banner-stopped{% endif %}">
+    {% if phase == 'Succeeded' %}Execution succeeded{% elif phase == 'Failed' %}Execution failed{% else %}Execution stopped{% endif %}
+</div>
+{% endif %}
+</div>
+
+{# OOB swap: show results links when they become available #}
+<div id="job-results-links" hx-swap-oob="true">
+{% if mlflow_url %}
+<div class="results-links">
+    <a href="{{ mlflow_url }}" target="_blank" class="result-link">
+        <span class="result-icon">&#x1F4CA;</span> MLflow Results
+    </a>
+</div>
+{% endif %}
+</div>
 
 {# Pipeline timeline #}
 {% if stages %}

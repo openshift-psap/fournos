@@ -10,6 +10,7 @@
 <div class="detail-header">
     <a href="/" class="back-link">&larr; All Jobs</a>
     <h2>{{ job.metadata.name }}</h2>
+    <span id="job-header-status">
     <span class="phase-badge {{ phase_class(phase) }}">
         {% if phase == "Running" %}<span class="pulse"></span>{% endif %}
         {{ phase }}
@@ -23,19 +24,23 @@
     {% if is_history %}
     <span class="source-badge">Archived</span>
     {% endif %}
+    </span>
 </div>
 
 {# Status banner for completed jobs #}
+<div id="job-status-banner">
 {% if is_history and phase in ('Succeeded', 'Failed', 'Stopped') %}
 <div class="status-banner {% if phase == 'Succeeded' %}banner-success{% elif phase == 'Failed' %}banner-error{% else %}banner-stopped{% endif %}">
     {% if phase == 'Succeeded' %}Execution succeeded{% elif phase == 'Failed' %}Execution failed{% else %}Execution stopped{% endif %}
     {% if job.get('_duration_seconds') is not none %} after {{ format_duration(job['_duration_seconds']) }}{% endif %}
 </div>
 {% endif %}
+</div>
 
 {# MLflow and artifacts links #}
 {% set mlflow_url = job.get('_mlflow_url', '') or extract_mlflow_url(job.get('status', {})) %}
 {% set ci_url = job.get('_ci_artifacts_url', '') %}
+<div id="job-results-links">
 {% if mlflow_url or ci_url %}
 <div class="results-links">
     {% if mlflow_url %}
@@ -50,6 +55,7 @@
     {% endif %}
 </div>
 {% endif %}
+</div>
 
 <style>
 .ptl-wrap{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:20px 24px;margin-bottom:24px}

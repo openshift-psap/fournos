@@ -90,7 +90,10 @@ def _discover_from_configmap() -> dict[str, ProjectInfo]:
         return {}
 
     result: dict[str, ProjectInfo] = {}
-    for proj in data["projects"]:
+    for idx, proj in enumerate(data["projects"]):
+        if not isinstance(proj, dict):
+            logger.warning("Skipping malformed project entry at index %d: expected mapping, got %s", idx, type(proj).__name__)
+            continue
         name = proj.get("name", "")
         if not name:
             continue

@@ -43,11 +43,15 @@ def _ensure_loaded() -> None:
             logger.warning("K8s config not available -- running in offline mode")
             return
 
-        _api_client = client.ApiClient()
+        configuration = client.Configuration.get_default_copy()
+        timeout = settings.k8s_request_timeout_seconds
+        configuration.connect_timeout = timeout
+        configuration.read_timeout = timeout
+        _api_client = client.ApiClient(configuration=configuration)
         _custom_api = client.CustomObjectsApi(_api_client)
         _core_api = client.CoreV1Api(_api_client)
         _batch_api = client.BatchV1Api(_api_client)
-        logger.info("Kubernetes client initialised")
+        logger.info("Kubernetes client initialised (timeout=%ds)", timeout)
 
 
 def is_connected() -> bool:

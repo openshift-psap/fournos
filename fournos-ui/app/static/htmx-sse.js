@@ -187,15 +187,22 @@ This extension adds support for Server Sent Events to htmx.  See /www/extensions
 			// remove the sse: prefix from here on out
 			sseEventName = sseEventName.substr(4);
 
-			var listener = function() {
+			var listener = function(event) {
 				if (maybeCloseSSESource(sourceElement)) {
-					return
+					return;
 				}
 
 				if (!api.bodyContains(child)) {
 					source.removeEventListener(sseEventName, listener);
+					return;
 				}
-			}
+
+				api.triggerEvent(child, "htmx:sseMessage", event);
+				htmx.trigger(child, sseEventName, event);
+			};
+
+			api.getInternalData(child).sseEventListener = listener;
+			source.addEventListener(sseEventName, listener);
 		});
 	}
 
@@ -237,6 +244,16 @@ This extension adds support for Server Sent Events to htmx.  See /www/extensions
 	}
 
 	function ensureEventSource(elt, url, retryCount) {
+		var internalData = api.getInternalData(elt);
+		var existingSource = internalData.sseEventSource;
+		if (existingSource && existingSource.readyState !== EventSource.CLOSED) {
+			return;
+		}
+		if (existingSource) {
+			existingSource.close();
+			internalData.sseEventSource = null;
+		}
+
 		var source = htmx.createEventSource(url);
 
 		source.onerror = function(err) {
@@ -252,7 +269,7 @@ This extension adds support for Server Sent Events to htmx.  See /www/extensions
 			// Otherwise, try to reconnect the EventSource
 			if (source.readyState === EventSource.CLOSED) {
 				retryCount = retryCount || 0;
-				var timeout = Math.random() * (2 ^ retryCount) * 500;
+				var timeout = Math.random() * Math.pow(2, retryCount) * 500;
 				window.setTimeout(function() {
 					ensureEventSourceOnElement(elt, Math.min(7, retryCount + 1));
 				}, timeout);
