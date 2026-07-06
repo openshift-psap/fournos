@@ -562,6 +562,33 @@ async def project_info_api(project_name: str):
     return {"presets": proj.presets, "cluster": proj.cluster}
 
 
+@app.get("/api/github/open-prs")
+async def github_open_prs():
+    """Fetch open pull requests from the Forge GitHub repo (public, no token needed)."""
+    import urllib.request
+    import json as _json
+
+    url = f"https://api.github.com/repos/{settings.forge_github_repo}/pulls?state=open&per_page=100"
+    req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            prs = _json.loads(resp.read())
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"GitHub API error: {exc}")
+
+    return [
+        {
+            "number": pr["number"],
+            "title": pr["title"],
+            "author": pr["user"]["login"],
+            "head_sha": pr["head"]["sha"],
+            "branch": pr["head"]["ref"],
+            "draft": pr["draft"],
+        }
+        for pr in prs
+    ]
+
+
 @app.post("/submit")
 async def submit_job(
     request: Request,

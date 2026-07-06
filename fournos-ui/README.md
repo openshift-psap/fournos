@@ -5,7 +5,8 @@ A web dashboard for managing [Fournos](https://github.com/openshift-psap/fournos
 ## What It Does
 
 - **Live job monitoring** -- Watch running FournosJobs with real-time log streaming (SSE) and pipeline progress tracking.
-- **Job submission** -- Submit new FournosJobs with project, preset, cluster, and config override selection.
+- **Job submission** -- Submit new FournosJobs with project, preset, cluster, and config override selection. Optionally pick an open Forge PR to test with -- the dashboard fetches open PRs from GitHub and fills in the commit SHA automatically.
+- **GitHub PR integration** -- Lists open pull requests from the [Forge repo](https://github.com/openshift-psap/forge) directly in the submit form. Since Forge is a public repository, no GitHub token is needed.
 - **Scheduling** -- Create Kubernetes CronJobs for recurring test runs, with optional version-resolver scripts that dynamically determine parameters at runtime.
 - **History** -- Browse completed jobs stored in PostgreSQL with status, duration, and direct links to MLflow artifacts.
 - **Schedule tracking** -- See which schedule triggered each job (manual vs. scheduled) and view all runs for a given schedule.
@@ -98,6 +99,7 @@ All configuration is via environment variables (set in the deployment manifest):
 | `K8S_REQUEST_TIMEOUT` | Timeout for K8s API calls (seconds) | `30` |
 | `LOG_LEVEL` | Logging level | `INFO` |
 | `KUBECONFIG` | Path to kubeconfig (local dev only) | in-cluster config |
+| `FORGE_GITHUB_REPO` | GitHub `owner/repo` for PR listing | `openshift-psap/forge` |
 
 ## Security Considerations
 

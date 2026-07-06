@@ -373,7 +373,9 @@ def list_pods_for_job(job_name: str, namespace: str | None = None) -> list[dict]
                 "ready": container_ready,
                 "restarts": restarts,
                 "age_minutes": age_minutes,
+                "_created": created,
             })
+        pods.sort(key=lambda p: p["_created"] or datetime.min.replace(tzinfo=timezone.utc))
         return pods
     except ApiException as exc:
         logger.error("Failed to list pods for %s: %s", job_name, exc.reason)

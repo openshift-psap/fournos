@@ -40,6 +40,10 @@ class Settings:
         default_factory=lambda: os.environ.get("LOG_LEVEL", "INFO")
     )
 
+    forge_github_repo: str = field(
+        default_factory=lambda: os.environ.get("FORGE_GITHUB_REPO", "openshift-psap/forge")
+    )
+
     k8s_request_timeout_seconds: int = field(
         default_factory=lambda: int(os.environ.get("K8S_REQUEST_TIMEOUT", "30"))
     )

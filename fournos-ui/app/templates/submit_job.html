@@ -58,13 +58,17 @@
             <input type="text" name="owner" id="owner" placeholder="Your username">
         </div>
 
-        <div class="form-group">
-            <label for="pull_sha">PR Commit SHA <span style="font-weight:normal;color:var(--text-muted,#888)">(optional)</span></label>
+        <div class="form-group" style="position:relative">
+            <label for="pr_search">Pull Request <span style="font-weight:normal;color:var(--text-muted,#888)">(optional)</span></label>
+            <input type="text" id="pr_search" autocomplete="off"
+                   placeholder="Type a PR number or title to filter..."
+                   onfocus="showPrDropdown()" oninput="filterPRs()">
+            <div id="pr_dropdown" style="display:none;position:absolute;z-index:50;left:0;right:0;top:100%;max-height:220px;overflow-y:auto;background:var(--bg-secondary,#161b22);border:1px solid var(--border,#30363d);border-radius:var(--radius,6px);box-shadow:0 8px 24px rgba(0,0,0,0.4);margin-top:2px"></div>
             <input type="text" name="pull_sha" id="pull_sha"
-                   placeholder="e.g. a1b2c3d4e5f6..."
+                   placeholder="Select a PR above or paste a SHA manually"
                    pattern="[0-9a-fA-F]{7,40}"
                    title="Git commit SHA (7-40 hex characters)">
-            <span class="form-hint">Forge will build from this commit instead of the default image. Paste the HEAD SHA of your PR.</span>
+            <span class="form-hint" id="pr-hint">Forge will build from this commit instead of the default image.</span>
         </div>
 
         <div class="form-group form-full-width">
@@ -91,6 +95,86 @@
 
 <script>
 const VERSION_PROJECTS = ['mcp_gateway'];
+
+let _allPRs = [];
+
+async function loadOpenPRs() {
+    const hint = document.getElementById('pr-hint');
+    try {
+        const resp = await fetch('/api/github/open-prs');
+        if (!resp.ok) throw new Error('Failed to fetch PRs');
+        _allPRs = await resp.json();
+        hint.textContent = _allPRs.length + ' open PR(s) loaded from Forge repo.';
+    } catch (err) {
+        hint.textContent = 'Could not load PRs -- you can still paste a SHA manually.';
+    }
+}
+
+function _prLabel(pr) {
+    const draft = pr.draft ? ' [draft]' : '';
+    return '#' + pr.number + ' -- ' + pr.title + ' (' + pr.author + ')' + draft;
+}
+
+function showPrDropdown() { renderPrDropdown(_allPRs); }
+
+function filterPRs() {
+    const q = document.getElementById('pr_search').value.trim().toLowerCase();
+    if (!q) { renderPrDropdown(_allPRs); return; }
+    const filtered = _allPRs.filter(pr =>
+        String(pr.number).includes(q) ||
+        pr.title.toLowerCase().includes(q) ||
+        pr.author.toLowerCase().includes(q)
+    );
+    renderPrDropdown(filtered);
+}
+
+function renderPrDropdown(prs) {
+    const dd = document.getElementById('pr_dropdown');
+    dd.innerHTML = '';
+    const itemStyle = 'padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border,#30363d);color:var(--text-primary,#e6edf3);transition:background 0.12s';
+    const clearDiv = document.createElement('div');
+    clearDiv.setAttribute('style', itemStyle);
+    clearDiv.textContent = 'None (clear selection)';
+    clearDiv.onmousedown = function(e) { e.preventDefault(); selectPR(null); };
+    clearDiv.onmouseenter = function() { this.style.background = 'var(--bg-tertiary,#21262d)'; };
+    clearDiv.onmouseleave = function() { this.style.background = ''; };
+    dd.appendChild(clearDiv);
+    for (const pr of prs) {
+        const div = document.createElement('div');
+        div.setAttribute('style', itemStyle);
+        div.textContent = _prLabel(pr);
+        div.onmousedown = (function(p) { return function(e) { e.preventDefault(); selectPR(p); }; })(pr);
+        div.onmouseenter = function() { this.style.background = 'var(--bg-tertiary,#21262d)'; };
+        div.onmouseleave = function() { this.style.background = ''; };
+        dd.appendChild(div);
+    }
+    dd.style.display = prs.length > 0 || _allPRs.length > 0 ? '' : 'none';
+}
+
+function selectPR(pr) {
+    const search = document.getElementById('pr_search');
+    const shaInput = document.getElementById('pull_sha');
+    const hint = document.getElementById('pr-hint');
+    const dd = document.getElementById('pr_dropdown');
+    dd.style.display = 'none';
+    if (pr) {
+        search.value = _prLabel(pr);
+        shaInput.value = pr.head_sha;
+        hint.innerHTML = 'HEAD SHA: <code style="font-family:var(--font-mono);font-size:12px;background:var(--bg-tertiary,#21262d);padding:1px 6px;border-radius:3px">' + pr.head_sha + '</code>';
+    } else {
+        search.value = '';
+        shaInput.value = '';
+        hint.textContent = 'Forge will build from this commit instead of the default image.';
+    }
+}
+
+document.addEventListener('click', function(e) {
+    const dd = document.getElementById('pr_dropdown');
+    const search = document.getElementById('pr_search');
+    if (!dd.contains(e.target) && e.target !== search) dd.style.display = 'none';
+});
+
+document.addEventListener('DOMContentLoaded', loadOpenPRs);
 
 async function loadPresets(projectName) {
     const presetSelect = document.getElementById('preset');
