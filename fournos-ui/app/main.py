@@ -562,19 +562,15 @@ async def project_info_api(project_name: str):
     return {"presets": proj.presets, "cluster": proj.cluster}
 
 
-@app.get("/api/github/open-prs")
-async def github_open_prs():
-    """Fetch open pull requests from the Forge GitHub repo (public, no token needed)."""
+def _fetch_github_open_prs() -> list[dict]:
+    """Blocking call to the GitHub API -- run via asyncio.to_thread."""
     import urllib.request
     import json as _json
 
     url = f"https://api.github.com/repos/{settings.forge_github_repo}/pulls?state=open&per_page=100"
     req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json"})
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            prs = _json.loads(resp.read())
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"GitHub API error: {exc}")
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        prs = _json.loads(resp.read())
 
     return [
         {
@@ -587,6 +583,15 @@ async def github_open_prs():
         }
         for pr in prs
     ]
+
+
+@app.get("/api/github/open-prs")
+async def github_open_prs():
+    """Fetch open pull requests from the Forge GitHub repo (public, no token needed)."""
+    try:
+        return await asyncio.to_thread(_fetch_github_open_prs)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"GitHub API error: {exc}")
 
 
 @app.post("/submit")
