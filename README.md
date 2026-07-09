@@ -99,6 +99,41 @@ including jobs that also specify `spec.hardware`. Set `exclusive: false` for
 shared access (hardware is then required). Jobs without `spec.cluster` must
 set `exclusive: false`.
 
+### Environment variables (`spec.env`)
+
+The `spec.env` field accepts arbitrary key-value pairs that the execution
+engine reads from the FournosJob spec via the Kubernetes API. The Tekton
+task bootstrap script (`task-forge-step.yaml`) extracts certain well-known
+variables and acts on them before launching the execution engine.
+
+#### Git checkout
+
+| Variable | Description |
+|---|---|
+| `PULL_PULL_SHA` | Checkout a specific git commit SHA. The Tekton task runs `git fetch origin <sha>` and `git reset --hard FETCH_HEAD` before executing the project. |
+| `PULL_NUMBER` | Checkout the HEAD of a GitHub PR branch (`refs/pull/<number>/head`). Also enables GitHub PR notifications — test results are posted as a comment on the PR. Takes precedence after `PULL_PULL_SHA`. |
+| `PULL_BASE_SHA` | Base branch commit SHA (informational context for the execution engine). |
+
+If neither `PULL_PULL_SHA` nor `PULL_NUMBER` is set, the execution engine
+runs with the code baked into the container image.
+
+`PULL_NUMBER` is the most convenient option for testing a PR: it checks
+out the latest code from that PR **and** posts results back to GitHub.
+
+#### Example
+
+```yaml
+spec:
+  env:
+    PULL_NUMBER: "118"        # checkout PR #118 HEAD + post results to PR
+```
+
+```yaml
+spec:
+  env:
+    PULL_PULL_SHA: "abc123"   # checkout exact commit, no PR notification
+```
+
 ### Status
 
 The operator writes status to `.status`:
