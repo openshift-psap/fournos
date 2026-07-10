@@ -6,6 +6,7 @@ spec:
   params:
     - name: kubeconfig-secret
       type: string
+      default: "fournos-clusterless-placeholder"
   steps:
     - name: check-connectivity
       image: bitnami/kubectl:latest
@@ -19,6 +20,12 @@ spec:
       script: |
         #!/usr/bin/env bash
         set -euo pipefail
+
+        if [[ "$(params.kubeconfig-secret)" == "fournos-clusterless-placeholder" ]]; then
+          echo "Running in clusterless mode - skipping cluster connectivity validation"
+          exit 0
+        fi
+
         echo "Validating connectivity to target cluster…"
         kubectl cluster-info
         echo "Target cluster is reachable."
@@ -26,3 +33,4 @@ spec:
     - name: kubeconfig
       secret:
         secretName: $(params.kubeconfig-secret)
+        optional: true

@@ -173,9 +173,10 @@ def _resolve_hardware(
     gpu_count = hardware.get("gpuCount", 0)
 
     exclusive_lock = spec["exclusive"] and spec.get("cluster")
+    clusterless = spec.get("clusterless", False)
 
     if not gpu_type or not gpu_count:
-        if not exclusive_lock:
+        if not exclusive_lock and not clusterless:
             _resolve_failed(
                 patch,
                 conditions,
@@ -333,6 +334,23 @@ def reconcile_resolving(spec, name, status, patch, body):
 
     if not _validate_secret_refs(spec, name, conditions, patch):
         return
-    _create_workload_and_transition(
-        spec, name, conditions, patch, body, gpu_type, gpu_count
-    )
+
+    clusterless = spec.get("clusterless", False)
+    if clusterless:
+        # Skip Kueue entirely for clusterless jobs - go directly to Admitted phase
+        patch.status["phase"] = Phase.ADMITTED
+        patch.status["cluster"] = "[clusterless]"
+        patch.status["message"] = "Clusterless job ready for execution"
+        set_condition(
+            patch,
+            conditions,
+            COND_WORKLOAD_ADMITTED,
+            "True",
+            "ClusterlessAdmitted",
+            "Clusterless job bypassed Kueue admission",
+        )
+        logger.info("Job %s: clusterless job bypassing Kueue, phase=Admitted", name)
+    else:
+        _create_workload_and_transition(
+            spec, name, conditions, patch, body, gpu_type, gpu_count
+        )

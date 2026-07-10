@@ -51,6 +51,7 @@ def on_create(spec, name, namespace, status, patch, body):
     cluster = spec.get("cluster")
     exclusive = spec["exclusive"]
     lock_only = spec.get("lockOnly", False)
+    clusterless = spec.get("clusterless", False)
 
     if lock_only and not cluster:
         patch.status["phase"] = Phase.FAILED
@@ -61,6 +62,25 @@ def on_create(spec, name, namespace, status, patch, body):
         patch.status["phase"] = Phase.FAILED
         patch.status["message"] = (
             "spec.executionEngine is required for non-lockOnly jobs"
+        )
+        return
+
+    if clusterless and lock_only:
+        patch.status["phase"] = Phase.FAILED
+        patch.status["message"] = (
+            "clusterless: true cannot be combined with lockOnly: true"
+        )
+        return
+
+    if clusterless and exclusive:
+        patch.status["phase"] = Phase.FAILED
+        patch.status["message"] = "clusterless: true requires exclusive: false"
+        return
+
+    if clusterless and cluster:
+        patch.status["phase"] = Phase.FAILED
+        patch.status["message"] = (
+            "clusterless: true cannot be combined with cluster specification"
         )
         return
 

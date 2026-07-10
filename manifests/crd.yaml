@@ -115,6 +115,15 @@ spec:
                     Requires 'cluster' to be set.  Hardware is optional — when
                     omitted the Workload only requests cluster-slot resources
                     for locking.
+                clusterless:
+                  type: boolean
+                  default: false
+                  description: >-
+                    Run without cluster access - no kubeconfig is passed to the
+                    execution environment. Cannot be combined with 'cluster' or
+                    'exclusive: true'. Hardware specifications are optional -
+                    if omitted, the job runs on hub cluster resources without
+                    Kueue hardware scheduling.
                 lockOnly:
                   type: boolean
                   default: false
