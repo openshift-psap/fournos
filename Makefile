@@ -8,7 +8,7 @@ FOURNOS_WORKLOAD_NAMESPACE     ?= fournos-local-dev
 FOURNOS_SECRETS_NAMESPACE      ?= psap-secrets
 
 .PHONY: lint format test docker-build docker-push \
-        install deploy dev-setup dev-run dev-teardown \
+        install deploy dev-setup dev-run dev-teardown wip-run \
         ci-setup ci-run ci-stop
 
 ##@ Code Quality
@@ -85,6 +85,14 @@ dev-run:
 	FOURNOS_WORKLOAD_NAMESPACE=$(or $(FOURNOS_WORKLOAD_NAMESPACE),fournos-local-dev) \
 	FOURNOS_SECRETS_NAMESPACE=$(or $(FOURNOS_SECRETS_NAMESPACE),psap-secrets) \
 	FOURNOS_RESOLVE_JOB_TEMPLATE=dev/mock-resolve/resolve_job.yaml \
+	$(VENV_BIN)python -m fournos
+
+wip-run:
+	FOURNOS_GC_INTERVAL_SEC=5 \
+	FOURNOS_CONTROLLER_NAMESPACE=$(FOURNOS_CONTROLLER_NAMESPACE) \
+	FOURNOS_WORKLOAD_NAMESPACE=psap-automation-wip \
+	FOURNOS_SECRETS_NAMESPACE=psap-secrets \
+	FOURNOS_RESOLVE_JOB_TEMPLATE=config/forge/resolve_job.yaml \
 	$(VENV_BIN)python -m fournos
 
 dev-teardown:
