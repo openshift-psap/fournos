@@ -43,6 +43,7 @@ BANNER = rf"""
 def startup(**_):
     logging.getLogger("fournos").setLevel(settings.log_level.upper())
     logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
+    logging.getLogger("kopf.objects").setLevel(logging.WARNING)
 
     for line in BANNER.strip().splitlines():
         logger.info(line)
