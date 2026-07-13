@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}{{ schedule_name }} Runs - Fournos{% endblock %}
+
+{% block content %}
+<div class="page-header" style="display: flex; justify-content: space-between; align-items: center;">
+    <div>
+        <h2>Runs for <code>{{ schedule_name }}</code></h2>
+        <p class="text-muted"><a href="/schedules" style="color: var(--accent);">&larr; Back to Schedules</a></p>
+    </div>
+</div>
+
+{% if runs %}
+<table class="jobs-table">
+    <thead>
+        <tr>
+            <th>Status</th>
+            <th>Job Name</th>
+            <th>Preset</th>
+            <th>Trigger</th>
+            <th>Duration</th>
+            <th>MLflow</th>
+            <th>Created</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for run in runs %}
+        <tr>
+            <td><span class="phase-badge phase-{{ phase_class(run.status) }}">{{ run.status }}</span></td>
+            <td><a href="/jobs/{{ run.name }}" style="color: var(--accent);"><code class="job-name">{{ run.name }}</code></a></td>
+            <td><code>{{ run.preset or "default" }}</code></td>
+            <td>
+                {% if run.trigger_type == "scheduled" %}
+                <span class="phase-badge phase-running">scheduled</span>
+                {% else %}
+                <span class="phase-badge phase-stopped">manual</span>
+                {% endif %}
+            </td>
+            <td>
+                {% if run.duration_seconds %}
+                {{ format_duration(run.duration_seconds) }}
+                {% else %}
+                <span class="text-muted">--</span>
+                {% endif %}
+            </td>
+            <td>
+                {% if run.mlflow_url %}
+                <a href="{{ run.mlflow_url }}" target="_blank" style="color: var(--accent); font-size: 12px;">View in MLflow</a>
+                {% else %}
+                <span class="text-muted">--</span>
+                {% endif %}
+            </td>
+            <td>
+                {% if run.created_at %}
+                <span class="text-muted">{{ format_age(run.created_at) }} ago</span>
+                {% else %}
+                <span class="text-muted">--</span>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="empty-state">
+    <p>No runs found for this schedule yet.</p>
+</div>
+{% endif %}
+{% endblock %}

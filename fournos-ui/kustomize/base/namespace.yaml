@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fournos-dashboard
+  labels:
+    app.kubernetes.io/name: fournos-dashboard
+    app.kubernetes.io/part-of: fournos

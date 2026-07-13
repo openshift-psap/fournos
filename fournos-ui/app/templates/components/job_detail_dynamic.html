@@ -1,0 +1,159 @@
+{% set info = extract_forge_info(job) %}
+{% set phase = job.status.phase %}
+{% set progress = parse_task_progress(job.status.message) %}
+{% set mlflow_url = extract_mlflow_url(job.get('status', {})) %}
+
+{# OOB swap: keep the header phase badge and cancel button in sync #}
+<span id="job-header-status" hx-swap-oob="true">
+<span class="phase-badge {{ phase_class(phase) }}">
+    {% if phase == "Running" %}<span class="pulse"></span>{% endif %}
+    {{ phase }}
+</span>
+{% if phase in ('Succeeded', 'Failed', 'Stopped') and job.status.get('completionTime') and job.status.get('startTime') %}
+<span class="duration-badge">{{ format_age(job.status.startTime) }}</span>
+{% endif %}
+{% if phase == "Running" %}
+<button class="btn btn-danger btn-sm" onclick="cancelJob('{{ job.metadata.name }}')">Cancel Job</button>
+{% endif %}
+</span>
+
+{# OOB swap: show status banner when job completes #}
+<div id="job-status-banner" hx-swap-oob="true">
+{% if phase in ('Succeeded', 'Failed', 'Stopped') %}
+<div class="status-banner {% if phase == 'Succeeded' %}banner-success{% elif phase == 'Failed' %}banner-error{% else %}banner-stopped{% endif %}">
+    {% if phase == 'Succeeded' %}Execution succeeded{% elif phase == 'Failed' %}Execution failed{% else %}Execution stopped{% endif %}
+</div>
+{% endif %}
+</div>
+
+{# OOB swap: show results links when they become available #}
+<div id="job-results-links" hx-swap-oob="true">
+{% if mlflow_url %}
+<div class="results-links">
+    <a href="{{ mlflow_url }}" target="_blank" class="result-link">
+        <span class="result-icon">&#x1F4CA;</span> MLflow Results
+    </a>
+</div>
+{% endif %}
+</div>
+
+{# Pipeline timeline #}
+{% if stages %}
+{% set tl = build_timeline(stages) %}
+<div class="ptl-wrap">
+    <div class="ptl-title">Pipeline Timeline <code>{{ job.spec.pipeline }}</code></div>
+    <div class="ptl-bar">
+        {% set finally_started = [] %}
+        {% for s in tl %}
+        {% if s['finally'] and not finally_started %}{% if finally_started.append(1) %}{% endif %}<div class="ptl-sep"></div>{% endif %}
+        <div class="ptl-seg {{ s.status_class }}"
+             style="flex:{{ s.width_pct }} 0 {{ s.min_width }}%;"
+             title="{{ s.displayName }}: {{ s.status }}{% if s.duration_label %} ({{ s.duration_label }}){% endif %}">
+            {{ s.displayName }}
+        </div>
+        {% endfor %}
+    </div>
+    <div class="ptl-labels">
+        {% set finally_started2 = [] %}
+        {% for s in tl %}
+        {% if s['finally'] and not finally_started2 %}{% if finally_started2.append(1) %}{% endif %}<div style="width:5px"></div>{% endif %}
+        <div class="ptl-lbl" style="flex:{{ s.width_pct }} 0 {{ s.min_width }}%;">
+            <span class="ptl-lbl-name">{{ s.displayName }}</span>
+            <span class="ptl-lbl-dur">{{ s.duration_label }}</span>
+        </div>
+        {% endfor %}
+    </div>
+    <div class="ptl-legend">
+        <div class="ptl-legend-item"><div class="ptl-legend-dot ptl-ok"></div>Succeeded</div>
+        <div class="ptl-legend-item"><div class="ptl-legend-dot ptl-run"></div>Running</div>
+        <div class="ptl-legend-item"><div class="ptl-legend-dot ptl-err"></div>Failed</div>
+        <div class="ptl-legend-item"><div class="ptl-legend-dot ptl-wait"></div>Pending</div>
+        <div class="ptl-legend-item"><div class="ptl-legend-dot ptl-cancel"></div>Cancelled</div>
+        <div class="ptl-legend-item"><div class="ptl-legend-dot ptl-skip"></div>Skipped</div>
+    </div>
+</div>
+{% elif progress %}
+<div style="margin-bottom: 20px;">
+    <div class="progress-bar" style="height: 8px; max-width: 600px;"
+         title="Completed: {{ progress.completed }}, Failed: {{ progress.failed }}, Incomplete: {{ progress.incomplete }}, Skipped: {{ progress.skipped }}">
+        {% if progress.total > 0 %}
+        <div class="segment completed" style="width: {{ (progress.completed / progress.total * 100) | round }}%"></div>
+        <div class="segment failed" style="width: {{ (progress.failed / progress.total * 100) | round }}%"></div>
+        <div class="segment incomplete" style="width: {{ (progress.incomplete / progress.total * 100) | round }}%"></div>
+        {% endif %}
+    </div>
+    <span class="text-muted" style="margin-top: 4px; display: inline-block;">
+        {{ progress.completed }} completed, {{ progress.failed }} failed, {{ progress.incomplete }} incomplete, {{ progress.skipped }} skipped
+    </span>
+</div>
+{% endif %}
+
+{# Conditions card #}
+<div class="card" style="margin-bottom: 20px;">
+    <div class="card-header">Conditions</div>
+    <div class="card-body">
+        {% if job.status.conditions %}
+        <ul class="conditions-list">
+            {% for c in job.status.conditions %}
+            <li>
+                <div class="condition-icon condition-{{ c.status | lower }}">
+                    {% if c.status == "True" %}&#10003;{% elif c.status == "False" %}&#10007;{% else %}&#8943;{% endif %}
+                </div>
+                <div class="condition-info">
+                    <div class="condition-type">{{ c.type }}</div>
+                    <div class="condition-message">{{ c.message }}</div>
+                    <div class="condition-time">{{ c.reason }} &middot; {{ format_age(c.lastTransitionTime) }} ago</div>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <span class="text-muted">No conditions available</span>
+        {% endif %}
+    </div>
+</div>
+
+{# Pods table #}
+{% if pods %}
+<div class="card">
+    <div class="card-header">Pods</div>
+    <div class="card-body" style="padding: 0;">
+        <table class="pods-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Status</th>
+                    <th>Ready</th>
+                    <th>Restarts</th>
+                    <th>Age</th>
+                    <th>Logs</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for pod in pods %}
+                <tr>
+                    <td>{{ pod.name }}</td>
+                    <td>
+                        <span class="phase-badge {{ phase_class(pod.phase) }}">
+                            {% if pod.phase == "Running" %}<span class="pulse"></span>{% endif %}
+                            {{ pod.phase }}
+                        </span>
+                    </td>
+                    <td>{{ "Yes" if pod.ready else "No" }}</td>
+                    <td>{{ pod.restarts }}</td>
+                    <td>{{ pod.age_minutes }}m</td>
+                    <td>
+                        {% if phase in ("Running", "Pending", "Admitted") %}
+                        <a href="#" onclick="loadLogs('{{ pod.name }}', 'live'); return false;"
+                           style="font-size: 12px;">View logs</a>
+                        {% else %}
+                        <span class="text-muted" style="font-size: 12px;">-</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}

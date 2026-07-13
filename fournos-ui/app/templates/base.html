@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Fournos Dashboard{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css?v={{ cache_bust }}">
+    <script src="/static/htmx.min.js"></script>
+    <script src="/static/htmx-sse.js"></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <nav class="header-nav">
+                <a href="/" class="logo">Fournos <span>Dashboard</span></a>
+                <div class="nav-links">
+                    <a href="/" class="nav-link {% if active_nav == 'jobs' %}active{% endif %}">Jobs</a>
+                    <a href="/submit" class="nav-link {% if active_nav == 'submit' %}active{% endif %}">Submit</a>
+                    <a href="/schedules" class="nav-link {% if active_nav == 'schedules' %}active{% endif %}">Schedules</a>
+                </div>
+            </nav>
+            {% block header_extra %}{% endblock %}
+        </div>
+    </header>
+    <main>
+        <div class="container">
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+</body>
+</html>

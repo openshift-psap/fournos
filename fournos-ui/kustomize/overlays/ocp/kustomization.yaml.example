@@ -1,0 +1,73 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: fournos-dashboard
+
+resources:
+  - ../../base
+
+secretGenerator:
+  - name: postgresql-secret
+    envs:
+      - postgresql-secret.env
+    options:
+      disableNameSuffixHash: true
+
+configMapGenerator:
+  - name: fournos-projects
+    behavior: replace
+    files:
+      - projects.yaml
+    options:
+      disableNameSuffixHash: true
+      labels:
+        app.kubernetes.io/name: fournos-dashboard
+
+patches:
+  # Dashboard container image -- replace with your registry
+  - target:
+      kind: Deployment
+      name: fournos-dashboard
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: YOUR_REGISTRY/fournos-dashboard:latest
+  # Init container image (optional -- override if you need a subscription-gated image)
+  - target:
+      kind: Deployment
+      name: fournos-dashboard
+    patch: |
+      - op: replace
+        path: /spec/template/spec/initContainers/0/image
+        value: postgres:15-alpine
+  # FOURNOS_NAMESPACE -- the namespace where FournosJobs run (env[6] in base)
+  - target:
+      kind: Deployment
+      name: fournos-dashboard
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/env/6/value
+        value: YOUR_FOURNOS_NAMESPACE
+  # PostgreSQL image (optional)
+  - target:
+      kind: StatefulSet
+      name: postgresql
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: postgres:15-alpine
+  # Storage class -- replace with your cluster's storage class
+  - target:
+      kind: StatefulSet
+      name: postgresql
+    patch: |
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/storageClassName
+        value: YOUR_STORAGE_CLASS
+
+# NOTE: The cross-namespace RoleBinding (granting access to YOUR_FOURNOS_NAMESPACE)
+# must be applied separately since kustomize's global namespace override interferes:
+#
+#   cp rolebinding-psap-automation.yaml rolebinding-YOUR_NAMESPACE.yaml
+#   # Edit the file: set metadata.namespace to YOUR_FOURNOS_NAMESPACE
+#   oc apply -f rolebinding-YOUR_NAMESPACE.yaml

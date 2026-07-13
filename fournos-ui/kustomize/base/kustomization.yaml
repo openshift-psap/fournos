@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: fournos-dashboard
+
+resources:
+  - namespace.yaml
+  - postgresql-statefulset.yaml
+  - postgresql-service.yaml
+  - dashboard-serviceaccount.yaml
+  - dashboard-deployment.yaml
+  - dashboard-service.yaml
+  - dashboard-clusterrole.yaml
+
+configMapGenerator:
+  - name: fournos-projects
+    files:
+      - projects.yaml=dashboard-projects-configmap-data.yaml
+    options:
+      disableNameSuffixHash: true
+      labels:
+        app.kubernetes.io/name: fournos-dashboard

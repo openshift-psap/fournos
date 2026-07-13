@@ -1,0 +1,36 @@
+# Secrets - never commit actual credentials
+kustomize/overlays/*/postgresql-secret.env
+*secret*.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE
+.idea/
+.vscode/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+
+# Dev-only
+app/mock_data.py
+
+# Local overlay overrides (users create their own from *.example)
+kustomize/overlays/*/params.env
+kustomize/overlays/*/projects.yaml
+kustomize/overlays/*/kustomization.yaml
+kustomize/overlays/*/rolebinding-*.yaml

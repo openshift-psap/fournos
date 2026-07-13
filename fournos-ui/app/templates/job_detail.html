@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% set info = extract_forge_info(job) %}
+{% set phase = job.status.phase %}
+{% set progress = parse_task_progress(job.status.message) %}
+{% set is_history = (source == 'history') %}
+
+{% block title %}{{ job.metadata.name }} - Fournos{% endblock %}
+
+{% block content %}
+<div class="detail-header">
+    <a href="/" class="back-link">&larr; All Jobs</a>
+    <h2>{{ job.metadata.name }}</h2>
+    <span id="job-header-status">
+    <span class="phase-badge {{ phase_class(phase) }}">
+        {% if phase == "Running" %}<span class="pulse"></span>{% endif %}
+        {{ phase }}
+    </span>
+    {% if is_history and job.get('_duration_seconds') is not none %}
+    <span class="duration-badge">{{ format_duration(job['_duration_seconds']) }}</span>
+    {% endif %}
+    {% if not is_history and phase == "Running" %}
+    <button class="btn btn-danger btn-sm" onclick="cancelJob('{{ job.metadata.name }}')">Cancel Job</button>
+    {% endif %}
+    {% if is_history %}
+    <span class="source-badge">Archived</span>
+    {% endif %}
+    </span>
+</div>
+
+{# Status banner for completed jobs #}
+<div id="job-status-banner">
+{% if is_history and phase in ('Succeeded', 'Failed', 'Stopped') %}
+<div class="status-banner {% if phase == 'Succeeded' %}banner-success{% elif phase == 'Failed' %}banner-error{% else %}banner-stopped{% endif %}">
+    {% if phase == 'Succeeded' %}Execution succeeded{% elif phase == 'Failed' %}Execution failed{% else %}Execution stopped{% endif %}
+    {% if job.get('_duration_seconds') is not none %} after {{ format_duration(job['_duration_seconds']) }}{% endif %}
+</div>
+{% endif %}
+</div>
+
+{# MLflow and artifacts links #}
+{% set mlflow_url = job.get('_mlflow_url', '') or extract_mlflow_url(job.get('status', {})) %}
+{% set ci_url = job.get('_ci_artifacts_url', '') %}
+<div id="job-results-links">
+{% if mlflow_url or ci_url %}
+<div class="results-links">
+    {% if mlflow_url %}
+    <a href="{{ mlflow_url }}" target="_blank" class="result-link">
+        <span class="result-icon">&#x1F4CA;</span> MLflow Results
+    </a>
+    {% endif %}
+    {% if ci_url %}
+    <a href="{{ ci_url }}" target="_blank" class="result-link">
+        <span class="result-icon">&#x1F4C1;</span> CI Artifacts
+    </a>
+    {% endif %}
+</div>
+{% endif %}
+</div>
+
+<style>
+.ptl-wrap{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:20px 24px;margin-bottom:24px}
+.ptl-title{font-size:13px;font-weight:600;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px}
+.ptl-title code{font-size:11px;margin-left:8px;color:#6e7681}
+.ptl-bar{display:flex !important;flex-direction:row !important;height:40px;border-radius:6px;gap:3px;margin-bottom:2px}
+.ptl-seg{display:flex !important;align-items:center;justify-content:center;border-radius:4px;font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 8px;cursor:default;transition:filter .2s}
+.ptl-seg:hover{filter:brightness(1.3)}
+.ptl-ok{background:rgba(63,185,80,.25);color:#3fb950;border:1px solid rgba(63,185,80,.4)}
+.ptl-run{background:rgba(210,153,34,.25);color:#d29922;border:1px solid rgba(210,153,34,.4);animation:ptl-glow 2s infinite}
+@keyframes ptl-glow{0%,100%{background:rgba(210,153,34,.25)}50%{background:rgba(210,153,34,.12)}}
+.ptl-err{background:rgba(248,81,73,.25);color:#f85149;border:1px solid rgba(248,81,73,.4)}
+.ptl-wait{background:#21262d;color:#6e7681;border:1px solid #30363d}
+.ptl-cancel{background:rgba(139,148,158,.15);color:#8b949e;border:1px solid rgba(139,148,158,.3)}
+.ptl-skip{background:rgba(139,148,158,.08);color:#6e7681;border:1px dashed #30363d}
+.ptl-sep{width:2px;background:#30363d;border-radius:1px;align-self:stretch;margin:4px 1px}
+.ptl-labels{display:flex !important;flex-direction:row !important;gap:3px;margin-top:4px}
+.ptl-lbl{display:flex;flex-direction:column;align-items:center;font-size:11px;overflow:hidden}
+.ptl-lbl-name{color:#8b949e;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.ptl-lbl-dur{color:#6e7681;font-family:'SF Mono','Cascadia Code',monospace;font-size:10px}
+.ptl-legend{display:flex;gap:14px;margin-top:14px;flex-wrap:wrap}
+.ptl-legend-item{display:flex;align-items:center;gap:5px;font-size:11px;color:#8b949e}
+.ptl-legend-dot{width:10px;height:10px;border-radius:3px;flex-shrink:0}
+</style>
+
+{# Dynamic section: auto-refreshes for live jobs #}
+{% if not is_history %}
+<div id="job-dynamic"
+     hx-get="/api/jobs/{{ job.metadata.name }}/detail-partial"
+     hx-trigger="every 5s"
+     hx-swap="innerHTML">
+    {% include "components/job_detail_dynamic.html" %}
+</div>
+{% else %}
+{% include "components/job_detail_dynamic.html" %}
+{% endif %}
+
+<div class="card" style="margin-bottom: 20px;">
+    <div class="card-header">Test Configuration</div>
+    <div class="card-body">
+        <dl>
+            <dt>Display Name</dt>
+            <dd>{{ job.spec.displayName }}</dd>
+            <dt>Owner</dt>
+            <dd><span class="owner-badge">{{ job.spec.owner }}</span></dd>
+            <dt>Pipeline</dt>
+            <dd><code>{{ job.spec.pipeline }}</code></dd>
+            <dt>Cluster</dt>
+            <dd><code>{{ job.spec.cluster }}</code></dd>
+            <dt>Exclusive</dt>
+            <dd>{{ "Yes" if job.spec.exclusive else "No" }}</dd>
+            <dt>Project</dt>
+            <dd><span class="project-badge">{{ info.project }}</span></dd>
+            <dt>Args (Presets)</dt>
+            <dd><code>{{ info.args | join(", ") or "none" }}</code></dd>
+            {% if info.config_overrides %}
+            <dt>Config Overrides</dt>
+            <dd>
+                {% for k, v in info.config_overrides.items() %}
+                <code>{{ k }}: {{ v }}</code>{% if not loop.last %}<br>{% endif %}
+                {% endfor %}
+            </dd>
+            {% endif %}
+            {% if info.pr_number %}
+            <dt>Pull Request</dt>
+            <dd><a href="{{ info.pr_url }}" target="_blank">#{{ info.pr_number }}: {{ info.pr_title }}</a></dd>
+            {% endif %}
+            {% if job.get('spec', {}).get('secretRefs') %}
+            <dt>Secrets</dt>
+            <dd>
+                {% for s in job.spec.secretRefs %}
+                <code>{{ s }}</code>{% if not loop.last %}, {% endif %}
+                {% endfor %}
+            </dd>
+            {% endif %}
+        </dl>
+    </div>
+</div>
+
+{% if not is_history and phase in ("Running", "Pending", "Admitted") %}
+<div class="card">
+    <div class="card-header">Logs <span id="log-pod-name" style="font-weight: 400; font-size: 12px; color: var(--text-muted);"></span></div>
+    <div class="card-body" style="padding: 0;">
+        <div id="log-output" class="log-viewer">
+            <span style="color: var(--text-muted);">Select a pod above to view its logs.</span>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<script>
+let currentSource = null;
+
+function cancelJob(jobName) {
+    if (!confirm('Cancel job ' + jobName + '?')) return;
+    fetch('/api/jobs/' + jobName + '/cancel', {method: 'POST'})
+        .then(r => r.json())
+        .then(data => { location.reload(); })
+        .catch(err => { alert('Failed to cancel: ' + err); });
+}
+
+function loadLogs(podName, source) {
+    const logOutput = document.getElementById('log-output');
+    const podLabel = document.getElementById('log-pod-name');
+    podLabel.textContent = '- ' + podName;
+    logOutput.innerHTML = '<span style="color: var(--text-muted);">Loading...</span>';
+
+    if (currentSource) { currentSource.close(); currentSource = null; }
+
+    const url = '/api/jobs/{{ job.metadata.name }}/logs/' + podName + '?source=' + source;
+    const evtSource = new EventSource(url);
+    currentSource = evtSource;
+    logOutput.innerHTML = '';
+
+    evtSource.onmessage = function(event) {
+        const line = event.data;
+        const span = document.createElement('span');
+        span.className = 'log-line';
+
+        if (line.startsWith('ERROR:') || line.startsWith('<error>'))
+            span.classList.add('log-error');
+        else if (line.startsWith('WARN') || line.startsWith('WARNING'))
+            span.classList.add('log-warn');
+        else if (line.startsWith('INFO:'))
+            span.classList.add('log-info');
+        else if (line.startsWith('~~ TASK:'))
+            span.classList.add('log-task');
+        else if (line.startsWith('| <command>') || line.startsWith('== command =='))
+            span.classList.add('log-command');
+        else if (line.startsWith('===='))
+            span.classList.add('log-separator');
+
+        span.textContent = line + '\n';
+        logOutput.appendChild(span);
+        logOutput.scrollTop = logOutput.scrollHeight;
+    };
+
+    evtSource.onerror = function() {
+        evtSource.close();
+        currentSource = null;
+    };
+}
+</script>
+{% endblock %}

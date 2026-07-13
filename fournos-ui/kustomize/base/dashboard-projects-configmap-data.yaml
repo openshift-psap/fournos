@@ -1,0 +1,11 @@
+projects:
+  - name: example-project
+    cluster: my-cluster
+    presets:
+      - smoke
+      - nightly
+      - default
+  - name: skeleton
+    cluster: dev-cluster
+    presets:
+      - quick_test

@@ -1,0 +1,79 @@
+{% for job in jobs %}
+{% set phase = job.status.phase %}
+{% set info = extract_forge_info(job) %}
+{% set progress = parse_task_progress(job.status.message) %}
+<tr>
+    <td>
+        <span class="phase-badge {{ phase_class(phase) }}">
+            {% if phase == "Running" %}<span class="pulse"></span>{% endif %}
+            {{ phase }}
+        </span>
+    </td>
+    <td>
+        <a href="/jobs/{{ job.metadata.name }}" class="job-name">{{ job.metadata.name }}</a>
+    </td>
+    <td><span class="project-badge">{{ info.project }}</span></td>
+    <td><code>{{ info.args | join(", ") or "default" }}</code></td>
+    <td><span class="owner-badge">{{ job.spec.owner }}</span></td>
+    <td><span class="cluster-name">{{ job.spec.cluster }}</span></td>
+    <td>
+        {% set step_info = (current_steps or {}).get(job.metadata.name) %}
+        {% if step_info %}
+        <div class="current-step-info">
+            <span class="current-step-label">
+                <span class="pulse-dot"></span>
+                {{ step_info.displayName }}
+            </span>
+            {% if step_info.startTime %}
+            <span class="current-step-dur">{{ format_age(step_info.startTime) }}</span>
+            {% endif %}
+        </div>
+        {% elif progress %}
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <div class="progress-bar" style="flex: 1;"
+                 title="Completed: {{ progress.completed }}, Failed: {{ progress.failed }}, Incomplete: {{ progress.incomplete }}">
+                {% if progress.total > 0 %}
+                <div class="segment completed" style="width: {{ (progress.completed / progress.total * 100) | round }}%"></div>
+                <div class="segment failed" style="width: {{ (progress.failed / progress.total * 100) | round }}%"></div>
+                <div class="segment incomplete" style="width: {{ (progress.incomplete / progress.total * 100) | round }}%"></div>
+                {% endif %}
+            </div>
+            <span class="text-muted">{{ progress.completed }}/{{ progress.total }}</span>
+        </div>
+        {% else %}
+        <span class="text-muted">{{ job.status.message | truncate(40) }}</span>
+        {% endif %}
+    </td>
+    <td><span class="text-muted">{{ format_age(job.metadata.creationTimestamp) }}</span></td>
+    <td>
+        {% if info.pr_number %}
+        <a href="{{ info.pr_url }}" target="_blank">#{{ info.pr_number }}</a>
+        {% else %}
+        <span class="text-muted">-</span>
+        {% endif %}
+    </td>
+    <td>
+        <div class="actions-cell">
+            <button class="actions-trigger" onclick="toggleActions(this, event)" aria-label="Actions">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <circle cx="8" cy="3" r="1.5"/>
+                    <circle cx="8" cy="8" r="1.5"/>
+                    <circle cx="8" cy="13" r="1.5"/>
+                </svg>
+            </button>
+            <div class="actions-menu">
+                {% if phase in ('Running', 'Pending', 'Resolving') %}
+                <button class="actions-menu-item actions-danger" onclick="stopJob('{{ job.metadata.name }}', this)">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="3" y="3" width="10" height="10" rx="1.5"/></svg>
+                    Stop
+                </button>
+                {% endif %}
+                <button class="actions-menu-item" onclick="rerunJob('{{ job.metadata.name }}', this)">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36A.25.25 0 0 1 11.534 7zm-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9z"/><path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.418A6 6 0 1 1 8 2v1z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/></svg>
+                    Run Again
+                </button>
+            </div>
+        </div>
+    </td>
+</tr>
+{% endfor %}

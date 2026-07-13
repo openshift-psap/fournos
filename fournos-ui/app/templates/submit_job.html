@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+
+{% block title %}Submit Job - Fournos{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>Submit Job</h2>
+    <p class="text-muted">Create a new FournosJob on the cluster.</p>
+</div>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<form method="POST" action="/submit" class="submit-form">
+    <div class="form-grid">
+        <div class="form-group">
+            <label for="project">Project</label>
+            <select name="project" id="project" required onchange="loadPresets(this.value)">
+                <option value="">Select a project</option>
+                {% for p in projects %}
+                <option value="{{ p.name }}">{{ p.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="cluster">Cluster</label>
+            <input type="text" name="cluster" id="cluster" required readonly
+                   placeholder="Select a project" class="input-readonly">
+        </div>
+
+        <div class="form-group">
+            <label for="pipeline">Pipeline</label>
+            <select name="pipeline" id="pipeline">
+                {% for pl in pipelines %}
+                <option value="{{ pl }}" {% if pl == 'forge-test-only' %}selected{% endif %}>{{ pl }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="preset">Preset</label>
+            <select name="preset" id="preset">
+                <option value="">none (default)</option>
+            </select>
+            <span class="form-hint" id="preset-hint">Select a project first to see available presets.</span>
+        </div>
+
+        <div class="form-group" id="version-group" style="display:none">
+            <label for="version">MCP Gateway Version</label>
+            <input type="text" name="version" id="version" placeholder="e.g. 0.7.0 or a commit SHA">
+            <span class="form-hint">Semver tag or 40-char commit SHA for nightly builds.</span>
+        </div>
+
+        <div class="form-group">
+            <label for="owner">Owner</label>
+            <input type="text" name="owner" id="owner" placeholder="Your username">
+        </div>
+
+        <div class="form-group" style="position:relative">
+            <label for="pr_search">Pull Request <span style="font-weight:normal;color:var(--text-muted,#888)">(optional)</span></label>
+            <input type="text" id="pr_search" autocomplete="off"
+                   placeholder="Type a PR number or title to filter..."
+                   onfocus="showPrDropdown()" oninput="filterPRs()">
+            <div id="pr_dropdown" style="display:none;position:absolute;z-index:50;left:0;right:0;top:100%;max-height:220px;overflow-y:auto;background:var(--bg-secondary,#161b22);border:1px solid var(--border,#30363d);border-radius:var(--radius,6px);box-shadow:0 8px 24px rgba(0,0,0,0.4);margin-top:2px"></div>
+            <input type="text" name="pull_sha" id="pull_sha"
+                   placeholder="Select a PR above or paste a SHA manually"
+                   pattern="[0-9a-fA-F]{7,40}"
+                   title="Git commit SHA (7-40 hex characters)">
+            <span class="form-hint" id="pr-hint">Forge will build from this commit instead of the default image.</span>
+        </div>
+
+        <div class="form-group form-full-width">
+            <label for="config_overrides_raw">Config Overrides</label>
+            <textarea name="config_overrides_raw" id="config_overrides_raw" rows="4"
+                      placeholder="key: value (one per line)&#10;e.g.&#10;infrastructure.mcp_gateway_version: 0.7.0&#10;experiment.concurrency: [32]"></textarea>
+            <span class="form-hint">Same as /var directives. One key: value per line.</span>
+        </div>
+
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="hidden" name="exclusive" value="false">
+                <input type="checkbox" name="exclusive" value="true" checked>
+                Exclusive (lock cluster for this job)
+            </label>
+        </div>
+    </div>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Submit Job</button>
+        <a href="/" class="btn btn-secondary">Cancel</a>
+    </div>
+</form>
+
+<script>
+const VERSION_PROJECTS = ['mcp_gateway'];
+
+let _allPRs = [];
+
+async function loadOpenPRs() {
+    const hint = document.getElementById('pr-hint');
+    try {
+        const resp = await fetch('/api/github/open-prs');
+        if (!resp.ok) throw new Error('Failed to fetch PRs');
+        _allPRs = await resp.json();
+        hint.textContent = _allPRs.length + ' open PR(s) loaded from Forge repo.';
+    } catch (err) {
+        hint.textContent = 'Could not load PRs -- you can still paste a SHA manually.';
+    }
+}
+
+function _prLabel(pr) {
+    const draft = pr.draft ? ' [draft]' : '';
+    return '#' + pr.number + ' -- ' + pr.title + ' (' + pr.author + ')' + draft;
+}
+
+function showPrDropdown() { renderPrDropdown(_allPRs); }
+
+function filterPRs() {
+    const q = document.getElementById('pr_search').value.trim().toLowerCase();
+    if (!q) { renderPrDropdown(_allPRs); return; }
+    const filtered = _allPRs.filter(pr =>
+        String(pr.number).includes(q) ||
+        pr.title.toLowerCase().includes(q) ||
+        pr.author.toLowerCase().includes(q)
+    );
+    renderPrDropdown(filtered);
+}
+
+function renderPrDropdown(prs) {
+    const dd = document.getElementById('pr_dropdown');
+    dd.innerHTML = '';
+    const itemStyle = 'padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border,#30363d);color:var(--text-primary,#e6edf3);transition:background 0.12s';
+    const clearDiv = document.createElement('div');
+    clearDiv.setAttribute('style', itemStyle);
+    clearDiv.textContent = 'None (clear selection)';
+    clearDiv.onmousedown = function(e) { e.preventDefault(); selectPR(null); };
+    clearDiv.onmouseenter = function() { this.style.background = 'var(--bg-tertiary,#21262d)'; };
+    clearDiv.onmouseleave = function() { this.style.background = ''; };
+    dd.appendChild(clearDiv);
+    for (const pr of prs) {
+        const div = document.createElement('div');
+        div.setAttribute('style', itemStyle);
+        div.textContent = _prLabel(pr);
+        div.onmousedown = (function(p) { return function(e) { e.preventDefault(); selectPR(p); }; })(pr);
+        div.onmouseenter = function() { this.style.background = 'var(--bg-tertiary,#21262d)'; };
+        div.onmouseleave = function() { this.style.background = ''; };
+        dd.appendChild(div);
+    }
+    dd.style.display = prs.length > 0 || _allPRs.length > 0 ? '' : 'none';
+}
+
+function selectPR(pr) {
+    const search = document.getElementById('pr_search');
+    const shaInput = document.getElementById('pull_sha');
+    const hint = document.getElementById('pr-hint');
+    const dd = document.getElementById('pr_dropdown');
+    dd.style.display = 'none';
+    if (pr) {
+        search.value = _prLabel(pr);
+        shaInput.value = pr.head_sha;
+        hint.innerHTML = 'HEAD SHA: <code style="font-family:var(--font-mono);font-size:12px;background:var(--bg-tertiary,#21262d);padding:1px 6px;border-radius:3px">' + pr.head_sha + '</code>';
+    } else {
+        search.value = '';
+        shaInput.value = '';
+        hint.textContent = 'Forge will build from this commit instead of the default image.';
+    }
+}
+
+document.addEventListener('click', function(e) {
+    const dd = document.getElementById('pr_dropdown');
+    const search = document.getElementById('pr_search');
+    if (!dd.contains(e.target) && e.target !== search) dd.style.display = 'none';
+});
+
+document.addEventListener('DOMContentLoaded', loadOpenPRs);
+
+async function loadPresets(projectName) {
+    const presetSelect = document.getElementById('preset');
+    const clusterInput = document.getElementById('cluster');
+    const hint = document.getElementById('preset-hint');
+    const versionGroup = document.getElementById('version-group');
+    const versionInput = document.getElementById('version');
+
+    presetSelect.innerHTML = '<option value="">none (default)</option>';
+    clusterInput.value = '';
+    hint.textContent = 'Loading...';
+
+    if (VERSION_PROJECTS.includes(projectName)) {
+        versionGroup.style.display = '';
+    } else {
+        versionGroup.style.display = 'none';
+        versionInput.value = '';
+    }
+
+    if (!projectName) {
+        hint.textContent = 'Select a project first to see available presets.';
+        versionGroup.style.display = 'none';
+        return;
+    }
+
+    try {
+        const resp = await fetch('/api/project-info/' + projectName);
+        const data = await resp.json();
+
+        if (data.cluster) {
+            clusterInput.value = data.cluster;
+        }
+
+        if (data.presets && data.presets.length > 0) {
+            for (const p of data.presets) {
+                const opt = document.createElement('option');
+                opt.value = p;
+                opt.textContent = p;
+                presetSelect.appendChild(opt);
+            }
+            hint.textContent = data.presets.length + ' preset(s) available.';
+        } else {
+            hint.textContent = 'No presets defined for this project.';
+        }
+    } catch (err) {
+        hint.textContent = 'Failed to load project info.';
+    }
+}
+</script>
+{% endblock %}
