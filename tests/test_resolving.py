@@ -343,12 +343,12 @@ def test_resolve_job_failure(k8s):
     )
 
 
-def test_nonexclusive_cluster_without_hardware_fails(k8s):
-    """Non-exclusive + cluster + no hardware → Failed (hardware required).
+def test_nonexclusive_cluster_without_hardware_succeeds(k8s):
+    """Non-exclusive + cluster + no hardware → Success (hardware optional).
 
     A noop resolve Job prevents the execution engine from populating
-    hardware.  Since the job is non-exclusive, the missing hardware is
-    not allowed (only exclusive+cluster jobs may omit it).
+    hardware. For non-exclusive jobs, hardware is now optional - the job
+    will succeed using only cluster-slot resources for shared access.
     """
     create_noop_resolve_job("test-nex-nohw")
 
@@ -370,26 +370,28 @@ def test_nonexclusive_cluster_without_hardware_fails(k8s):
     phase = poll_phase(
         k8s,
         "test-nex-nohw",
-        terminal={Phase.FAILED},
-        message_substring="No hardware requirements",
-        timeout=45,
+        terminal={Phase.SUCCEEDED, Phase.FAILED},
+        timeout=120,
     )
-    assert phase == Phase.FAILED, job_status_summary(k8s, "test-nex-nohw")
+    assert phase == Phase.SUCCEEDED, job_status_summary(k8s, "test-nex-nohw")
+
+    job = get_job(k8s, "test-nex-nohw")
+    assert job["status"]["cluster"] == "cluster-1"
 
     conditions = {
         c["type"]: c
         for c in get_job(k8s, "test-nex-nohw")["status"].get("conditions", [])
     }
-    assert conditions["Resolved"]["status"] == "False"
-    assert conditions["Resolved"]["reason"] == "NoHardware"
+    assert conditions["Resolved"]["status"] == "True"
+    assert conditions["Resolved"]["reason"] == "Resolved"
 
 
 def test_resolve_empty_hw(k8s):
-    """Resolve Job succeeds but doesn't populate spec.hardware -> Failed.
+    """Resolve Job succeeds but doesn't populate spec.hardware -> Success.
 
     A pre-created noop resolve Job exits successfully without patching
-    the FournosJob spec.  Since no hardware was provided by the user
-    either, the job should fail with 'No hardware requirements'.
+    the FournosJob spec. Since no hardware was provided by the user
+    either, the non-exclusive job succeeds using only cluster-slot resources.
     """
     create_noop_resolve_job("test-resolve-noconfig")
 
@@ -410,15 +412,14 @@ def test_resolve_empty_hw(k8s):
     phase = poll_phase(
         k8s,
         "test-resolve-noconfig",
-        terminal={Phase.FAILED},
-        message_substring="No hardware requirements",
-        timeout=45,
+        terminal={Phase.SUCCEEDED, Phase.FAILED},
+        timeout=120,
     )
-    assert phase == Phase.FAILED, job_status_summary(k8s, "test-resolve-noconfig")
+    assert phase == Phase.SUCCEEDED, job_status_summary(k8s, "test-resolve-noconfig")
 
     conditions = {
         c["type"]: c
         for c in get_job(k8s, "test-resolve-noconfig")["status"].get("conditions", [])
     }
-    assert conditions["Resolved"]["status"] == "False"
-    assert conditions["Resolved"]["reason"] == "NoHardware"
+    assert conditions["Resolved"]["status"] == "True"
+    assert conditions["Resolved"]["reason"] == "Resolved"
