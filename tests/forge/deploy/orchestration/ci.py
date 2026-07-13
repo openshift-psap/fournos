@@ -76,7 +76,7 @@ def main(ctx, project_source):
 
 @main.command()
 @click.pass_context
-@ci_lib.safe_ci_command
+@ci_lib.safe_ci_entrypoint
 def deploy(ctx):
     """Complete FOURNOS deployment with cleanup (clean slate deployment)."""
     return fournos_deploy.cleanup_and_deploy()
