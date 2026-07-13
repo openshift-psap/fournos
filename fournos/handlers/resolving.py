@@ -173,20 +173,17 @@ def _resolve_hardware(
     gpu_count = hardware.get("gpuCount", 0)
 
     exclusive_lock = spec["exclusive"] and spec.get("cluster")
-    clusterless = spec.get("clusterless", False)
 
     if not gpu_type or not gpu_count:
-        if not exclusive_lock and not clusterless:
-            _resolve_failed(
-                patch,
-                conditions,
+        if not exclusive_lock:
+            # Hardware is optional for non-exclusive jobs (including clusterless)
+            logger.info(
+                "Job %s: non-exclusive job without hardware — "
+                "Workload will only request cluster-slot resources",
                 name,
-                "No hardware requirements: spec.hardware not populated "
-                "after resolution",
-                reason="NoHardware",
-                cond_message="No hardware requirements found",
             )
-            return None, None
+            return None, 0
+
         logger.warning(
             "Job %s: exclusive cluster lock without hardware — "
             "Workload will only request cluster-slot resources "
