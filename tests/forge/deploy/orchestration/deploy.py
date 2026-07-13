@@ -1,6 +1,5 @@
 from projects.core.library import env, config, run, vault
 from projects.cluster.toolbox.build_image.main import run as build_image_toolbox
-from projects.cluster.toolbox.rebuild_image.main import run as rebuild_image_toolbox
 
 import pathlib
 import logging
@@ -388,14 +387,20 @@ def deploy_manifests():
             "controller-manifest",
         )
 
-    # Deploy execution RBAC + CRD to execution namespace
-    rbac_files = manifests_config["rbac"]
-    crd_files = manifests_config["crd"]
-    manifest_files = rbac_files + crd_files
+    # Deploy execution namespace manifests
+    excluded_keys = {"skip_kinds", "controller_rbac", "deploy", "replace"}
+    manifest_files = []
+    manifest_counts = {}
 
-    logger.info(
-        f"Deploying {len(rbac_files)} RBAC and {len(crd_files)} CRD manifests to {namespace}"
+    for key, file_list in manifests_config.items():
+        if key not in excluded_keys and isinstance(file_list, list):
+            manifest_files.extend(file_list)
+            manifest_counts[key] = len(file_list)
+
+    count_summary = ", ".join(
+        [f"{count} {key}" for key, count in manifest_counts.items()]
     )
+    logger.info(f"Deploying {count_summary} manifests to {namespace}")
     logger.info(f"Skipping kinds: {list(skip_kinds)}")
 
     _deploy_manifest_list(
@@ -508,135 +513,6 @@ def deploy_fournos_workload():
         )
 
     logger.info("✅ Successfully deployed FOURNOS workload")
-
-    return 0
-
-
-def deploy_workflow_config():
-    """
-    Deploy FORGE workflow configuration for FOURNOS
-
-    Returns:
-        int: 0 on success, raises exception on failure
-    """
-    logger.info("=== Deploying FORGE Workflow Configuration ===")
-
-    # Get configuration
-    fournos_source = Path(
-        config.project.get_config("fournos_deploy.fournos_source.path")
-    )
-    skip_kinds = set(config.project.get_config("fournos_deploy.manifests.skip_kinds"))
-    config_manifests = config.project.get_config("fournos_deploy.manifests.config")
-
-    if not fournos_source.exists():
-        raise ValueError(f"FOURNOS source directory not found: {fournos_source}")
-
-    # Ensure namespace exists
-    namespace = ensure_namespace()
-
-    logger.info(f"Deploying from: {fournos_source}")
-    logger.info(f"Target namespace: {namespace}")
-
-    # Combine all manifest files from all config sections
-    manifest_files = []
-    for section_name, section_files in config_manifests.items():
-        manifest_files.extend(section_files)
-        logger.info(f"Added {len(section_files)} manifests from {section_name}")
-
-    logger.info(f"Will deploy {len(manifest_files)} total config manifest files")
-    logger.info(f"Skipping kinds: {list(skip_kinds)}")
-
-    # Deploy the config manifests using common helper
-    _deploy_manifest_list(
-        manifest_files, namespace, fournos_source, skip_kinds, "config"
-    )
-
-    logger.info("✅ FORGE workflow configuration deployment completed")
-
-    return 0
-
-
-def rebuild_workflow_images():
-    """
-    Rebuild the workflow images
-
-    Returns:
-        int: 0 on success, raises exception on failure
-    """
-    logger.info("=== Rebuilding FOURNOS workflow images ===")
-
-    # Get configuration
-    namespace = ensure_namespace()
-    fournos_source = Path(
-        config.project.get_config("fournos_deploy.fournos_source.path")
-    )
-    to_build_manifests = config.project.get_config("fournos_deploy.manifests.to_build")
-    force_rebuild = config.project.get_config(
-        "fournos_deploy.images.workflows.force_rebuild", print=False
-    )
-
-    logger.info(f"Force rebuild workflows: {force_rebuild}")
-
-    if not to_build_manifests:
-        logger.info("No builds configured for rebuild")
-        return 0
-
-    logger.info(f"Found {len(to_build_manifests)} build manifest(s) to process")
-
-    # Extract build names from manifests and rebuild each
-    skipped_builds = 0
-    for manifest_path in to_build_manifests:
-        manifest_file = fournos_source / manifest_path
-
-        if not manifest_file.exists():
-            raise ValueError(f"Build manifest {manifest_file} doesn't exist")
-
-        logger.info(f"Processing build manifest: {manifest_path}")
-
-        # Apply text replacements to resolve any config references
-        manifest_content = _apply_manifest_replacements(manifest_file)
-
-        # Parse YAML to extract build name and output image
-        doc = yaml.safe_load(manifest_content)
-
-        if not (doc and doc.get("kind") == "Build"):
-            raise ValueError(f"Build manifest {manifest_file} isn't a Build")
-
-        build_name = doc["metadata"]["name"]
-        output_image = doc["spec"]["output"]["image"]
-
-        logger.info(f"Rebuilding build: {build_name}")
-        logger.info(f"Output image: {output_image}")
-
-        # Check if image already exists and force_rebuild is False
-        if not force_rebuild:
-            logger.info("Checking if output image already exists...")
-
-            # Extract ImageStreamTag name from output image (everything after last /)
-            # Format: image-registry.openshift-image-registry.svc:5000/namespace/imagestream:tag
-            istag_name = output_image.split("/")[-1]
-
-            # Check if ImageStreamTag exists
-            if _istag_exists(istag_name, namespace):
-                logger.info(f"✅ Image {istag_name} already exists, skipping rebuild")
-                skipped_builds += 1
-                continue
-
-            logger.info(f"Image {istag_name} does not exist, proceeding with rebuild")
-
-        result = rebuild_image_toolbox(
-            build_name=build_name, namespace=namespace, timeout_minutes=30
-        )
-
-        if not result:
-            logger.error(f"❌ Rebuild failed for build: {build_name}")
-            raise RuntimeError(f"Rebuild of {manifest_file} failed :/")
-
-        logger.info(f"✅ Rebuild completed successfully for build: {build_name}")
-
-    logger.info(
-        f"✅ FORGE image rebuild completed - {skipped_builds} skipped, {len(to_build_manifests) - skipped_builds} rebuilt"
-    )
 
     return 0
 
@@ -822,7 +698,7 @@ def deploy():
 
     # Step 5: Rebuild FORGE images
     logger.info("Step 5: Rebuilding FOURNOS workflow images...")
-    result = rebuild_workflow_images()
+    result = rebuild_forge_images()
     total_errors += result
 
     if total_errors == 0:
@@ -831,3 +707,147 @@ def deploy():
         logger.error(f"❌ FOURNOS deployment completed with {total_errors} error(s)")
 
     return min(total_errors, 1)  # Return 1 if any errors occurred
+
+
+def deploy_workflow_config():
+    """
+    Deploy FORGE workflow configuration from GitOps directory.
+
+    Deploys ImageStreams and Tekton pipelines from the forge gitops structure:
+    - env.FORGE_HOME/fournos/gitops/base/images/
+    - env.FORGE_HOME/fournos/gitops/base/workflows/
+
+    Returns:
+        int: 0 on success, non-zero on failure
+    """
+    logger.info("=== Deploying FORGE Workflow Configuration ===")
+
+    namespace = ensure_namespace()
+
+    # Get forge source from environment
+    forge_home = os.environ.get("FORGE_HOME")
+    if not forge_home:
+        raise ValueError("FORGE_HOME environment variable not set")
+
+    forge_source = Path(forge_home) / "fournos" / "gitops" / "base"
+    if not forge_source.exists():
+        raise ValueError(f"FORGE GitOps directory not found: {forge_source}")
+
+    logger.info(f"Deploying workflow config from: {forge_source}")
+    logger.info(f"Target namespace: {namespace}")
+
+    # Deploy images (ImageStreams)
+    images_dir = forge_source / "images"
+    if images_dir.exists():
+        image_manifests = [
+            f for f in images_dir.glob("*.yaml") if f.name != "kustomization.yaml"
+        ]
+        image_manifest_paths = [
+            str(f.relative_to(forge_source.parent.parent)) for f in image_manifests
+        ]
+
+        if image_manifest_paths:
+            logger.info(f"Deploying {len(image_manifest_paths)} image manifest(s)")
+            result = _deploy_manifest_list(
+                image_manifest_paths,
+                namespace,
+                forge_source.parent.parent,
+                set(),  # No skip kinds for workflow config
+                "image-manifest",
+            )
+            if result != 0:
+                return result
+
+    # Deploy workflows (Pipelines and Tasks)
+    workflows_dir = forge_source / "workflows"
+    if workflows_dir.exists():
+        workflow_manifests = [
+            f for f in workflows_dir.glob("*.yaml") if f.name != "kustomization.yaml"
+        ]
+        workflow_manifest_paths = [
+            str(f.relative_to(forge_source.parent.parent)) for f in workflow_manifests
+        ]
+
+        if workflow_manifest_paths:
+            logger.info(
+                f"Deploying {len(workflow_manifest_paths)} workflow manifest(s)"
+            )
+            result = _deploy_manifest_list(
+                workflow_manifest_paths,
+                namespace,
+                forge_source.parent.parent,
+                set(),  # No skip kinds for workflow config
+                "workflow-manifest",
+            )
+            if result != 0:
+                return result
+
+    logger.info("✅ FORGE workflow configuration deployment completed")
+    return 0
+
+
+def rebuild_forge_images():
+    """
+    Refresh FORGE workflow ImageStream imports from external registries.
+
+    Since forge images are pulled from Quay.io, this triggers ImageStream
+    import refresh to pick up the latest versions.
+
+    Returns:
+        int: 0 on success, non-zero on failure
+    """
+    logger.info("=== Refreshing FORGE Workflow ImageStreams ===")
+
+    namespace = ensure_namespace()
+
+    logger.info(f"Target namespace: {namespace}")
+
+    # Get list of ImageStreams in the namespace
+    result = run.run(
+        f"oc get imagestreams -n {namespace} -o jsonpath='{{.items[*].metadata.name}}'",
+        check=False,
+        capture_stdout=True,
+    )
+
+    if result.returncode != 0:
+        logger.error("❌ Failed to list ImageStreams")
+        return 1
+
+    if not result.stdout.strip():
+        logger.info("No ImageStreams found to refresh")
+        return 0
+
+    imagestreams = result.stdout.strip().split()
+    logger.info(f"Found {len(imagestreams)} ImageStream(s) to refresh: {imagestreams}")
+
+    refresh_errors = 0
+
+    for imagestream_name in imagestreams:
+        logger.info(f"Refreshing ImageStream: {imagestream_name}")
+
+        # Trigger import for all tags in the ImageStream
+        result = run.run(
+            f"oc import-image {imagestream_name} --all -n {namespace}",
+            check=False,
+            capture_stderr=True,
+        )
+
+        if result.returncode != 0:
+            logger.error(
+                f"❌ Failed to refresh ImageStream {imagestream_name}: {result.stderr}"
+            )
+            refresh_errors += 1
+            continue
+
+        logger.info(f"✅ Successfully refreshed ImageStream {imagestream_name}")
+
+    if refresh_errors == 0:
+        logger.info(f"✅ Successfully refreshed {len(imagestreams)} ImageStream(s)")
+    else:
+        logger.warning(
+            f"⚠️ ImageStream refresh completed with {refresh_errors} error(s)"
+        )
+
+    return min(refresh_errors, 1)  # Return 1 if any errors occurred
+
+
