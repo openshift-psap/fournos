@@ -96,6 +96,10 @@ def _vault_request(
         raise RuntimeError(
             f"Vault {method} {url} failed (HTTP {exc.code}): {exc.reason}"
         ) from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(
+            f"Vault {method} {url} failed (connection error): {exc.reason}"
+        ) from exc
 
 
 def vault_list(
@@ -242,7 +246,11 @@ def sync(
     dry_run: bool,
 ) -> int:
     logger.info("Listing vaults under %s/%s ...", kv_mount, secret_path)
-    entries = vault_list(vault_addr, kv_mount, secret_path, vault_token)
+    try:
+        entries = vault_list(vault_addr, kv_mount, secret_path, vault_token)
+    except RuntimeError as exc:
+        logger.error("Cannot reach Vault, aborting: %s", exc)
+        return 1
     names = [e.rstrip("/") for e in entries if not e.endswith("/")]
     if not names:
         logger.warning("No vault entries found under %s/%s", kv_mount, secret_path)
