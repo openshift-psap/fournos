@@ -65,25 +65,22 @@ def on_create(spec, name, namespace, status, patch, body):
         )
         return
 
-    if clusterless and lock_only:
-        patch.status["phase"] = Phase.FAILED
-        patch.status["message"] = (
-            "clusterless: true cannot be combined with lockOnly: true"
-        )
+    if clusterless:
+        for cond, msg in [
+            (lock_only, "clusterless: true cannot be combined with lockOnly: true"),
+            (exclusive, "clusterless: true requires exclusive: false"),
+            (
+                cluster,
+                "clusterless: true cannot be combined with cluster specification",
+            ),
+        ]:
+            if cond:
+                patch.status["phase"] = Phase.FAILED
+                patch.status["message"] = msg
+                return
+        patch.status["phase"] = Phase.RESOLVING
+        patch.status["message"] = "Resolving job requirements"
         return
-
-    if clusterless and exclusive:
-        patch.status["phase"] = Phase.FAILED
-        patch.status["message"] = "clusterless: true requires exclusive: false"
-        return
-
-    if clusterless and cluster:
-        patch.status["phase"] = Phase.FAILED
-        patch.status["message"] = (
-            "clusterless: true cannot be combined with cluster specification"
-        )
-        return
-
     if exclusive and not cluster:
         patch.status["phase"] = Phase.FAILED
         patch.status["message"] = "exclusive: true requires 'cluster' to be set"

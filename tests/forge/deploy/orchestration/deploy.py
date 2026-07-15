@@ -849,5 +849,3 @@ def rebuild_forge_images():
         )
 
     return min(refresh_errors, 1)  # Return 1 if any errors occurred
-
-
