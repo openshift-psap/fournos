@@ -78,6 +78,11 @@ class TektonClient:
             "metadata": metadata,
             "spec": {
                 "pipelineRef": {"name": pipeline},
+                "timeouts": {
+                    "pipeline": settings.pipeline_timeout,
+                    "tasks": settings.pipeline_tasks_timeout,
+                    "finally": settings.pipeline_finally_timeout,
+                },
                 "taskRunTemplate": {
                     "metadata": {
                         "labels": labels,
