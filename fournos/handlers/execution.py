@@ -153,26 +153,32 @@ def reconcile_admitted(spec, name, namespace, status, patch, body):
     conditions = list(status.get("conditions") or [])
 
     if pr is None:
-        cluster = status.get("cluster", "")
+        clusterless = spec.get("clusterless", False)
 
-        try:
-            kubeconfig_secret = ctx.registry.copy_kubeconfig_secret(
-                cluster, name, owner_ref(body)
-            )
-        except client.exceptions.ApiException as exc:
-            patch.status["phase"] = Phase.FAILED
-            patch.status["message"] = f"Failed to copy kubeconfig: {exc.reason}"
-            set_condition(
-                patch,
-                conditions,
-                COND_PIPELINE_RUN_READY,
-                "False",
-                "KubeconfigNotFound",
-                f"Failed to copy kubeconfig: {exc.reason}",
-            )
-            ctx.kueue.delete_workload(name)
-            logger.error("Job %s: kubeconfig copy failed: %s", name, exc)
-            return
+        if clusterless:
+            # For clusterless jobs, skip kubeconfig handling
+            kubeconfig_secret = None
+            cluster = ""
+        else:
+            cluster = status.get("cluster", "")
+            try:
+                kubeconfig_secret = ctx.registry.copy_kubeconfig_secret(
+                    cluster, name, owner_ref(body)
+                )
+            except client.exceptions.ApiException as exc:
+                patch.status["phase"] = Phase.FAILED
+                patch.status["message"] = f"Failed to copy kubeconfig: {exc.reason}"
+                set_condition(
+                    patch,
+                    conditions,
+                    COND_PIPELINE_RUN_READY,
+                    "False",
+                    "KubeconfigNotFound",
+                    f"Failed to copy kubeconfig: {exc.reason}",
+                )
+                ctx.kueue.delete_workload(name)
+                logger.error("Job %s: kubeconfig copy failed: %s", name, exc)
+                return
 
         secret_refs_raw = spec.get("secretRefs") or []
         try:
@@ -204,9 +210,12 @@ def reconcile_admitted(spec, name, namespace, status, patch, body):
                 cluster=cluster,
                 owner_ref=owner_ref(body),
             )
-            logger.info(
-                "Job %s: created PipelineRun for target cluster %s", name, cluster
-            )
+            if clusterless:
+                logger.info("Job %s: created PipelineRun in clusterless mode", name)
+            else:
+                logger.info(
+                    "Job %s: created PipelineRun for target cluster %s", name, cluster
+                )
         except client.exceptions.ApiException as exc:
             if exc.status != 409:
                 patch.status["phase"] = Phase.FAILED

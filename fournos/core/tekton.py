@@ -52,7 +52,7 @@ class TektonClient:
         *,
         name: str,
         pipeline: str,
-        kubeconfig_secret: str,
+        kubeconfig_secret: str | None,
         resolved_secrets: list[ResolvedSecret],
         cluster: str,
         owner_ref: dict | None = None,
@@ -92,7 +92,12 @@ class TektonClient:
                         "name": "fournos-workload-namespace",
                         "value": settings.workload_namespace,
                     },
-                    {"name": "kubeconfig-secret", "value": kubeconfig_secret},
+                    {
+                        "name": "kubeconfig-secret",
+                        "value": kubeconfig_secret
+                        if kubeconfig_secret
+                        else "fournos-clusterless-placeholder",
+                    },
                 ],
                 "workspaces": [
                     {

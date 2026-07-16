@@ -117,11 +117,29 @@ All jobs flow through Kueue — there is one scheduling path with different cons
 | `cluster` + `hardware` (default: exclusive)          | `fournos.dev/cluster: cluster-1` + GPU request | Locks the cluster (100 cluster-slots) and requests specific GPUs.       |
 | `exclusive: false` + `cluster` + `hardware`          | `fournos.dev/cluster: cluster-1` + GPU request | Shared access (1 cluster-slot) with specific hardware on a specific cluster. |
 | `exclusive: false` + `hardware` (no cluster)         | *(none)*                                       | All flavors with enough GPU quota are eligible. Kueue picks first fit.  |
+| `clusterless: true` (no cluster)                     | *(none)*                                       | Bypasses Kueue entirely. Runs on hub cluster without target cluster access. |
 
 
 Each ResourceFlavor has `spec.nodeLabels: { fournos.dev/cluster: <name> }`. When `cluster` is specified, the operator sets a matching `nodeSelector` on the Workload's podSet template so Kueue constrains admission to that flavor.
 
-Because `exclusive` defaults to `true`, any job with `spec.cluster` automatically locks the assigned cluster — including jobs that also specify `spec.hardware`. To get shared access (multiple jobs on the same cluster), set `exclusive: false` explicitly. Jobs without `spec.cluster` must set `exclusive: false` (since exclusive mode requires a cluster target). Hardware is always required for non-exclusive jobs — only exclusive cluster-locked jobs may omit it.
+Because `exclusive` defaults to `true`, any job with `spec.cluster` automatically locks the assigned cluster — including jobs that also specify `spec.hardware`. To get shared access (multiple jobs on the same cluster), set `exclusive: false` explicitly. Jobs without `spec.cluster` must set `exclusive: false` (since exclusive mode requires a cluster target). Hardware is always required for non-exclusive jobs — only exclusive cluster-locked jobs and clusterless jobs (`clusterless: true`) may omit it.
+
+### Clusterless Jobs
+
+Clusterless jobs (`clusterless: true`) bypass Kueue entirely and run on the hub cluster without target cluster access. They skip the Pending phase and go directly from Resolving to Admitted.
+
+**Lifecycle:** `Resolving → Admitted → Running → Succeeded/Failed`
+
+**Benefits:**
+- No Kueue admission delay
+- No target cluster resource contention
+- Ideal for CI/validation workflows
+
+**Restrictions:**
+- Cannot combine with `cluster` specification
+- Must use `exclusive: false`
+- Cannot use `lockOnly: true`
+- No kubeconfig passed to execution environment
 
 ### Exclusive cluster locking
 

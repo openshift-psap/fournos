@@ -176,16 +176,14 @@ def _resolve_hardware(
 
     if not gpu_type or not gpu_count:
         if not exclusive_lock:
-            _resolve_failed(
-                patch,
-                conditions,
+            # Hardware is optional for non-exclusive jobs (including clusterless)
+            logger.info(
+                "Job %s: non-exclusive job without hardware — "
+                "Workload will only request cluster-slot resources",
                 name,
-                "No hardware requirements: spec.hardware not populated "
-                "after resolution",
-                reason="NoHardware",
-                cond_message="No hardware requirements found",
             )
-            return None, None
+            return None, 0
+
         logger.warning(
             "Job %s: exclusive cluster lock without hardware — "
             "Workload will only request cluster-slot resources "
@@ -333,6 +331,23 @@ def reconcile_resolving(spec, name, status, patch, body):
 
     if not _validate_secret_refs(spec, name, conditions, patch):
         return
-    _create_workload_and_transition(
-        spec, name, conditions, patch, body, gpu_type, gpu_count
-    )
+
+    clusterless = spec.get("clusterless", False)
+    if clusterless:
+        # Skip Kueue entirely for clusterless jobs - go directly to Admitted phase
+        patch.status["phase"] = Phase.ADMITTED
+        patch.status["cluster"] = "[clusterless]"
+        patch.status["message"] = "Clusterless job ready for execution"
+        set_condition(
+            patch,
+            conditions,
+            COND_WORKLOAD_ADMITTED,
+            "True",
+            "ClusterlessAdmitted",
+            "Clusterless job bypassed Kueue admission",
+        )
+        logger.info("Job %s: clusterless job bypassing Kueue, phase=Admitted", name)
+    else:
+        _create_workload_and_transition(
+            spec, name, conditions, patch, body, gpu_type, gpu_count
+        )

@@ -87,17 +87,23 @@ oc delete FournosJob -n $FOURNOS_WORKLOAD_NAMESPACE <name>      # cleanup
 | `spec.priority` | no | Kueue WorkloadPriorityClass name |
 | `spec.secretRefs` | no | Vault-synced K8s Secret names (prefixed with `vault-`) to mount into the pipeline. Populated by the execution engine during the Resolving phase. The operator validates each name in `FOURNOS_SECRETS_NAMESPACE`, copies the secrets into the operator namespace, and mounts them as a projected volume at `/var/run/secrets/fournos/<entry-name>/`. |
 | `spec.exclusive` | no (default `true`) | If `true`, locks the target cluster so no other FournosJob can run there. Requires `spec.cluster`. Hardware is optional — when omitted the Workload only requests cluster-slot resources for locking. |
+| `spec.clusterless` | no (default `false`) | If `true`, runs without cluster access — no kubeconfig is passed to the execution environment. Cannot be combined with `cluster` or `exclusive: true`. Hardware specifications are optional — if omitted, the job runs on hub cluster resources without Kueue hardware scheduling. |
 | `spec.shutdown` | no | Shutdown action: `Stop` cancels gracefully (Tekton `CancelledRunFinally` — runs `finally` tasks); `Terminate` cancels immediately (Tekton `Cancelled` — skips `finally` tasks). Both wait for the PipelineRun to finish before releasing Kueue quota. |
 
-\* `spec.hardware` is required unless the job uses exclusive cluster locking
-(`exclusive: true` + `cluster`), in which case it may be omitted — the
-Workload only needs cluster-slot resources. Every job passes through the
-Resolving phase where the execution engine populates `spec.hardware` (if
-not already set) and `spec.secretRefs` directly on the FournosJob. Since `exclusive` defaults
-to `true`, any job with `spec.cluster` locks the cluster exclusively —
-including jobs that also specify `spec.hardware`. Set `exclusive: false` for
-shared access (hardware is then required). Jobs without `spec.cluster` must
-set `exclusive: false`.
+\* `spec.hardware` is optional for all jobs except those requiring explicit GPU 
+scheduling. Hardware specifications are handled as follows:
+- **Exclusive cluster jobs** (`exclusive: true` + `cluster`): Hardware may be 
+  omitted since the Workload only needs cluster-slot resources for locking.
+- **Non-exclusive jobs** (`exclusive: false`): Hardware is optional — when 
+  omitted, the Workload only requests cluster-slot resources for shared access.
+- **Clusterless jobs** (`clusterless: true`): Hardware is optional since jobs 
+  run on hub cluster resources without Kueue scheduling.
+Every job passes through the Resolving phase where the execution engine
+populates `spec.hardware` (if not already set) and `spec.secretRefs` directly
+on the FournosJob. Since `exclusive` defaults to `true`, any job with
+`spec.cluster` locks the cluster exclusively — including jobs that also specify
+`spec.hardware`. Set `exclusive: false` for shared access. Jobs without
+`spec.cluster` must set `exclusive: false`.
 
 ### Status
 
@@ -106,10 +112,52 @@ The operator writes status to `.status`:
 | Field | Description |
 |---|---|
 | `phase` | `Resolving` → `Pending` → `Admitted` → `Running` → `Succeeded` / `Failed` / `Stopping` → `Stopped` |
-| `cluster` | Cluster assigned by Kueue |
+| `cluster` | Cluster assigned by Kueue (or `[clusterless]` for clusterless jobs) |
 | `pipelineRun` | Name of the Tekton PipelineRun |
 | `dashboardURL` | Tekton Dashboard link (if configured) |
 | `message` | Error details on failure |
+
+## Clusterless Jobs
+
+Clusterless jobs (`clusterless: true`) run entirely on the hub cluster without
+access to target clusters. They bypass Kueue admission and skip the Pending
+phase for faster execution.
+
+### Examples
+
+**Basic clusterless job:**
+```yaml
+apiVersion: fournos.dev/v1
+kind: FournosJob
+metadata:
+  name: hub-only-job
+spec:
+  clusterless: true
+  exclusive: false  # Required
+  executionEngine:
+    forge:
+      project: "local/benchmark"
+      args: ["unit-test"]
+```
+
+### Clusterless Job Lifecycle
+
+```
+Resolving → Admitted → Running → Succeeded/Failed
+            ↑
+        Skips Pending (no Kueue admission)
+```
+
+**Benefits:**
+- ⚡ **Faster startup**: No Kueue admission delay
+- 🧹 **Resource efficient**: No target cluster resource blocking
+- 🎯 **Hub-focused**: Perfect for CI/validation workflows
+
+**Restrictions:**
+- Cannot combine with `cluster` specification
+- Must use `exclusive: false`
+- Cannot use `lockOnly: true`
+- No target cluster kubeconfig available to execution environment
 
 ## Local development
 

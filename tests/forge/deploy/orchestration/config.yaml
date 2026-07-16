@@ -45,6 +45,8 @@ fournos_deploy:
     - WorkloadPriorityClass
     # BuildRun are triggered manually
     - BuildRun
+    # Kustomize build files
+    - Kustomization
 
     # Manifests deployed to the controller namespace
     controller_rbac:
@@ -60,12 +62,29 @@ fournos_deploy:
     crd:
     - manifests/crd.yaml # will be skipped
 
+    kueue:
+    - config/kueue-config.yaml
+
     deploy:
       fournos: manifests/deployment.yaml
 
     replace:
       NAMESPACE: "@fournos_deploy.namespace.name"
       CONTROLLER_NAMESPACE: "@fournos_deploy.controller_namespace.name"
+
+  # FORGE GitOps workflow configuration
+  forge:
+    # FORGE_HOME environment variable must be set
+    # Points to: $FORGE_HOME/fournos/gitops/base/
+    source_base: "base"  # Relative to $FORGE_HOME/fournos/gitops/
+
+    # Workflow deployment paths (relative to gitops base)
+    images_path: "images"      # ImageStreams from gitops/base/images/
+    workflows_path: "workflows" # Tekton resources from gitops/base/workflows/
+
+    # Skip kustomization.yaml files (build-time only)
+    skip_files:
+    - kustomization.yaml
 
   # Deployment configuration
   deploy:
@@ -74,8 +93,6 @@ fournos_deploy:
 
   images:
     fournos:
-      force_rebuild: false
-    workflows:
       force_rebuild: false
 
   cleanup:
