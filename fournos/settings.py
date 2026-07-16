@@ -22,6 +22,18 @@ class Settings(BaseSettings):
     resolve_deadline_sec: int = Field(default=300, gt=0)
     resolve_job_template: str = "config/forge/resolve_job.yaml"
     artifact_pvc_size: str = "10Gi"
+    pipeline_timeout: str = Field(
+        default="25h0m0s",
+        description="Default timeout for entire PipelineRun (e.g., '25h0m0s', '90m')",
+    )
+    pipeline_tasks_timeout: str = Field(
+        default="24h0m0s",
+        description="Cumulative timeout across non-finally tasks in PipelineRun (e.g., '24h0m0s', '90m')",
+    )
+    pipeline_finally_timeout: str = Field(
+        default="1h0m0s",
+        description="Default timeout for finally tasks in PipelineRun (e.g., '1h0m0s', '30m')",
+    )
 
 
 settings = Settings()
