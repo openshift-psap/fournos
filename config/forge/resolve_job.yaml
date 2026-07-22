@@ -44,22 +44,6 @@ spec:
               # switching KUBECONFIG to the target cluster.
               oc get "fjob/$FJOB_NAME" -n "$FOURNOS_WORKLOAD_NAMESPACE" -oyaml > $ARTIFACT_DIR/fournos_fjob.yaml
 
-              # Check if we have a kubeconfig for target cluster
-              if [[ "$KUBECONFIG_SECRET_PARAM" != "fournos-clusterless-placeholder" && -f "$TARGET_KUBECONFIG" ]]; then
-                echo "Setting up target cluster kubeconfig..."
-                export KUBECONFIG=$TARGET_KUBECONFIG
-                export CLUSTERLESS_MODE="false"
-
-              else
-                if [[ "$KUBECONFIG_SECRET_PARAM" == "fournos-clusterless-placeholder" ]]; then
-                  echo "Running in clusterless mode - no target cluster kubeconfig"
-                else
-                  echo "WARNING: Expected kubeconfig not found at: $TARGET_KUBECONFIG"
-                  echo "Running in clusterless mode as fallback"
-                fi
-                export CLUSTERLESS_MODE="true"
-              fi
-
               # Function to conditionally export environment variables from FournosJob spec
               export_env_var_from_fjob() {
                 local var_name="$1"
