@@ -35,8 +35,7 @@ spec:
               set -o nounset
               set -o errtrace
 
-              export ARTIFACT_BASE_DIR="$(workspaces.artifacts.path)"
-              export ARTIFACT_DIR="${ARTIFACT_BASE_DIR}/${FOURNOS_STEP_NAME}"
+              export ARTIFACT_DIR=/tmp/artifacts
               mkdir -p "${ARTIFACT_DIR}"
 
               exec &> >(tee -a "$ARTIFACT_DIR/run.log")
@@ -93,7 +92,7 @@ spec:
 
                 git -C "$FORGE_HOME" fetch --quiet origin "$commit"
                 git -C "$FORGE_HOME" reset --hard FETCH_HEAD
-                export PULL_PULL_SHA="$(git rev-parse HEAD)"
+                export PULL_PULL_SHA="$(git -C "$FORGE_HOME" rev-parse HEAD)"
                 echo "Setting PULL_PULL_SHA to '$PULL_PULL_SHA'"
               else
                 echo "No PULL_PULL_SHA nor PULL_NUMBER, using the image commit"
