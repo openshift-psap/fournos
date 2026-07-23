@@ -320,17 +320,19 @@ Completion detection is handled by the operator's timer polling PipelineRun cond
 
 ### Timeouts
 
-Fournos sets PipelineRun-level timeouts when creating the Tekton PipelineRun (see `fournos/core/tekton.py`):
+Fournos sets PipelineRun-level timeouts when creating the Tekton PipelineRun (see [`fournos/core/tekton.py`](fournos/core/tekton.py)). The values are configured via the operator settings in [`fournos/settings.py`](fournos/settings.py):
 
-| Timeout scope | Default | Description |
-| ------------- | ------- | ----------- |
-| `pipeline`    | 25h     | Overall PipelineRun deadline |
-| `tasks`       | 24h     | Maximum wall-clock time for all non-finally tasks |
-| `finally`     | 1h      | Maximum wall-clock time for finally tasks (cleanup, artifact export) |
+| Setting field              | Tekton scope | Default    | Description |
+| -------------------------- | ------------ | ---------- | ----------- |
+| `pipeline_timeout`         | `pipeline`   | `25h0m0s`  | Overall PipelineRun deadline |
+| `pipeline_tasks_timeout`   | `tasks`      | `24h0m0s`  | Maximum wall-clock time for all non-finally tasks |
+| `pipeline_finally_timeout` | `finally`    | `1h0m0s`   | Maximum wall-clock time for finally tasks (cleanup, artifact export) |
 
-**Cluster-wide Tekton default**: Tekton also applies a cluster-wide `default-timeout-minutes` from the `config-defaults` ConfigMap in the `openshift-pipelines` namespace. This default applies to **individual TaskRuns** that do not have an explicit timeout. If this value is lower than the PipelineRun `tasks` timeout, TaskRuns will be killed early even though the PipelineRun allows more time.
+These are Go duration strings and can be overridden via environment variables (`FOURNOS_PIPELINE_TIMEOUT`, `FOURNOS_PIPELINE_TASKS_TIMEOUT`, `FOURNOS_PIPELINE_FINALLY_TIMEOUT`) or by modifying the operator Deployment.
 
-To prevent this, set the cluster-wide default higher than the PipelineRun task timeout:
+**Cluster-wide Tekton default**: Tekton also applies a cluster-wide `default-timeout-minutes` from the `config-defaults` ConfigMap in the `openshift-pipelines` namespace. This default applies to **individual TaskRuns** that do not have an explicit timeout. If this value is lower than `pipeline_tasks_timeout`, TaskRuns will be killed early even though the PipelineRun allows more time.
+
+To prevent this, set the cluster-wide default higher than `pipeline_tasks_timeout`:
 
 ```bash
 oc patch configmap config-defaults -n openshift-pipelines \
