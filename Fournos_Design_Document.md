@@ -318,6 +318,27 @@ Every Pipeline must carry a `fournos.dev/resolve-image` annotation with the full
 
 Completion detection is handled by the operator's timer polling PipelineRun conditions — no callback task is needed.
 
+### Timeouts
+
+Fournos sets PipelineRun-level timeouts when creating the Tekton PipelineRun (see `fournos/core/tekton.py`):
+
+| Timeout scope | Default | Description |
+| ------------- | ------- | ----------- |
+| `pipeline`    | 25h     | Overall PipelineRun deadline |
+| `tasks`       | 24h     | Maximum wall-clock time for all non-finally tasks |
+| `finally`     | 1h      | Maximum wall-clock time for finally tasks (cleanup, artifact export) |
+
+**Cluster-wide Tekton default**: Tekton also applies a cluster-wide `default-timeout-minutes` from the `config-defaults` ConfigMap in the `openshift-pipelines` namespace. This default applies to **individual TaskRuns** that do not have an explicit timeout. If this value is lower than the PipelineRun `tasks` timeout, TaskRuns will be killed early even though the PipelineRun allows more time.
+
+To prevent this, set the cluster-wide default higher than the PipelineRun task timeout:
+
+```bash
+oc patch configmap config-defaults -n openshift-pipelines \
+  -p '{"data":{"default-timeout-minutes":"5940"}}'   # 99 hours
+```
+
+This ensures individual TaskRuns never hit the cluster default before the PipelineRun-level timeout.
+
 ## 9. Kueue configuration
 
 [config/kueue-cluster-config.yaml](config/kueue-cluster-config.yaml):
