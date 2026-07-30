@@ -22,9 +22,9 @@ from fournos.settings import settings
 from fournos.state import ctx
 
 from .status import (
+    COND_WORKLOAD_ADMITTED,
     CRD_GROUP,
     CRD_VERSION,
-    COND_WORKLOAD_ADMITTED,
     owner_ref,
     set_condition,
 )

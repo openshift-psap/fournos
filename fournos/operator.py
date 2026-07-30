@@ -13,12 +13,12 @@ import time
 import kopf
 from kubernetes import client, config
 
+from fournos import __version__, handlers
 from fournos.core.clusters import ClusterRegistry
 from fournos.core.constants import LABEL_JOB_NAME, Phase
 from fournos.core.kueue import KueueClient
 from fournos.core.resolve import ResolveClient
 from fournos.core.tekton import TektonClient
-from fournos import __version__, handlers
 from fournos.settings import settings
 from fournos.state import ctx
 
