@@ -1,11 +1,11 @@
-from projects.core.library import env, config, run, vault
-from projects.cluster.toolbox.build_image.main import run as build_image_toolbox
-
-import pathlib
 import logging
 import os
-import yaml
+import pathlib
 from pathlib import Path
+
+import yaml
+from projects.cluster.toolbox.build_image.main import run as build_image_toolbox
+from projects.core.library import config, env, run, vault
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ def _apply_manifest_replacements(manifest_file):
 
     # Prepare replacements with config value resolution
     resolved_replacements = {}
-    for key in replacements_config.keys():
+    for key in replacements_config:
         resolved_value = config.project.get_config(
             f"fournos_deploy.manifests.replace.{key}", print=False
         )

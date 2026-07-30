@@ -5,14 +5,14 @@ FOURNOS Deploy Project CLI Operations
 Interactive CLI for FOURNOS deployment with configuration overrides.
 """
 
-import deploy as fournos_deploy
-from projects.core.library.cli import safe_cli_command
-from projects.core.library import config, run
-
+import logging
 import sys
 import types
+
 import click
-import logging
+import deploy as fournos_deploy
+from projects.core.library import config, run
+from projects.core.library.cli import safe_cli_command
 
 logger = logging.getLogger(__name__)
 
