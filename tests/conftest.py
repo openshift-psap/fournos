@@ -181,6 +181,7 @@ def workload_exists(name: str) -> bool:
     result = subprocess.run(
         ["kubectl", "get", "workload", name, "-n", NAMESPACE],
         capture_output=True,
+        check=False,
     )
     return result.returncode == 0
 
@@ -190,6 +191,7 @@ def pipelinerun_exists(name: str) -> bool:
     result = subprocess.run(
         ["kubectl", "get", "pipelinerun", name, "-n", NAMESPACE],
         capture_output=True,
+        check=False,
     )
     return result.returncode == 0
 
@@ -299,6 +301,7 @@ def resolve_job_exists(name: str) -> bool:
     result = subprocess.run(
         ["kubectl", "get", "job", f"{name}-resolve", "-n", NAMESPACE],
         capture_output=True,
+        check=False,
     )
     return result.returncode == 0
 
@@ -329,6 +332,7 @@ def poll_resolve_job_complete(
             ],
             capture_output=True,
             text=True,
+            check=False,
         )
         conditions = result.stdout.strip()
         if "Complete" in conditions or "Failed" in conditions:
