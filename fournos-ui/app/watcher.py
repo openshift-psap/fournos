@@ -6,7 +6,6 @@ import asyncio
 import logging
 import threading
 import time
-from datetime import datetime, timezone
 
 from dateutil.parser import parse as parse_dt
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -27,10 +26,15 @@ def _init_watcher_db(loop: asyncio.AbstractEventLoop) -> None:
     """Create a separate DB engine for the watcher's own event loop."""
     global _watcher_engine, _watcher_session
     _watcher_engine = create_async_engine(
-        settings.database_url, echo=False, pool_size=3, max_overflow=5,
+        settings.database_url,
+        echo=False,
+        pool_size=3,
+        max_overflow=5,
     )
     _watcher_session = async_sessionmaker(
-        _watcher_engine, class_=AsyncSession, expire_on_commit=False,
+        _watcher_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
     )
 
 
@@ -66,7 +70,10 @@ def _extract_forge_fields(job: dict) -> dict:
     duration_seconds = None
     conditions = status.get("conditions", [])
     for cond in conditions:
-        if cond.get("type") == "PipelineRunReady" and cond.get("status") in ("True", "False"):
+        if cond.get("type") == "PipelineRunReady" and cond.get("status") in (
+            "True",
+            "False",
+        ):
             try:
                 completed_at = parse_dt(cond["lastTransitionTime"])
             except Exception:
@@ -111,21 +118,20 @@ async def _archive_job(job: dict) -> None:
         logger.warning("Skipping FournosJob with missing name")
         return
 
-    async with _watcher_session() as session:
-        async with session.begin():
-            existing = await db.get_job_by_name(session, job_name)
-            previous_phase = existing.status if existing else None
-            previous_message = existing.message if existing else None
+    async with _watcher_session() as session, session.begin():
+        existing = await db.get_job_by_name(session, job_name)
+        previous_phase = existing.status if existing else None
+        previous_message = existing.message if existing else None
 
-            db_job = await db.upsert_job(session, **fields)
+        db_job = await db.upsert_job(session, **fields)
 
-            if fields["status"] != previous_phase or fields["message"] != previous_message:
-                await db.add_job_event(
-                    session,
-                    job_id=db_job.id,
-                    phase=fields["status"],
-                    message=fields["message"],
-                )
+        if fields["status"] != previous_phase or fields["message"] != previous_message:
+            await db.add_job_event(
+                session,
+                job_id=db_job.id,
+                phase=fields["status"],
+                message=fields["message"],
+            )
 
     logger.info("Archived FournosJob %s (phase=%s)", job_name, fields["status"])
 
@@ -159,7 +165,12 @@ async def _full_sync() -> None:
             logger.warning("Full sync: failed to archive %s: %s", name, exc)
             errors += 1
 
-    logger.info("Full sync complete: %d synced, %d errors (out of %d)", synced, errors, len(all_jobs))
+    logger.info(
+        "Full sync complete: %d synced, %d errors (out of %d)",
+        synced,
+        errors,
+        len(all_jobs),
+    )
 
 
 def _run_watch_loop(loop: asyncio.AbstractEventLoop) -> None:
@@ -184,7 +195,9 @@ def _run_watch_loop(loop: asyncio.AbstractEventLoop) -> None:
 
     while True:
         try:
-            logger.info("Starting FournosJob watch (rv=%s)", resource_version or "latest")
+            logger.info(
+                "Starting FournosJob watch (rv=%s)", resource_version or "latest"
+            )
             for event in k8s_client.watch_fournos_jobs(
                 resource_version=resource_version,
                 timeout=300,
@@ -202,7 +215,9 @@ def _run_watch_loop(loop: asyncio.AbstractEventLoop) -> None:
                         name = obj.get("metadata", {}).get("name", "?")
                         logger.error(
                             "Failed to archive event for %s (type=%s): %s",
-                            name, event_type, exc,
+                            name,
+                            event_type,
+                            exc,
                         )
                 elif event_type == "DELETED":
                     name = obj.get("metadata", {}).get("name", "")

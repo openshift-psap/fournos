@@ -19,6 +19,6 @@ sys.argv = [
     *sys.argv[1:],
 ]
 
-from kopf.cli import main  # noqa: E402
+from kopf.cli import main
 
 main()

@@ -3,17 +3,17 @@
 Fournos-Deploy Project CI Operations
 """
 
-from projects.core.library import ci as ci_lib, config, env
-from projects.core.ci_entrypoint.prepare_ci import CI_METADATA_DIRNAME
-from projects.fournos_launcher.orchestration import utils
-
-import deploy as fournos_deploy
-
-import click
-import types
+import json
 import logging
 import os
-import json
+import types
+
+import click
+import deploy as fournos_deploy
+from projects.core.ci_entrypoint.prepare_ci import CI_METADATA_DIRNAME
+from projects.core.library import ci as ci_lib
+from projects.core.library import config, env
+from projects.fournos_launcher.orchestration import utils
 
 logger = logging.getLogger(__name__)
 

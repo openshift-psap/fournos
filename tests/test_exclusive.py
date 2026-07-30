@@ -42,6 +42,7 @@ def _slow_mock_pipeline():
         ],
         capture_output=True,
         text=True,
+        check=False,
     )
     original_sleep = result.stdout.strip() or "3"
 

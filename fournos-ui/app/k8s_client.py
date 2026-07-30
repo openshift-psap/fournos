@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from datetime import datetime, timezone
-from typing import Any, Generator
+from collections.abc import Generator
+from datetime import UTC, datetime
+from typing import Any
 
-import yaml
 from kubernetes import client, config, watch
 from kubernetes.client.rest import ApiException
 
@@ -63,6 +63,7 @@ def is_connected() -> bool:
 # ---------------------------------------------------------------------------
 # FournosJob operations
 # ---------------------------------------------------------------------------
+
 
 def list_fournos_jobs(namespace: str | None = None) -> list[dict]:
     """List all FournosJob CRs in the given namespace."""
@@ -119,9 +120,7 @@ def create_fournos_job(body: dict, namespace: str | None = None) -> dict:
     )
 
 
-def patch_fournos_job(
-    name: str, patch: dict, namespace: str | None = None
-) -> dict:
+def patch_fournos_job(name: str, patch: dict, namespace: str | None = None) -> dict:
     """Patch a FournosJob (e.g. set spec.shutdown)."""
     _ensure_loaded()
     if _custom_api is None:
@@ -166,8 +165,7 @@ def watch_fournos_jobs(
     if timeout:
         kwargs["timeout_seconds"] = timeout
     try:
-        for event in w.stream(_custom_api.list_namespaced_custom_object, **kwargs):
-            yield event
+        yield from w.stream(_custom_api.list_namespaced_custom_object, **kwargs)
     except ApiException as exc:
         logger.warning("Watch stream ended: %s", exc.reason)
 
@@ -175,6 +173,7 @@ def watch_fournos_jobs(
 # ---------------------------------------------------------------------------
 # Tekton PipelineRun operations
 # ---------------------------------------------------------------------------
+
 
 def get_pipelinerun(name: str, namespace: str | None = None) -> dict | None:
     """Get a Tekton PipelineRun by name."""
@@ -317,14 +316,16 @@ def extract_pipeline_stages(pipelinerun: dict) -> list[dict]:
 
         display_name = task_name.replace("-", " ").title()
 
-        stages.append({
-            "name": task_name,
-            "displayName": display_name,
-            "status": task_phase,
-            "startTime": start_time,
-            "completionTime": completion_time,
-            "finally": task_name in finally_task_names,
-        })
+        stages.append(
+            {
+                "name": task_name,
+                "displayName": display_name,
+                "status": task_phase,
+                "startTime": start_time,
+                "completionTime": completion_time,
+                "finally": task_name in finally_task_names,
+            }
+        )
 
     stages.sort(key=lambda s: (s["finally"], s.get("startTime") or "9999"))
     return stages
@@ -333,6 +334,7 @@ def extract_pipeline_stages(pipelinerun: dict) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Pod operations
 # ---------------------------------------------------------------------------
+
 
 def list_pods_for_job(job_name: str, namespace: str | None = None) -> list[dict]:
     """List pods associated with a FournosJob."""
@@ -350,7 +352,7 @@ def list_pods_for_job(job_name: str, namespace: str | None = None) -> list[dict]
             created = pod.metadata.creation_timestamp
             age_minutes = 0
             if created:
-                delta = datetime.now(timezone.utc) - created.replace(tzinfo=timezone.utc)
+                delta = datetime.now(UTC) - created.replace(tzinfo=UTC)
                 age_minutes = int(delta.total_seconds() / 60)
 
             container_ready = False
@@ -364,18 +366,22 @@ def list_pods_for_job(job_name: str, namespace: str | None = None) -> list[dict]
             if pod.metadata.name.startswith("affinity-assistant"):
                 continue
 
-            pods.append({
-                "name": pod.metadata.name,
-                "phase": pod.status.phase or "Unknown",
-                "container": (
-                    pod.spec.containers[0].name if pod.spec.containers else "unknown"
-                ),
-                "ready": container_ready,
-                "restarts": restarts,
-                "age_minutes": age_minutes,
-                "_created": created,
-            })
-        pods.sort(key=lambda p: p["_created"] or datetime.min.replace(tzinfo=timezone.utc))
+            pods.append(
+                {
+                    "name": pod.metadata.name,
+                    "phase": pod.status.phase or "Unknown",
+                    "container": (
+                        pod.spec.containers[0].name
+                        if pod.spec.containers
+                        else "unknown"
+                    ),
+                    "ready": container_ready,
+                    "restarts": restarts,
+                    "age_minutes": age_minutes,
+                    "_created": created,
+                }
+            )
+        pods.sort(key=lambda p: p["_created"] or datetime.min.replace(tzinfo=UTC))
         return pods
     except ApiException as exc:
         logger.error("Failed to list pods for %s: %s", job_name, exc.reason)
@@ -402,7 +408,9 @@ def read_pod_log(
         kwargs["tail_lines"] = tail_lines
     try:
         if follow:
-            for line in _core_api.read_namespaced_pod_log(**kwargs, _preload_content=False).stream():
+            for line in _core_api.read_namespaced_pod_log(
+                **kwargs, _preload_content=False
+            ).stream():
                 decoded = line.decode("utf-8", errors="replace").rstrip("\n")
                 yield decoded
         else:
@@ -601,7 +609,9 @@ def create_cronjob(
     if resolver_script:
         is_python = resolver_filename.lower().endswith(".py")
         default_resolver_img = "python:3.12-slim" if is_python else "alpine:latest"
-        script_key = resolver_filename or ("resolver.py" if is_python else "resolver.sh")
+        script_key = resolver_filename or (
+            "resolver.py" if is_python else "resolver.sh"
+        )
         configmap_name = f"{name}-resolver"
 
         _create_resolver_configmap(configmap_name, script_key, resolver_script, ns)
@@ -619,7 +629,9 @@ def create_cronjob(
         )
         volumes = [script_vol, shared_vol]
         script_mount = client.V1VolumeMount(
-            name="resolver-script", mount_path="/resolver", read_only=True,
+            name="resolver-script",
+            mount_path="/resolver",
+            read_only=True,
         )
         shared_mount = client.V1VolumeMount(name="shared", mount_path="/shared")
         submit_container.volume_mounts = [shared_mount]
@@ -714,13 +726,17 @@ def _create_resolver_configmap(
     except ApiException as exc:
         if exc.status == 409:
             _core_api.replace_namespaced_config_map(
-                name=cm_name, namespace=namespace, body=cm,
+                name=cm_name,
+                namespace=namespace,
+                body=cm,
             )
         else:
             raise
 
 
-def get_resolver_script(configmap_name: str, namespace: str | None = None) -> tuple[str, str]:
+def get_resolver_script(
+    configmap_name: str, namespace: str | None = None
+) -> tuple[str, str]:
     """Read the resolver script from its ConfigMap. Returns (filename, content)."""
     _ensure_loaded()
     if _core_api is None:
@@ -755,13 +771,17 @@ def trigger_cronjob(name: str, namespace: str | None = None) -> str:
     ns = namespace or settings.fournos_namespace
 
     cj = _batch_api.read_namespaced_cron_job(name=name, namespace=ns)
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     job_name = f"{name}-manual-{ts}"[:63]
 
     job_spec = cj.spec.job_template.spec
 
     trigger_env = client.V1EnvVar(name="FOURNOS_TRIGGER_TYPE", value="manual")
-    if job_spec.template and job_spec.template.spec and job_spec.template.spec.containers:
+    if (
+        job_spec.template
+        and job_spec.template.spec
+        and job_spec.template.spec.containers
+    ):
         for c in job_spec.template.spec.containers:
             if c.env is None:
                 c.env = []
@@ -839,7 +859,9 @@ def _cronjob_to_dict(cj: Any) -> dict:
         "resolver_image": resolver_image,
         "resolver_filename": resolver_filename,
         "has_resolver": bool(resolver_configmap),
-        "created_at": meta.creation_timestamp.isoformat() if meta.creation_timestamp else "",
+        "created_at": meta.creation_timestamp.isoformat()
+        if meta.creation_timestamp
+        else "",
         "last_schedule": (
             cj.status.last_schedule_time.isoformat()
             if cj.status and cj.status.last_schedule_time

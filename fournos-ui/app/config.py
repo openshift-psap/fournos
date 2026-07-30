@@ -8,9 +8,7 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class Settings:
-    database_url: str = field(
-        default_factory=lambda: os.environ["DATABASE_URL"]
-    )
+    database_url: str = field(default_factory=lambda: os.environ["DATABASE_URL"])
 
     fournos_namespace: str = field(
         default_factory=lambda: os.environ.get("FOURNOS_NAMESPACE", "fournos-jobs")
@@ -25,7 +23,9 @@ class Settings:
     )
 
     projects_config_path: str = field(
-        default_factory=lambda: os.environ.get("PROJECTS_CONFIG_PATH", "/etc/fournos-dashboard/projects.yaml")
+        default_factory=lambda: os.environ.get(
+            "PROJECTS_CONFIG_PATH", "/etc/fournos-dashboard/projects.yaml"
+        )
     )
 
     fournos_api_group: str = "fournos.dev"
@@ -36,12 +36,12 @@ class Settings:
     tekton_api_version: str = "v1"
     tekton_pipelinerun_plural: str = "pipelineruns"
 
-    log_level: str = field(
-        default_factory=lambda: os.environ.get("LOG_LEVEL", "INFO")
-    )
+    log_level: str = field(default_factory=lambda: os.environ.get("LOG_LEVEL", "INFO"))
 
     forge_github_repo: str = field(
-        default_factory=lambda: os.environ.get("FORGE_GITHUB_REPO", "openshift-psap/forge")
+        default_factory=lambda: os.environ.get(
+            "FORGE_GITHUB_REPO", "openshift-psap/forge"
+        )
     )
 
     k8s_request_timeout_seconds: int = field(
