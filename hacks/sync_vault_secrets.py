@@ -132,7 +132,8 @@ def vault_read(
 
 
 def _k8s_core_api():
-    from kubernetes import client, config as k8s_config
+    from kubernetes import client
+    from kubernetes import config as k8s_config
 
     try:
         k8s_config.load_kube_config()
@@ -326,8 +327,8 @@ def sync(
 
         if dry_run:
             print(f"[dry-run] Would create/update Secret {namespace}/{secret_name}")
-            for key in safe_data:
-                print(f"  {key}: <{len(str(safe_data[key]))} chars>")
+            for key, value in safe_data.items():
+                print(f"  {key}: <{len(str(value))} chars>")
             processed_secrets.add(secret_name)
             continue
 
