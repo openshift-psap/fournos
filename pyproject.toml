@@ -26,3 +26,9 @@ testpaths = ["tests"]
 markers = [
     "slow: tests that take longer than 30s (e.g. full lifecycle)",
 ]
+
+[tool.ruff.lint]
+ignore = [
+    "BLE001", # Do not catch blind exception: `Exception`
+    "S110", # `try`-`except`-`pass` detected, consider logging the exception
+]
