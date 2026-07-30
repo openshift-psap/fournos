@@ -50,7 +50,11 @@ def _discover_from_repo(projects_dir: Path) -> dict[str, ProjectInfo]:
     skip = {"core", "__pycache__"}
 
     for proj_dir in sorted(projects_dir.iterdir()):
-        if not proj_dir.is_dir() or proj_dir.name.startswith(".") or proj_dir.name in skip:
+        if (
+            not proj_dir.is_dir()
+            or proj_dir.name.startswith(".")
+            or proj_dir.name in skip
+        ):
             continue
 
         orchestration = proj_dir / "orchestration"
@@ -92,7 +96,11 @@ def _discover_from_configmap() -> dict[str, ProjectInfo]:
     result: dict[str, ProjectInfo] = {}
     for idx, proj in enumerate(data["projects"]):
         if not isinstance(proj, dict):
-            logger.warning("Skipping malformed project entry at index %d: expected mapping, got %s", idx, type(proj).__name__)
+            logger.warning(
+                "Skipping malformed project entry at index %d: expected mapping, got %s",
+                idx,
+                type(proj).__name__,
+            )
             continue
         name = proj.get("name", "")
         if not name:

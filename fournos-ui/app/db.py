@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from typing import Any, Sequence
+from collections.abc import Sequence
+from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import (
@@ -17,7 +18,8 @@ from sqlalchemy import (
     func,
     select,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, insert as pg_insert
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, relationship
 
@@ -34,6 +36,7 @@ class Base(DeclarativeBase):
 # ORM Models
 # ---------------------------------------------------------------------------
 
+
 class Job(Base):
     __tablename__ = "jobs"
 
@@ -46,7 +49,7 @@ class Job(Base):
     owner = Column(String, default="", index=True)
     status = Column(String, default="Pending", index=True)
     message = Column(Text, default="")
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     completed_at = Column(DateTime(timezone=True), nullable=True)
     duration_seconds = Column(Float, nullable=True)
     mlflow_url = Column(String, default="")
@@ -59,17 +62,21 @@ class Job(Base):
     triggered_by_schedule = Column(String, nullable=True, index=True)
     trigger_type = Column(String, default="manual")
 
-    events = relationship("JobEvent", back_populates="job", cascade="all, delete-orphan")
+    events = relationship(
+        "JobEvent", back_populates="job", cascade="all, delete-orphan"
+    )
 
 
 class JobEvent(Base):
     __tablename__ = "job_events"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
-    job_id = Column(String, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False, index=True)
+    job_id = Column(
+        String, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     phase = Column(String, nullable=False)
     message = Column(Text, default="")
-    timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     job = relationship("Job", back_populates="events")
 
@@ -78,7 +85,9 @@ class JobEvent(Base):
 # Engine & session factory
 # ---------------------------------------------------------------------------
 
-engine = create_async_engine(settings.database_url, echo=False, pool_size=5, max_overflow=10)
+engine = create_async_engine(
+    settings.database_url, echo=False, pool_size=5, max_overflow=10
+)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
@@ -93,12 +102,15 @@ async def init_db() -> None:
 # Query helpers
 # ---------------------------------------------------------------------------
 
+
 async def upsert_job(session: AsyncSession, **kwargs: Any) -> Job:
     """Insert or update a job record keyed by name (atomic)."""
     if "id" not in kwargs:
         kwargs["id"] = str(uuid4())
 
-    update_cols = {k: v for k, v in kwargs.items() if k not in ("id", "name") and v is not None}
+    update_cols = {
+        k: v for k, v in kwargs.items() if k not in ("id", "name") and v is not None
+    }
 
     stmt = (
         pg_insert(Job)
@@ -165,7 +177,8 @@ async def list_jobs(
 
 
 async def list_jobs_by_schedule(
-    session: AsyncSession, schedule_name: str,
+    session: AsyncSession,
+    schedule_name: str,
 ) -> Sequence[Job]:
     """List all jobs triggered by a specific schedule."""
     result = await session.execute(

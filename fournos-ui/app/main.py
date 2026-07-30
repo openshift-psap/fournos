@@ -6,7 +6,7 @@ import asyncio
 import logging
 import re
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +17,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from app import db, k8s_client, watcher
 from app.config import settings
-from app.forge_discovery import discover_projects, get_project_presets
+from app.forge_discovery import discover_projects
 
 logger = logging.getLogger(__name__)
 
@@ -25,12 +25,14 @@ logger = logging.getLogger(__name__)
 # Lifespan
 # ---------------------------------------------------------------------------
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logging.basicConfig(level=getattr(logging, settings.log_level))
     await db.init_db()
     watcher.start_watcher()
     yield
+
 
 app = FastAPI(title="Fournos Launcher Dashboard", lifespan=lifespan)
 
@@ -47,6 +49,7 @@ _jinja_env = Environment(
 # Template helpers
 # ---------------------------------------------------------------------------
 
+
 def _format_age(timestamp_str: str) -> str:
     from dateutil.parser import parse
 
@@ -54,7 +57,7 @@ def _format_age(timestamp_str: str) -> str:
         created = parse(timestamp_str)
     except Exception:
         return "?"
-    delta = datetime.now(timezone.utc) - created
+    delta = datetime.now(UTC) - created
     total_seconds = int(delta.total_seconds())
     if total_seconds < 0:
         return "0s"
@@ -97,7 +100,11 @@ def _extract_forge_info(job: dict) -> dict:
     pr_title = env.get("PULL_TITLE", "")
     repo_owner = env.get("REPO_OWNER", "")
     repo_name = env.get("REPO_NAME", "")
-    pr_url = f"https://github.com/{repo_owner}/{repo_name}/pull/{pr_number}" if pr_number else ""
+    pr_url = (
+        f"https://github.com/{repo_owner}/{repo_name}/pull/{pr_number}"
+        if pr_number
+        else ""
+    )
     return {
         "project": forge.get("project", ""),
         "args": forge.get("args", []),
@@ -128,7 +135,7 @@ def _parse_task_progress(message: str) -> dict | None:
 def _build_timeline(stages: list[dict]) -> list[dict]:
     from dateutil.parser import parse
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     n = len(stages) or 1
     equal_pct = 100.0 / n
 
@@ -160,13 +167,15 @@ def _build_timeline(stages: list[dict]) -> list[dict]:
             "Skipped": "ptl-skip",
         }.get(s["status"], "ptl-wait")
 
-        result.append({
-            **s,
-            "width_pct": equal_pct,
-            "min_width": 8,
-            "duration_label": dur_label if s["startTime"] else "",
-            "status_class": status_class,
-        })
+        result.append(
+            {
+                **s,
+                "width_pct": equal_pct,
+                "min_width": 8,
+                "duration_label": dur_label if s["startTime"] else "",
+                "status_class": status_class,
+            }
+        )
     return result
 
 
@@ -183,7 +192,7 @@ def _extract_mlflow_url(status: dict) -> str:
     return mlflow.get("run_url", "") if mlflow else ""
 
 
-_CACHE_BUST = str(int(datetime.now(timezone.utc).timestamp()))
+_CACHE_BUST = str(int(datetime.now(UTC).timestamp()))
 
 _jinja_env.globals.update(
     format_age=_format_age,
@@ -226,7 +235,7 @@ def _get_live_jobs_sync() -> list[dict]:
     from dateutil.parser import parse
 
     jobs = k8s_client.list_fournos_jobs()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     visible: list[dict] = []
     for j in jobs:
         phase = j.get("status", {}).get("phase", "")
@@ -304,6 +313,7 @@ async def _get_pipeline_stages(job: dict) -> list[dict]:
 # Routes: Jobs
 # ---------------------------------------------------------------------------
 
+
 @app.get("/", response_class=HTMLResponse)
 async def jobs_list(
     request: Request,
@@ -330,7 +340,7 @@ async def jobs_list(
         total = len(jobs)
         all_clusters = _collect_clusters(jobs)
         offset = (page - 1) * per_page
-        jobs = jobs[offset:offset + per_page]
+        jobs = jobs[offset : offset + per_page]
         history_jobs = []
         total_history = 0
     else:
@@ -386,7 +396,9 @@ async def jobs_table_partial(
     if owner:
         jobs = [j for j in jobs if j.get("spec", {}).get("owner") == owner]
     current_steps = await _compute_current_steps(jobs)
-    return _render("components/jobs_table_body.html", jobs=jobs, current_steps=current_steps)
+    return _render(
+        "components/jobs_table_body.html", jobs=jobs, current_steps=current_steps
+    )
 
 
 @app.get("/jobs/{job_name}", response_class=HTMLResponse)
@@ -471,7 +483,11 @@ async def rerun_job(job_name: str):
     try:
         created = await asyncio.to_thread(k8s_client.create_fournos_job, body)
         created_name = created.get("metadata", {}).get("name", new_name)
-        return {"status": "ok", "job_name": created_name, "redirect": f"/jobs/{created_name}"}
+        return {
+            "status": "ok",
+            "job_name": created_name,
+            "redirect": f"/jobs/{created_name}",
+        }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -491,9 +507,8 @@ async def _get_job_for_rerun(job_name: str) -> dict | None:
 @app.delete("/api/history/{job_name}")
 async def delete_history_job(job_name: str):
     """Delete a job from the history database."""
-    async with db.async_session() as session:
-        async with session.begin():
-            deleted = await db.delete_job_by_name(session, job_name)
+    async with db.async_session() as session, session.begin():
+        deleted = await db.delete_job_by_name(session, job_name)
     if not deleted:
         raise HTTPException(status_code=404, detail="Job not found in history")
     return {"status": "ok"}
@@ -524,7 +539,7 @@ async def stream_logs(job_name: str, pod_name: str):
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, None)
 
-        task = asyncio.get_event_loop().run_in_executor(None, _reader)
+        asyncio.get_event_loop().run_in_executor(None, _reader)
         try:
             while True:
                 line = await queue.get()
@@ -537,11 +552,10 @@ async def stream_logs(job_name: str, pod_name: str):
     return StreamingResponse(generate(), media_type="text/event-stream")
 
 
-
-
 # ---------------------------------------------------------------------------
 # Routes: Submit Job
 # ---------------------------------------------------------------------------
+
 
 @app.get("/submit", response_class=HTMLResponse)
 async def submit_form(request: Request):
@@ -556,6 +570,7 @@ async def submit_form(request: Request):
 @app.get("/api/project-info/{project_name}")
 async def project_info_api(project_name: str):
     from app.forge_discovery import get_project
+
     proj = get_project(project_name)
     if proj is None:
         return {"presets": [], "cluster": ""}
@@ -564,8 +579,8 @@ async def project_info_api(project_name: str):
 
 def _fetch_github_open_prs() -> list[dict]:
     """Blocking call to the GitHub API -- run via asyncio.to_thread."""
-    import urllib.request
     import json as _json
+    import urllib.request
 
     url = f"https://api.github.com/repos/{settings.forge_github_repo}/pulls?state=open&per_page=100"
     req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json"})
@@ -670,22 +685,25 @@ async def submit_job(
     created_name = created.get("metadata", {}).get("name", job_name)
 
     try:
-        async with db.async_session() as session:
-            async with session.begin():
-                await db.upsert_job(
-                    session,
-                    name=created_name,
-                    project=project,
-                    preset=preset,
-                    cluster=cluster,
-                    pipeline=pipeline,
-                    owner=owner or "fournos-dashboard",
-                    status="Pending",
-                    config_overrides=config_overrides,
-                    fjob_spec=body.get("spec", {}),
-                )
+        async with db.async_session() as session, session.begin():
+            await db.upsert_job(
+                session,
+                name=created_name,
+                project=project,
+                preset=preset,
+                cluster=cluster,
+                pipeline=pipeline,
+                owner=owner or "fournos-dashboard",
+                status="Pending",
+                config_overrides=config_overrides,
+                fjob_spec=body.get("spec", {}),
+            )
     except Exception as exc:
-        logger.error("DB upsert failed for job %s (job was created in K8s): %s", created_name, exc)
+        logger.error(
+            "DB upsert failed for job %s (job was created in K8s): %s",
+            created_name,
+            exc,
+        )
 
     return RedirectResponse(url=f"/jobs/{created_name}", status_code=303)
 
@@ -693,6 +711,7 @@ async def submit_job(
 # ---------------------------------------------------------------------------
 # Routes: Schedules
 # ---------------------------------------------------------------------------
+
 
 @app.get("/schedules", response_class=HTMLResponse)
 async def schedules_list(request: Request):
@@ -713,15 +732,17 @@ async def schedule_runs(request: Request, name: str):
         jobs = await db.list_jobs_by_schedule(session, name)
     runs = []
     for j in jobs:
-        runs.append({
-            "name": j.name,
-            "status": j.status,
-            "preset": j.preset,
-            "trigger_type": j.trigger_type or "scheduled",
-            "duration_seconds": j.duration_seconds,
-            "mlflow_url": j.mlflow_url,
-            "created_at": j.created_at.isoformat() if j.created_at else "",
-        })
+        runs.append(
+            {
+                "name": j.name,
+                "status": j.status,
+                "preset": j.preset,
+                "trigger_type": j.trigger_type or "scheduled",
+                "duration_seconds": j.duration_seconds,
+                "mlflow_url": j.mlflow_url,
+                "created_at": j.created_at.isoformat() if j.created_at else "",
+            }
+        )
     return _render("schedule_runs.html", schedule_name=name, runs=runs)
 
 
@@ -753,14 +774,20 @@ async def create_schedule(
                 preset=preset,
                 image=image_source,
                 owner=owner,
-                resolver_script=resolver_script.strip().replace("\r\n", "\n").replace("\r", "\n"),
+                resolver_script=resolver_script.strip()
+                .replace("\r\n", "\n")
+                .replace("\r", "\n"),
                 resolver_image=resolver_image.strip(),
                 resolver_filename=resolver_filename.strip(),
             )
             try:
                 await asyncio.to_thread(k8s_client.delete_cronjob, edit_target)
             except Exception as del_exc:
-                logger.warning("Failed to delete old schedule %s after replacement: %s", edit_target, del_exc)
+                logger.warning(
+                    "Failed to delete old schedule %s after replacement: %s",
+                    edit_target,
+                    del_exc,
+                )
         else:
             if edit_target:
                 await asyncio.to_thread(k8s_client.delete_cronjob, edit_target)
@@ -774,7 +801,9 @@ async def create_schedule(
                 preset=preset,
                 image=image_source,
                 owner=owner,
-                resolver_script=resolver_script.strip().replace("\r\n", "\n").replace("\r", "\n"),
+                resolver_script=resolver_script.strip()
+                .replace("\r\n", "\n")
+                .replace("\r", "\n"),
                 resolver_image=resolver_image.strip(),
                 resolver_filename=resolver_filename.strip(),
             )
@@ -839,6 +868,7 @@ async def delete_schedule(name: str):
 # Conversion helpers
 # ---------------------------------------------------------------------------
 
+
 def _collect_clusters(live_jobs: list[dict]) -> list[str]:
     """Collect unique cluster names from live jobs."""
     clusters = set()
@@ -878,7 +908,11 @@ def _db_job_to_fjob_dict(job: db.Job) -> dict:
 
     forge = spec.get("executionEngine", {}).get("forge", {})
     if not forge:
-        forge = {"project": job.project, "args": job.preset.split() if job.preset else [], "configOverrides": job.config_overrides or {}}
+        forge = {
+            "project": job.project,
+            "args": job.preset.split() if job.preset else [],
+            "configOverrides": job.config_overrides or {},
+        }
         spec.setdefault("executionEngine", {})["forge"] = forge
 
     spec.setdefault("cluster", job.cluster)
@@ -921,10 +955,8 @@ def _get_version_config_key(project: str) -> str:
 
 def sanitize_job_name(prefix: str) -> str:
     """Generate a K8s-safe job name with timestamp."""
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     name = f"{prefix}-{ts}".lower()
     name = re.sub(r"[^a-z0-9-]", "-", name)
     name = re.sub(r"-+", "-", name).strip("-")
     return name[:63]
-
-
