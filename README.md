@@ -339,9 +339,13 @@ oc apply -f config/kueue-config.yaml
 ```
 
 3. **Verify connectivity** by submitting a lightweight validate-only
-   job. Edit `cluster` (and optionally `hardware`) in
+   job. The sample uses Forge's valid `skeleton` project; do not replace it
+   with `none`. Edit `cluster` (and optionally `hardware`) in
    `config/fournos-validation/samples/test-connectivity-job.yaml` to
-   match the new target, then:
+   match the new target. Before submitting, ensure the Vault-synced Secrets
+   required by the selected Forge project exist in `psap-secrets`; the
+   resolver populates `spec.secretRefs` and the operator validates them
+   before scheduling. Then:
 
 ```bash
 FOURNOS_WORKLOAD_NAMESPACE=fournos-$USER-dev
@@ -352,8 +356,9 @@ oc get fournosjobs -n $FOURNOS_WORKLOAD_NAMESPACE -w        # should reach Succe
 This runs the `fournos-validate-only` pipeline, which only checks `oc
 cluster-info` against the target — no benchmark workload is launched. If the job
 reaches `Succeeded`, the kubeconfig secret and Kueue quota are correctly
-configured. If it fails, check the operator logs and the PipelineRun status for
-details.
+configured. If resolution reports a missing `vault-*` Secret, synchronize the
+corresponding Forge Vault entry into `psap-secrets` and retry. If it fails for
+another reason, check the operator logs and the PipelineRun status for details.
 
 ### Deploying the execution engine workflow configuration
 

@@ -12,5 +12,5 @@ spec:
     gpuCount: 1
   executionEngine:
     forge:
-      project: none
+      project: skeleton
       args: []
