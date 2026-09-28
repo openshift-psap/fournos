@@ -1,4 +1,11 @@
-"""Resolve client — manages Forge resolve K8s Jobs."""
+"""Resolve client — manages engine-agnostic resolve K8s Jobs.
+
+The resolve Job template (``settings.resolve_job_template``) is generic: it
+always invokes ``/opt/fournos/entrypoint`` — the fixed contract path that
+every execution engine image must provide.  The image itself is selected
+per-Pipeline via the ``fournos.dev/resolve-image`` annotation.
+See docs/execution-engine-contract.md.
+"""
 
 from __future__ import annotations
 

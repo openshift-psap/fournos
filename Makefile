@@ -8,7 +8,7 @@ FOURNOS_WORKLOAD_NAMESPACE     ?= fournos-local-dev
 FOURNOS_SECRETS_NAMESPACE      ?= psap-secrets
 
 .PHONY: lint format test docker-build docker-push \
-        install deploy dev-setup dev-run dev-teardown wip-run \
+        install deploy dev-setup dev-run dev-test-generic dev-teardown wip-run \
         ci-setup ci-run ci-stop
 
 ##@ Code Quality
@@ -49,7 +49,9 @@ deploy: install
 		| kubectl apply -f-
 	kubectl apply -f config/kueue-cluster-config.yaml
 	kubectl apply -f config/kueue-config.yaml -n $(FOURNOS_WORKLOAD_NAMESPACE)
-	for wf in config/forge/workflows/*.yaml; do \
+	kubectl apply -f config/resolve/resolve_job.yaml -n $(FOURNOS_WORKLOAD_NAMESPACE)
+	cat config/generic/rbac.yaml | NAMESPACE=$(FOURNOS_WORKLOAD_NAMESPACE) envsubst '$$NAMESPACE' | kubectl apply -f-
+	for wf in config/generic/pipeline.yaml config/generic/task.yaml; do \
 		cat $$wf | NAMESPACE=$(FOURNOS_WORKLOAD_NAMESPACE) envsubst '$$NAMESPACE' | kubectl apply -f- -n $(FOURNOS_WORKLOAD_NAMESPACE); \
 	done
 	cat manifests/deployment.yaml | NAMESPACE=$(FOURNOS_WORKLOAD_NAMESPACE) envsubst '$$NAMESPACE' | kubectl apply -f- -n $(FOURNOS_CONTROLLER_NAMESPACE)
@@ -92,8 +94,13 @@ wip-run:
 	FOURNOS_CONTROLLER_NAMESPACE=$(FOURNOS_CONTROLLER_NAMESPACE) \
 	FOURNOS_WORKLOAD_NAMESPACE=psap-automation-wip \
 	FOURNOS_SECRETS_NAMESPACE=psap-secrets \
-	FOURNOS_RESOLVE_JOB_TEMPLATE=config/forge/resolve_job.yaml \
+	FOURNOS_RESOLVE_JOB_TEMPLATE=config/resolve/resolve_job.yaml \
 	$(VENV_BIN)python -m fournos
+
+dev-test-generic:
+	@echo "Submitting fournos-generic smoke test..."
+	kubectl create -f dev/mock-generic/sample-fjob.yaml -n $(or $(FOURNOS_WORKLOAD_NAMESPACE),fournos-local-dev)
+	@echo "Watch status with: kubectl get fjob -n $(or $(FOURNOS_WORKLOAD_NAMESPACE),fournos-local-dev) -w"
 
 dev-teardown:
 	KIND_EXPERIMENTAL_PROVIDER=$(KIND_EXPERIMENTAL_PROVIDER) kind delete cluster --name $(KIND_CLUSTER_NAME)

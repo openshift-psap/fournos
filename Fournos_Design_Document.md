@@ -299,31 +299,34 @@ The execution engine uses these to look up the full FournosJob spec via the Kube
 
 The execution engine reads `spec.displayName` (or `metadata.name`) directly from the FournosJob spec for its own resource naming and correlation.
 
-**Hub configuration vs mocks:** `config/forge/` is the authoritative layout for deploying the execution engine on the hub (workflows, images, samples). Tasks in `config/forge/workflows/tasks.yaml` and `config/fournos-validation/workflows/tasks.yaml` implement the parameter interface for real clusters. `dev/mock-pipelines/` holds echo/sleep Tekton stand-ins used only by kind-based dev setup and tests — not a substitute for `config/forge/`.
+**Hub configuration:** Fournos ships two built-in asset directories:
+
+- `config/resolve/` — the engine-agnostic resolve Job template (`resolve_job.yaml`). The operator loads this at startup; it invokes `/opt/fournos/entrypoint` inside whatever image the Pipeline's `fournos.dev/resolve-image` annotation selects.
+- `config/generic/` — the built-in `fournos-generic` Pipeline, Task, runner image, and RBAC. This is the zero-code path: users provide a container image + FournosJob YAML and the runner handles everything.
+
+Custom execution engines (like FORGE) provide their own Pipelines and Tasks in their own repositories. `dev/mock-pipelines/` holds echo/sleep Tekton stand-ins used only by kind-based dev setup and tests.
+
+See [docs/execution-engine-contract.md](docs/execution-engine-contract.md) for the full engine integration contract.
 
 ## 8. Tekton Pipelines and Tasks
 
-The Task and Pipeline YAML checked in under `config/forge/workflows/` is what you apply on OpenShift for real workloads. Pipelines under `dev/mock-pipelines/` exist for local kind clusters and automated tests; they reuse the same `spec.pipeline` names but are not the production definitions.
+Fournos supports two pipeline modes. The built-in `fournos-generic` pipeline ships with the operator; custom engine pipelines (like FORGE's) are deployed from their own repos. Pipelines under `dev/mock-pipelines/` exist for local kind clusters and automated tests; they reuse the same `spec.pipeline` names but are not the production definitions.
 
-### Tasks ([config/forge/workflows/tasks.yaml](config/forge/workflows/tasks.yaml))
+### Built-in Pipelines and Tasks
 
-Execution-engine-owned tasks (stubs in this repo, replaced by the real execution engine implementation):
+| Pipeline / Task            | File                                                              | Description                    |
+| -------------------------- | ----------------------------------------------------------------- | ------------------------------ |
+| `fournos-generic`          | [pipeline.yaml](config/generic/pipeline.yaml)                     | Built-in generic pipeline — runs any user container as a child K8s Job |
+| `fournos-generic-step`     | [task.yaml](config/generic/task.yaml)                             | Task for the generic pipeline runner |
 
+### Custom Engine Pipelines (e.g. FORGE)
 
-| Task              | Description                                                    |
-| ----------------- | -------------------------------------------------------------- |
-| `fournos-prepare` | Execution engine: set up the target cluster                    |
-| `fournos-run`     | Execution engine: run the benchmark against the target cluster |
-| `fournos-cleanup` | Execution engine: clean up resources on the target cluster     |
+Custom engines deploy their own Pipelines and Tasks from their own repositories. For example, FORGE provides `forge-full`, `forge-test-only`, etc. via its gitops configuration.
 
-
-### Pipelines
-
+### Dev / Test Pipelines
 
 | Pipeline           | File                                                              | Tasks                          | Finally                        |
 | ------------------ | ----------------------------------------------------------------- | ------------------------------ | ------------------------------ |
-| `forge-full`       | [pipeline-full.yaml](config/forge/workflows/pipeline-full.yaml)         | pre-cleanup, prepare → test    | export-artifacts, post-cleanup |
-| `forge-test-only`  | [pipeline-test-only.yaml](config/forge/workflows/pipeline-test-only.yaml) | test                           | export-artifacts               |
 | `fournos-full`     | [pipeline-full.yaml](dev/mock-pipelines/pipeline-full.yaml) *(kind / tests)* | prepare → run                  | cleanup                        |
 | `fournos-run-only` | [pipeline-run-only.yaml](dev/mock-pipelines/pipeline-run-only.yaml) *(kind / tests)* | run                            | *(none)*                       |
 
@@ -406,7 +409,7 @@ All settings via environment variables with `FOURNOS_` prefix ([fournos/settings
 | `FOURNOS_LOG_LEVEL`                 | `INFO`                 | Logging level                  |
 | `FOURNOS_GC_INTERVAL_SEC`           | `300`                  | Resource GC interval (seconds) |
 | `FOURNOS_RESOLVE_DEADLINE_SEC`       | `300`                 | Deadline for the resolve Job (seconds) |
-| `FOURNOS_RESOLVE_JOB_TEMPLATE`       | `config/forge/resolve_job.yaml` | Path (relative to project root) to the Job YAML template for the resolve step |
+| `FOURNOS_RESOLVE_JOB_TEMPLATE`       | `config/resolve/resolve_job.yaml` | Path (relative to project root) to the Job YAML template for the resolve step |
 
 
 ## 12. Project structure

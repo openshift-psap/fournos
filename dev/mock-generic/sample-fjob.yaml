@@ -1,0 +1,19 @@
+# Sample FournosJob for testing the fournos-generic pipeline on kind.
+# Uses the mock-generic-user image (built and loaded by dev-setup).
+apiVersion: fournos.dev/v1
+kind: FournosJob
+metadata:
+  name: test-generic-smoke
+spec:
+  owner: dev-test
+  displayName: generic-smoke-test
+  clusterless: true
+  exclusive: false
+  pipeline: fournos-generic
+  executionEngine:
+    generic:
+      image: fournos-mock-generic-user:dev
+      env:
+        MODEL: test-model
+        RATE: "42"
+        GREETING: "hello from fournos-generic"

@@ -1,0 +1,37 @@
+# Generic template for the resolve K8s Job.
+#
+# The operator loads this at startup, deep-copies it per job, and injects
+# dynamic values (metadata, image, env-var values, ownerReferences, deadline).
+#
+# This template is engine-agnostic: `command` always points at the same
+# fixed, absolute path — /opt/fournos/entrypoint — which every execution
+# engine image must provide (as a file or symlink to its own bootstrap
+# script). No per-engine logic lives here or in the operator; it all lives
+# inside each engine's own image. The image selected here is whatever the
+# Pipeline's `fournos.dev/resolve-image` annotation points to.
+#
+# Contract for /opt/fournos/entrypoint (see docs/execution-engine-contract.md):
+#   Reads FJOB_NAME / FOURNOS_WORKLOAD_NAMESPACE / FOURNOS_STEP from the
+#   environment. When FOURNOS_STEP=resolve-fournos-config, it must patch
+#   spec.hardware and/or spec.secretRefs on the FournosJob (if the engine
+#   needs them) and exit 0 on success / non-zero on failure.
+apiVersion: batch/v1
+kind: Job
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: fournos
+      restartPolicy: Never
+      containers:
+        - name: resolve
+          imagePullPolicy: Always
+          command: ["/opt/fournos/entrypoint"]
+          args: []
+          env:
+            - name: FJOB_NAME
+            - name: FOURNOS_WORKLOAD_NAMESPACE
+            - name: FOURNOS_STEP
+              value: resolve-fournos-config
+            - name: FOURNOS_CI
+              value: "true"
