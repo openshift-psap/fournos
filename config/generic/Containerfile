@@ -1,0 +1,32 @@
+# Fournos generic runner image.
+#
+# This image ships as part of the Fournos infrastructure and is used by the
+# built-in `fournos-generic` Pipeline. It runs any user container as a
+# child K8s Job — the user's image needs zero Fournos awareness.
+#
+# Usage: set the Pipeline's fournos.dev/resolve-image annotation AND the
+# Task step image to this image. The runner reads
+# spec.executionEngine.generic.{image, command, env} from the FournosJob
+# and handles everything.
+
+FROM registry.access.redhat.com/ubi9/python-312-minimal:latest
+
+USER root
+
+# Install oc CLI (for reading FournosJob and creating child Jobs)
+RUN microdnf install -y tar gzip && microdnf clean all && \
+    curl -sSL https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable/openshift-client-linux.tar.gz \
+    | tar -xzf - -C /usr/local/bin oc kubectl && \
+    chmod +x /usr/local/bin/oc /usr/local/bin/kubectl
+
+# Install PyYAML (used to serialize child Job manifests)
+RUN pip install --no-cache-dir pyyaml
+
+# Copy the runner script
+COPY runner.py /opt/fournos/runner.py
+RUN chmod +x /opt/fournos/runner.py && \
+    ln -sf /opt/fournos/runner.py /opt/fournos/entrypoint
+
+USER 1001
+
+ENTRYPOINT ["/opt/fournos/entrypoint"]
