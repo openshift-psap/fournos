@@ -49,7 +49,6 @@ deploy: install
 		| kubectl apply -f-
 	kubectl apply -f config/kueue-cluster-config.yaml
 	kubectl apply -f config/kueue-config.yaml -n $(FOURNOS_WORKLOAD_NAMESPACE)
-	kubectl apply -f config/resolve/resolve_job.yaml -n $(FOURNOS_WORKLOAD_NAMESPACE)
 	cat config/generic/rbac.yaml | NAMESPACE=$(FOURNOS_WORKLOAD_NAMESPACE) envsubst '$$NAMESPACE' | kubectl apply -f-
 	for wf in config/generic/pipeline.yaml config/generic/task.yaml; do \
 		cat $$wf | NAMESPACE=$(FOURNOS_WORKLOAD_NAMESPACE) envsubst '$$NAMESPACE' | kubectl apply -f- -n $(FOURNOS_WORKLOAD_NAMESPACE); \
