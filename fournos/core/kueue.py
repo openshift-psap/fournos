@@ -6,6 +6,7 @@ from kubernetes import client
 
 from fournos.core.constants import (
     CLUSTER_SLOT_RESOURCE,
+    LABEL_FLAVOR_HEALTHY,
     LABEL_JOB_NAME,
     LABEL_MANAGED_BY,
     MAX_CLUSTER_SLOTS,
@@ -138,6 +139,27 @@ class KueueClient:
             plural=KUEUE_RESOURCE_FLAVOR_PLURAL,
         )
         return {item["metadata"]["name"] for item in result.get("items", [])}
+
+    def is_flavor_healthy(self, flavor_name: str) -> bool:
+        """Return whether Hearth considers this cluster's flavor reachable.
+
+        Defaults to healthy when the flavor is missing or unlabeled, so
+        flavors that predate this label (or clusters managed outside Hearth)
+        are never mistakenly treated as dead.
+        """
+        try:
+            flavor = self._k8s.get_cluster_custom_object(
+                group=KUEUE_GROUP,
+                version=KUEUE_VERSION,
+                plural=KUEUE_RESOURCE_FLAVOR_PLURAL,
+                name=flavor_name,
+            )
+        except client.exceptions.ApiException as exc:
+            if exc.status == 404:
+                return True
+            raise
+        labels = flavor.get("metadata", {}).get("labels") or {}
+        return labels.get(LABEL_FLAVOR_HEALTHY, "true") != "false"
 
     def list_gpu_types(self) -> set[str]:
         """Return the set of GPU type short names that have quota in any ClusterQueue."""

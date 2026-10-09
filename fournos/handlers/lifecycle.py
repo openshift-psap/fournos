@@ -432,6 +432,59 @@ def _pending_status(
     return user_msg, log_msg
 
 
+def _redirect_to_equivalent_cluster(spec, name, status, patch, body) -> bool:
+    """If pinned to a cluster Hearth has marked unreachable, drop the pin and
+    let Kueue pick any flavor offering the same GPU type. Returns True if a
+    redirect was performed this reconcile.
+
+    Only applies to jobs that specify both `cluster` and `hardware` — a
+    cluster-lock-only job (no GPU type) has no "equivalent" to redirect to,
+    since the user explicitly wanted that one cluster.
+    """
+    cluster = spec.get("cluster")
+    hardware = spec.get("hardware") or {}
+    gpu_type = hardware.get("gpuType")
+
+    if not cluster or not gpu_type:
+        return False
+    if status.get("redirectedFrom") == cluster:
+        return False
+    if ctx.kueue.is_flavor_healthy(cluster):
+        return False
+
+    logger.warning(
+        "Job %s: pinned cluster %s is unreachable, redirecting to an equivalent cluster",
+        name,
+        cluster,
+    )
+    ctx.kueue.delete_workload(name)
+    ctx.kueue.create_workload(
+        name=name,
+        gpu_type=gpu_type,
+        gpu_count=hardware.get("gpuCount", 0),
+        cluster=None,
+        exclusive=spec["exclusive"],
+        priority=spec.get("priority"),
+        owner_ref=owner_ref(body),
+    )
+
+    patch.status["redirectedFrom"] = cluster
+    patch.status["redirectCount"] = status.get("redirectCount", 0) + 1
+    patch.status["message"] = (
+        f"Cluster {cluster} is unreachable; redirected to an equivalent cluster"
+    )
+    set_condition(
+        patch,
+        list(status.get("conditions") or []),
+        COND_WORKLOAD_ADMITTED,
+        "False",
+        "Redirected",
+        f"Original cluster {cluster} unreachable; retrying on an equivalent cluster",
+    )
+    logger.info("Job %s: redirected away from unreachable cluster %s", name, cluster)
+    return True
+
+
 def reconcile_pending(spec, name, status, patch, body):
     wl = ctx.kueue.get_workload_or_none(name)
     if wl is None:
@@ -441,14 +494,18 @@ def reconcile_pending(spec, name, status, patch, body):
     conditions = list(status.get("conditions") or [])
 
     if not KueueClient.is_admitted(wl):
+        if _redirect_to_equivalent_cluster(spec, name, status, patch, body):
+            return
+
         wl_reason, wl_message = KueueClient.get_pending_message(wl)
         cluster = spec.get("cluster")
+        already_redirected = status.get("redirectedFrom") == cluster
         locker = None
-        if cluster and CLUSTER_SLOT_RESOURCE in wl_message:
+        if cluster and not already_redirected and CLUSTER_SLOT_RESOURCE in wl_message:
             locker = _find_exclusive_locker(cluster, name)
         new_msg, log_msg = _pending_status(
             wl_message,
-            cluster,
+            None if already_redirected else cluster,
             spec["exclusive"],
             locker,
         )
