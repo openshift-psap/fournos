@@ -77,6 +77,19 @@ spec:
                   default: "fournos-full"
                 cluster:
                   type: string
+                  description: >-
+                    Pin this job to one target cluster. Mutually exclusive with
+                    gpuPool.
+                gpuPool:
+                  type: string
+                  maxLength: 63
+                  pattern: "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
+                  description: >-
+                    Named pool of clusters that can run this GPU type. Pool
+                    membership is configured on each Kueue ResourceFlavor.
+                    Kueue admits the whole GPU request on one cluster; it does
+                    not combine quota across clusters. Mutually exclusive with
+                    cluster.
                 hardware:
                   type: object
                   required:
@@ -124,16 +137,16 @@ spec:
                     Lock the target cluster for exclusive use by this job.
                     When true, the job waits until the cluster has no other active
                     jobs and then prevents any new job from being scheduled there.
-                    Requires 'cluster' to be set.  Hardware is optional — when
-                    omitted the Workload only requests cluster-slot resources
-                    for locking.
+                    Requires 'cluster' or 'gpuPool' to be set. Hardware is
+                    optional only when pinned to a specific cluster; a GPU pool
+                    requires hardware so Kueue can select a compatible cluster.
                 clusterless:
                   type: boolean
                   default: false
                   description: >-
                     Run without cluster access - no kubeconfig is passed to the
-                    execution environment. Cannot be combined with 'cluster' or
-                    'exclusive: true'. Hardware specifications are optional -
+                    execution environment. Cannot be combined with 'cluster',
+                    'gpuPool', or 'exclusive: true'. Hardware specifications are optional -
                     if omitted, the job runs on hub cluster resources without
                     Kueue hardware scheduling.
                 lockOnly:

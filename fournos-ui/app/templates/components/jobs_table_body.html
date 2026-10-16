@@ -15,7 +15,7 @@
     <td><span class="project-badge">{{ info.project }}</span></td>
     <td><code>{{ info.args | join(", ") or "default" }}</code></td>
     <td><span class="owner-badge">{{ job.spec.owner }}</span></td>
-    <td><span class="cluster-name">{{ job.spec.cluster }}</span></td>
+    <td><span class="cluster-name">{{ job.status.cluster or job.spec.cluster or ('GPU pool: ' ~ job.spec.gpuPool if job.spec.gpuPool else '-') }}</span></td>
     <td>
         {% set step_info = (current_steps or {}).get(job.metadata.name) %}
         {% if step_info %}

@@ -104,7 +104,11 @@
             <dt>Pipeline</dt>
             <dd><code>{{ job.spec.pipeline }}</code></dd>
             <dt>Cluster</dt>
-            <dd><code>{{ job.spec.cluster }}</code></dd>
+            <dd><code>{{ job.status.cluster or job.spec.cluster or "Pending pool assignment" }}</code></dd>
+            {% if job.spec.gpuPool %}
+            <dt>GPU Pool</dt>
+            <dd><code>{{ job.spec.gpuPool }}</code></dd>
+            {% endif %}
             <dt>Exclusive</dt>
             <dd>{{ "Yes" if job.spec.exclusive else "No" }}</dd>
             <dt>Project</dt>

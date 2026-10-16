@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from decimal import Decimal, InvalidOperation
 
 from kubernetes import client
 
@@ -17,8 +18,10 @@ logger = logging.getLogger(__name__)
 KUEUE_GROUP = "kueue.x-k8s.io"
 KUEUE_VERSION = "v1beta2"
 KUEUE_WORKLOAD_PLURAL = "workloads"
+KUEUE_LOCAL_QUEUE_PLURAL = "localqueues"
 KUEUE_RESOURCE_FLAVOR_PLURAL = "resourceflavors"
 KUEUE_CLUSTER_QUEUE_PLURAL = "clusterqueues"
+GPU_POOL_LABEL_PREFIX = "fournos.dev/gpu-pool-"
 
 
 class KueueClient:
@@ -36,10 +39,14 @@ class KueueClient:
         gpu_type: str | None = None,
         gpu_count: int = 0,
         cluster: str | None = None,
+        gpu_pool: str | None = None,
         exclusive: bool = True,
         priority: str | None = None,
         owner_ref: dict | None = None,
     ) -> dict:
+        if cluster and gpu_pool:
+            raise ValueError("cluster and gpu_pool are mutually exclusive")
+
         resource_requests: dict[str, str] = {}
         if gpu_type and gpu_count:
             gpu_resource = self._gpu_resource_name(gpu_type)
@@ -61,6 +68,14 @@ class KueueClient:
 
         if cluster:
             pod_spec["nodeSelector"] = {"fournos.dev/cluster": cluster}
+        elif gpu_pool:
+            if not gpu_type or not gpu_count:
+                raise ValueError(
+                    "gpu_pool requires a GPU type and a positive GPU count"
+                )
+            pod_spec["nodeSelector"] = {
+                f"{GPU_POOL_LABEL_PREFIX}{gpu_type.lower()}": gpu_pool
+            }
 
         metadata: dict = {
             "name": name,
@@ -154,6 +169,83 @@ class KueueClient:
                     if resource.startswith(prefix):
                         gpu_types.add(resource[len(prefix) :])
         return gpu_types
+
+    def list_gpu_pools(self) -> dict[str, set[str]]:
+        """Return GPU pools with GPU and slot quota in this job's ClusterQueue.
+
+        Pools are encoded as ``fournos.dev/gpu-pool-<gpu-type>`` node labels on
+        ResourceFlavors. The LocalQueue determines which ClusterQueue can admit
+        Workloads from this namespace.
+        """
+        local_queue = self._k8s.get_namespaced_custom_object(
+            group=KUEUE_GROUP,
+            version=KUEUE_VERSION,
+            namespace=settings.workload_namespace,
+            plural=KUEUE_LOCAL_QUEUE_PLURAL,
+            name=settings.kueue_local_queue_name,
+        )
+        cluster_queue_name = local_queue.get("spec", {}).get("clusterQueue")
+        if not cluster_queue_name:
+            raise ValueError(
+                f"LocalQueue '{settings.kueue_local_queue_name}' has no ClusterQueue"
+            )
+        queue = self._k8s.get_cluster_custom_object(
+            group=KUEUE_GROUP,
+            version=KUEUE_VERSION,
+            plural=KUEUE_CLUSTER_QUEUE_PLURAL,
+            name=cluster_queue_name,
+        )
+        flavor_gpu_types: dict[str, set[str]] = {}
+        prefix = settings.gpu_resource_prefix
+
+        for resource_group in queue.get("spec", {}).get("resourceGroups", []):
+            covered_resources = set(resource_group.get("coveredResources", []))
+            if CLUSTER_SLOT_RESOURCE not in covered_resources:
+                continue
+
+            for flavor in resource_group.get("flavors", []):
+                flavor_name = flavor.get("name")
+                if not flavor_name:
+                    continue
+                quotas = {
+                    resource.get("name"): resource.get("nominalQuota", 0)
+                    for resource in flavor.get("resources", [])
+                }
+                if not self._positive_quota(quotas.get(CLUSTER_SLOT_RESOURCE)):
+                    continue
+                for resource_name, quota in quotas.items():
+                    if not resource_name or not resource_name.startswith(prefix):
+                        continue
+                    if resource_name not in covered_resources:
+                        continue
+                    if self._positive_quota(quota):
+                        gpu_type = resource_name[len(prefix) :]
+                        flavor_gpu_types.setdefault(flavor_name, set()).add(gpu_type)
+
+        resource_flavors = self._k8s.list_cluster_custom_object(
+            group=KUEUE_GROUP,
+            version=KUEUE_VERSION,
+            plural=KUEUE_RESOURCE_FLAVOR_PLURAL,
+        )
+        pools: dict[str, set[str]] = {}
+        for flavor in resource_flavors.get("items", []):
+            flavor_name = flavor.get("metadata", {}).get("name")
+            if not flavor_name:
+                continue
+            labels = flavor.get("spec", {}).get("nodeLabels", {})
+            for gpu_type in flavor_gpu_types.get(flavor_name, set()):
+                pool = labels.get(f"{GPU_POOL_LABEL_PREFIX}{gpu_type}")
+                if isinstance(pool, str) and pool:
+                    pools.setdefault(gpu_type, set()).add(pool)
+
+        return pools
+
+    @staticmethod
+    def _positive_quota(value: object) -> bool:
+        try:
+            return Decimal(str(value)) > 0
+        except (InvalidOperation, TypeError, ValueError):
+            return False
 
     @staticmethod
     def is_admitted(workload: dict) -> bool:

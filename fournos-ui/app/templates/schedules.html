@@ -44,8 +44,16 @@
 
                 <div class="form-group">
                     <label for="sched-cluster">Cluster</label>
-                    <input type="text" name="cluster" id="sched-cluster" required
+                    <input type="text" name="cluster" id="sched-cluster"
                            placeholder="e.g. agentic-cpt-8xa100">
+                </div>
+
+                <div class="form-group">
+                    <label for="sched-gpu-pool">GPU Pool</label>
+                    <select name="gpu_pool" id="sched-gpu-pool">
+                        <option value="">No GPU pool selected</option>
+                    </select>
+                    <span class="form-hint">Each run must fit on one cluster in the selected pool.</span>
                 </div>
 
                 <div class="form-group">
@@ -150,7 +158,7 @@
             <td><span class="project-badge">{{ cj.project }}</span></td>
             <td><code>{{ cj.preset or "default" }}</code></td>
             <td><code>{{ cj.schedule }}</code></td>
-            <td><span class="cluster-name">{{ cj.cluster }}</span></td>
+            <td><span class="cluster-name">{{ "GPU pool: " ~ cj.gpu_pool if cj.gpu_pool else cj.cluster }}</span></td>
             <td>
                 {% if cj.has_resolver %}
                 <div style="display: flex; gap: 6px; align-items: center;">
@@ -228,6 +236,7 @@ const cronjobData = {
     {% for cj in cronjobs %}
     '{{ cj.name }}': {
         name: '{{ cj.name }}', project: '{{ cj.project }}', cluster: '{{ cj.cluster }}',
+        gpu_pool: '{{ cj.gpu_pool }}',
         pipeline: '{{ cj.pipeline }}', preset: '{{ cj.preset }}', schedule: '{{ cj.schedule }}',
         owner: '{{ cj.owner }}', resolver_filename: '{{ cj.resolver_filename }}',
         has_resolver: {{ 'true' if cj.has_resolver else 'false' }},
@@ -337,6 +346,7 @@ function openForm(mode, editName) {
         nameField.value = cj.name;
         document.getElementById('sched-project').value = cj.project;
         document.getElementById('sched-cluster').value = cj.cluster;
+        document.getElementById('sched-gpu-pool').value = cj.gpu_pool;
         document.getElementById('sched-pipeline').value = cj.pipeline;
         document.getElementById('sched-preset').value = cj.preset;
         document.getElementById('sched-cron').value = cj.schedule;
@@ -372,6 +382,46 @@ function closeForm() {
     document.getElementById('create-form-wrapper').style.display = 'none';
     document.getElementById('sched-edit-target').value = '';
 }
+
+async function loadScheduleGpuPools() {
+    const select = document.getElementById('sched-gpu-pool');
+    try {
+        const response = await fetch('/api/gpu-pools');
+        if (!response.ok) throw new Error('Could not load GPU pools');
+        const pools = await response.json();
+        for (const pool of pools) {
+            const option = document.createElement('option');
+            option.value = pool.name;
+            option.textContent = pool.gpu_type.toUpperCase() + ' — ' + pool.name;
+            select.appendChild(option);
+        }
+        const editName = document.getElementById('sched-edit-target').value;
+        if (editName && cronjobData[editName]) {
+            select.value = cronjobData[editName].gpu_pool;
+        }
+    } catch (err) {
+        const option = document.createElement('option');
+        option.textContent = 'GPU pools unavailable';
+        option.disabled = true;
+        select.appendChild(option);
+    }
+}
+
+document.getElementById('sched-gpu-pool').addEventListener('change', function() {
+    if (this.value) document.getElementById('sched-cluster').value = '';
+});
+document.getElementById('sched-cluster').addEventListener('input', function() {
+    if (this.value) document.getElementById('sched-gpu-pool').value = '';
+});
+document.getElementById('schedule-form').addEventListener('submit', function(event) {
+    const cluster = document.getElementById('sched-cluster').value.trim();
+    const pool = document.getElementById('sched-gpu-pool').value;
+    if (Boolean(cluster) === Boolean(pool)) {
+        event.preventDefault();
+        alert('Choose exactly one target: a cluster or a GPU pool.');
+    }
+});
+document.addEventListener('DOMContentLoaded', loadScheduleGpuPools);
 
 function toggleCreateForm() {
     const wrapper = document.getElementById('create-form-wrapper');

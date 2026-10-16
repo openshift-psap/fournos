@@ -9,6 +9,7 @@ metadata:
 spec:
   nodeLabels:
     fournos.dev/cluster: cluster-1
+    fournos.dev/gpu-pool-a100: a100
 
 ---
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -18,6 +19,7 @@ metadata:
 spec:
   nodeLabels:
     fournos.dev/cluster: cluster-2
+    fournos.dev/gpu-pool-a100: a100
 
 ---
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -27,6 +29,7 @@ metadata:
 spec:
   nodeLabels:
     fournos.dev/cluster: cluster-3
+    fournos.dev/gpu-pool-h200: h200
 
 ---
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -36,6 +39,7 @@ metadata:
 spec:
   nodeLabels:
     fournos.dev/cluster: cluster-4
+    fournos.dev/gpu-pool-h200: h200
 
 ---
 # ClusterQueue — per-cluster GPU quotas.

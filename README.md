@@ -78,7 +78,8 @@ oc delete FournosJob -n $FOURNOS_WORKLOAD_NAMESPACE <name>      # cleanup
 |---|---|---|
 | `spec.executionEngine` | yes | Execution engine configuration. The single top-level key is the engine name (e.g. `forge`); its value is opaque engine-specific config passed through as-is. |
 | `spec.env` | no | Environment variables available to the execution engine (read from the FournosJob spec via K8s API) |
-| `spec.cluster` | \* | Pin to a specific cluster (Kueue ResourceFlavor). Since `exclusive` defaults to `true`, this also locks the cluster — set `exclusive: false` for shared access. |
+| `spec.cluster` | \* | Pin to one specific cluster (Kueue ResourceFlavor). Mutually exclusive with `spec.gpuPool`. Since `exclusive` defaults to `true`, this also locks the cluster — set `exclusive: false` for shared access. |
+| `spec.gpuPool` | \* | Select a named pool of clusters for the requested GPU type. Mutually exclusive with `spec.cluster`. Kueue must fit the complete GPU request on one cluster; it never combines quota across pool members. |
 | `spec.hardware.gpuType` | \* | Short GPU model name — e.g. `a100`, `h200`. The operator prepends the `FOURNOS_GPU_RESOURCE_PREFIX` (default `fournos/gpu-`) automatically, so do **not** include the full resource path. |
 | `spec.hardware.gpuCount` | with gpuType | Number of GPUs (minimum 1) |
 | `spec.owner` | no | Team or individual that owns this job |
@@ -86,8 +87,8 @@ oc delete FournosJob -n $FOURNOS_WORKLOAD_NAMESPACE <name>      # cleanup
 | `spec.pipeline` | no | Tekton Pipeline name (default: `fournos-full`). The Pipeline must carry a `fournos.dev/resolve-image` annotation with the full image reference for the resolve Job. |
 | `spec.priority` | no | Kueue WorkloadPriorityClass name |
 | `spec.secretRefs` | no | Vault-synced K8s Secret names (prefixed with `vault-`) to mount into the pipeline. Populated by the execution engine during the Resolving phase. The operator validates each name in `FOURNOS_SECRETS_NAMESPACE`, copies the secrets into the operator namespace, and mounts them as a projected volume at `/var/run/secrets/fournos/<entry-name>/`. |
-| `spec.exclusive` | no (default `true`) | If `true`, locks the target cluster so no other FournosJob can run there. Requires `spec.cluster`. Hardware is optional — when omitted the Workload only requests cluster-slot resources for locking. |
-| `spec.clusterless` | no (default `false`) | If `true`, runs without cluster access — no kubeconfig is passed to the execution environment. Cannot be combined with `cluster` or `exclusive: true`. Hardware specifications are optional — if omitted, the job runs on hub cluster resources without Kueue hardware scheduling. |
+| `spec.exclusive` | no (default `true`) | If `true`, locks the selected cluster so no other FournosJob can run there. Requires `spec.cluster` or `spec.gpuPool`. Hardware is optional only when a specific cluster is selected; a pool requires GPU hardware so Kueue can choose a compatible member cluster. |
+| `spec.clusterless` | no (default `false`) | If `true`, runs without cluster access — no kubeconfig is passed to the execution environment. Cannot be combined with `cluster`, `gpuPool`, or `exclusive: true`. Hardware specifications are optional — if omitted, the job runs on hub cluster resources without Kueue hardware scheduling. |
 | `spec.lockOnly` | no (default `false`, or `true` if `lockUntil` is set) | Sentinel lock job: holds cluster-slot quota without running a pipeline. Implies `exclusive: true` and requires `cluster`. The job stays `Admitted` until deleted, shut down, or (with `lockUntil`) until it auto-expires. If omitted, a bare `lockUntil` is enough to imply `lockOnly: true` — set `lockOnly: false` explicitly to reject a stray `lockUntil` instead. |
 | `spec.lockUntil` | no | ISO 8601 UTC timestamp (e.g. `2026-08-23T22:00:00Z`) at which the lock is released automatically. Implies `lockOnly: true` if `lockOnly` is omitted. Omit `lockUntil` to hold the lock indefinitely. |
 | `spec.scheduledStartTime` | no | ISO 8601 UTC timestamp (e.g. `2026-08-18T15:00:00Z`). When set, the job stays in `Scheduled` phase until this time, then proceeds to `Resolving`. Mutually exclusive with `schedule`. |
@@ -96,18 +97,21 @@ oc delete FournosJob -n $FOURNOS_WORKLOAD_NAMESPACE <name>      # cleanup
 
 \* `spec.hardware` is optional for all jobs except those requiring explicit GPU 
 scheduling. Hardware specifications are handled as follows:
-- **Exclusive cluster jobs** (`exclusive: true` + `cluster`): Hardware may be 
-  omitted since the Workload only needs cluster-slot resources for locking.
+- **Exclusive target jobs** (`exclusive: true` + `cluster` or `gpuPool`): A
+  specific-cluster lock may omit hardware. A GPU-pool target requires GPU
+  hardware so Kueue can choose a compatible member cluster; exclusivity then
+  locks only the cluster selected for that job.
 - **Non-exclusive jobs** (`exclusive: false`): Hardware is optional — when 
   omitted, the Workload only requests cluster-slot resources for shared access.
 - **Clusterless jobs** (`clusterless: true`): Hardware is optional since jobs 
   run on hub cluster resources without Kueue scheduling.
 Every job passes through the Resolving phase where the execution engine
 populates `spec.hardware` (if not already set) and `spec.secretRefs` directly
-on the FournosJob. Since `exclusive` defaults to `true`, any job with
-`spec.cluster` locks the cluster exclusively — including jobs that also specify
-`spec.hardware`. Set `exclusive: false` for shared access. Jobs without
-`spec.cluster` must set `exclusive: false`.
+on the FournosJob. Since `exclusive` defaults to `true`, a job with
+`spec.cluster` locks that cluster, while a job with `spec.gpuPool` locks the one
+pool member selected by Kueue — including jobs that also specify
+`spec.hardware`. Set `exclusive: false` for shared access. Jobs without either
+target must set `exclusive: false`.
 
 ### Status
 
@@ -329,13 +333,35 @@ The secret name must match the `FOURNOS_KUBECONFIG_SECRET_PATTERN` (default
 `kubeconfig-{cluster}`). Secrets are stored in the dedicated namespace
 (`FOURNOS_SECRETS_NAMESPACE`, default `psap-secrets`).
 
-2. **Add a ResourceFlavor and quota** in `config/kueue-config.yaml`. Add a
+2. **Add a ResourceFlavor and quota** in `config/kueue-cluster-config.yaml`. Add a
    new `ResourceFlavor` with a matching `fournos.dev/cluster` nodeLabel, and
    list it under the `fournos-queue` ClusterQueue with the appropriate GPU/CPU
-   quotas. Then apply:
+   quotas. To make this cluster selectable through a GPU pool, add a nodeLabel
+   named `fournos.dev/gpu-pool-<gpuType>` (for example,
+   `fournos.dev/gpu-pool-h200: h200`) to its ResourceFlavor. Give each member
+   flavor the same pool value. Then apply:
 
 ```bash
-oc apply -f config/kueue-config.yaml
+oc apply -f config/kueue-cluster-config.yaml
+```
+
+GPU resources and `fournos/cluster-slot` must remain in the same ClusterQueue
+resource group, with a separate flavor and quota for each target cluster. This
+lets Kueue select one flavor for a Workload: if two H200 clusters each have 4
+GPUs free, an 8-GPU request remains pending rather than combining them. It can
+be admitted once one cluster has enough available quota.
+Pool discovery checks only the ClusterQueue referenced by the job namespace's
+configured LocalQueue (default `fournos-queue`) and requires positive GPU and
+cluster-slot quota in that same resource group.
+
+For example, an 8-GPU job that can run on either H200 cluster can use:
+
+```yaml
+spec:
+  gpuPool: h200
+  hardware:
+    gpuType: h200
+    gpuCount: 8
 ```
 
 3. **Verify connectivity** by submitting a lightweight validate-only

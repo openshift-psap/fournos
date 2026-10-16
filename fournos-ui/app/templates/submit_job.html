@@ -26,8 +26,17 @@
 
         <div class="form-group">
             <label for="cluster">Cluster</label>
-            <input type="text" name="cluster" id="cluster" required readonly
+            <input type="text" name="cluster" id="cluster" readonly
                    placeholder="Select a project" class="input-readonly">
+            <span class="form-hint">Use the project’s configured cluster, or select a GPU pool below.</span>
+        </div>
+
+        <div class="form-group">
+            <label for="gpu_pool">GPU Pool</label>
+            <select name="gpu_pool" id="gpu_pool">
+                <option value="">No GPU pool selected</option>
+            </select>
+            <span class="form-hint">A job from a pool must fit on one cluster; GPUs are never combined across clusters.</span>
         </div>
 
         <div class="form-group">
@@ -179,12 +188,14 @@ document.addEventListener('DOMContentLoaded', loadOpenPRs);
 async function loadPresets(projectName) {
     const presetSelect = document.getElementById('preset');
     const clusterInput = document.getElementById('cluster');
+    const gpuPoolSelect = document.getElementById('gpu_pool');
     const hint = document.getElementById('preset-hint');
     const versionGroup = document.getElementById('version-group');
     const versionInput = document.getElementById('version');
 
     presetSelect.innerHTML = '<option value="">none (default)</option>';
     clusterInput.value = '';
+    gpuPoolSelect.value = '';
     hint.textContent = 'Loading...';
 
     if (VERSION_PROJECTS.includes(projectName)) {
@@ -223,5 +234,31 @@ async function loadPresets(projectName) {
         hint.textContent = 'Failed to load project info.';
     }
 }
+
+async function loadGpuPools() {
+    const select = document.getElementById('gpu_pool');
+    try {
+        const response = await fetch('/api/gpu-pools');
+        if (!response.ok) throw new Error('Could not load GPU pools');
+        const pools = await response.json();
+        for (const pool of pools) {
+            const option = document.createElement('option');
+            option.value = pool.name;
+            option.textContent = pool.gpu_type.toUpperCase() + ' — ' + pool.name;
+            select.appendChild(option);
+        }
+    } catch (err) {
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = 'GPU pools unavailable';
+        option.disabled = true;
+        select.appendChild(option);
+    }
+}
+
+document.getElementById('gpu_pool').addEventListener('change', function() {
+    if (this.value) document.getElementById('cluster').value = '';
+});
+document.addEventListener('DOMContentLoaded', loadGpuPools);
 </script>
 {% endblock %}

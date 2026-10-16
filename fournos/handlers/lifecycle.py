@@ -95,9 +95,16 @@ def on_create(spec, name, namespace, status, patch, body):
         return
 
     cluster = spec.get("cluster")
+    gpu_pool = spec.get("gpuPool")
     exclusive = spec["exclusive"]
     lock_only = is_lock_only(spec)
     clusterless = spec.get("clusterless", False)
+
+    if cluster and gpu_pool:
+        set_terminal_phase(
+            patch, Phase.FAILED, "'cluster' and 'gpuPool' are mutually exclusive"
+        )
+        return
 
     if lock_only and not cluster:
         set_terminal_phase(
@@ -135,6 +142,10 @@ def on_create(spec, name, namespace, status, patch, body):
                 cluster,
                 "clusterless: true cannot be combined with cluster specification",
             ),
+            (
+                gpu_pool,
+                "clusterless: true cannot be combined with gpuPool specification",
+            ),
         ]:
             if cond:
                 set_terminal_phase(patch, Phase.FAILED, msg)
@@ -142,9 +153,11 @@ def on_create(spec, name, namespace, status, patch, body):
         patch.status["phase"] = Phase.RESOLVING
         patch.status["message"] = "Resolving job requirements"
         return
-    if exclusive and not cluster:
+    if exclusive and not cluster and not gpu_pool:
         set_terminal_phase(
-            patch, Phase.FAILED, "exclusive: true requires 'cluster' to be set"
+            patch,
+            Phase.FAILED,
+            "exclusive: true requires either 'cluster' or 'gpuPool' to be set",
         )
         return
 
@@ -161,7 +174,7 @@ def on_create(spec, name, namespace, status, patch, body):
             set_terminal_phase(patch, Phase.FAILED, f"Cluster '{cluster}' not found")
             return
 
-    if exclusive:
+    if exclusive and cluster:
         patch.meta.setdefault("labels", {})[LABEL_EXCLUSIVE_CLUSTER] = cluster
 
     if lock_only:
@@ -389,6 +402,7 @@ def _pending_status(
     wl_message: str,
     cluster: str | None,
     exclusive: bool,
+    gpu_pool: str | None = None,
     locker: str | None = None,
 ) -> tuple[str, str]:
     """Return (user_message, log_message) with cluster-slot context when applicable."""
@@ -422,11 +436,18 @@ def _pending_status(
             )
     elif is_slot_issue:
         user_msg = (
-            "All eligible clusters are exclusively locked, waiting for availability"
+            f"All eligible clusters in GPU pool {gpu_pool} are unavailable, "
+            "waiting for availability"
+            if gpu_pool
+            else "All eligible clusters are exclusively locked, waiting for availability"
         )
         log_msg = "hardware-only job blocked by exclusive locks (slot contention)"
     else:
-        user_msg = f"Waiting for admission: {wl_message}"
+        user_msg = (
+            f"Waiting for admission in GPU pool {gpu_pool}: {wl_message}"
+            if gpu_pool
+            else f"Waiting for admission: {wl_message}"
+        )
         log_msg = "Workload pending admission"
 
     return user_msg, log_msg
@@ -443,6 +464,7 @@ def reconcile_pending(spec, name, status, patch, body):
     if not KueueClient.is_admitted(wl):
         wl_reason, wl_message = KueueClient.get_pending_message(wl)
         cluster = spec.get("cluster")
+        gpu_pool = spec.get("gpuPool")
         locker = None
         if cluster and CLUSTER_SLOT_RESOURCE in wl_message:
             locker = _find_exclusive_locker(cluster, name)
@@ -450,6 +472,7 @@ def reconcile_pending(spec, name, status, patch, body):
             wl_message,
             cluster,
             spec["exclusive"],
+            gpu_pool,
             locker,
         )
         if status.get("message") != new_msg:
@@ -485,6 +508,8 @@ def reconcile_pending(spec, name, status, patch, body):
 
     patch.status["phase"] = Phase.ADMITTED
     patch.status["cluster"] = assigned_cluster
+    if spec.get("gpuPool") and spec["exclusive"]:
+        patch.meta.setdefault("labels", {})[LABEL_EXCLUSIVE_CLUSTER] = assigned_cluster
     patch.status["message"] = (
         f"Workload admitted, assigned to cluster {assigned_cluster}"
     )
