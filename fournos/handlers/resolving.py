@@ -270,6 +270,18 @@ def _create_workload_and_transition(
             priority=spec.get("priority"),
             owner_ref=owner_ref(body),
         )
+    except (ValueError, TypeError) as exc:
+        message = str(exc)
+        set_terminal_phase(patch, Phase.FAILED, message)
+        set_condition(
+            patch,
+            conditions,
+            COND_RESOLVED,
+            "False",
+            "InvalidPriority",
+            message,
+        )
+        return
     except client.exceptions.ApiException as exc:
         # The 409 in that case means that the Workload already exists in Kueue.
         # This may happen when the reconciliation loop re-enters this function for a FJob that has been already processed in a previous iteration:

@@ -334,6 +334,18 @@ def _create_lock_workload(spec, name, patch, body):
             priority=spec.get("priority"),
             owner_ref=owner_ref(body),
         )
+    except (ValueError, TypeError) as exc:
+        message = str(exc)
+        set_terminal_phase(patch, Phase.FAILED, message)
+        set_condition(
+            patch,
+            conditions,
+            COND_WORKLOAD_ADMITTED,
+            "False",
+            "InvalidPriority",
+            message,
+        )
+        return
     except k8s_client.exceptions.ApiException as exc:
         if exc.status != 409:
             raise

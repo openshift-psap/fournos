@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 KUEUE_GROUP = "kueue.x-k8s.io"
 KUEUE_VERSION = "v1beta2"
 KUEUE_WORKLOAD_PLURAL = "workloads"
+KUEUE_WORKLOAD_PRIORITY_CLASS_PLURAL = "workloadpriorityclasses"
 KUEUE_RESOURCE_FLAVOR_PLURAL = "resourceflavors"
 KUEUE_CLUSTER_QUEUE_PLURAL = "clusterqueues"
 
@@ -28,6 +29,29 @@ class KueueClient:
     @staticmethod
     def _gpu_resource_name(gpu_type: str) -> str:
         return f"{settings.gpu_resource_prefix}{gpu_type.lower()}"
+
+    def _get_workload_priority_value(self, priority_class_name: str) -> int:
+        try:
+            priority_class = self._k8s.get_cluster_custom_object(
+                group=KUEUE_GROUP,
+                version=KUEUE_VERSION,
+                plural=KUEUE_WORKLOAD_PRIORITY_CLASS_PLURAL,
+                name=priority_class_name,
+            )
+        except client.exceptions.ApiException as exc:
+            if exc.status == 404:
+                raise ValueError(
+                    f"Kueue WorkloadPriorityClass {priority_class_name!r} does not exist"
+                ) from exc
+            raise
+
+        value = priority_class.get("value")
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise TypeError(
+                f"Kueue WorkloadPriorityClass {priority_class_name!r} "
+                "does not have an integer value"
+            )
+        return value
 
     def create_workload(
         self,
@@ -91,7 +115,12 @@ class KueueClient:
         }
 
         if priority:
-            body["spec"]["priorityClassName"] = priority
+            body["spec"]["priorityClassRef"] = {
+                "group": KUEUE_GROUP,
+                "kind": "WorkloadPriorityClass",
+                "name": priority,
+            }
+            body["spec"]["priority"] = self._get_workload_priority_value(priority)
 
         result = self._k8s.create_namespaced_custom_object(
             group=KUEUE_GROUP,
