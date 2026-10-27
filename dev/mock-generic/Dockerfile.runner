@@ -1,0 +1,19 @@
+# Mock fournos-generic-runner for kind clusters.
+# Uses kubectl instead of oc — same logic as config/generic/runner.py.
+# Needs both python3 and kubectl.
+FROM python:3.12-slim
+
+# Install kubectl
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && \
+    curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/$(dpkg --print-architecture)/kubectl" && \
+    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl && \
+    rm kubectl && \
+    apt-get purge -y --auto-remove curl && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /opt/fournos
+COPY runner-mock.py /opt/fournos/runner.py
+RUN ln -sf /opt/fournos/runner.py /opt/fournos/entrypoint && \
+    chmod +x /opt/fournos/runner.py
+
+ENTRYPOINT ["python3", "/opt/fournos/entrypoint"]

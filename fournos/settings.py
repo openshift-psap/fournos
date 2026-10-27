@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     gc_interval_sec: float = Field(default=300.0, gt=0)
     log_level: str = "INFO"
     resolve_deadline_sec: int = Field(default=300, gt=0)
-    resolve_job_template: str = "config/forge/resolve_job.yaml"
+    resolve_job_template: str = "config/resolve/resolve_job.yaml"
     artifact_pvc_size: str = "10Gi"
     pipeline_timeout: str = Field(
         default="25h0m0s",

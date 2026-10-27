@@ -1,0 +1,47 @@
+# Built-in Fournos generic Task.
+#
+# Runs the fournos-generic-runner image, which reads the FournosJob spec
+# and launches the user's container as a child K8s Job. The user's
+# container is completely Fournos-unaware.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: fournos-generic-step
+spec:
+  params:
+    - name: fjob-name
+      type: string
+    - name: fournos-workload-namespace
+      type: string
+    - name: kubeconfig-secret
+      type: string
+  workspaces:
+    - name: artifacts
+  steps:
+    - name: run
+      # The fournos-generic-runner image. Built from config/generic/Containerfile.
+      # ${NAMESPACE} is substituted by envsubst during `make deploy`.
+      image: image-registry.openshift-image-registry.svc:5000/${NAMESPACE}/fournos-generic-runner:latest
+      # Explicit command prevents Tekton from contacting the registry to
+      # discover the image ENTRYPOINT (entrypoint resolution).  This is
+      # critical for air-gapped / local-registry setups and is good
+      # practice for all environments.
+      command: ["/opt/fournos/entrypoint"]
+      env:
+        - name: FJOB_NAME
+          value: "$(params.fjob-name)"
+        - name: FOURNOS_WORKLOAD_NAMESPACE
+          value: "$(params.fournos-workload-namespace)"
+        - name: FOURNOS_STEP
+          value: run
+        - name: ARTIFACT_DIR
+          value: "$(workspaces.artifacts.path)"
+      volumeMounts:
+        - name: kubeconfig
+          mountPath: /secrets/kubeconfig
+          readOnly: true
+  volumes:
+    - name: kubeconfig
+      secret:
+        secretName: "$(params.kubeconfig-secret)"
+        optional: true

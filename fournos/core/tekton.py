@@ -84,6 +84,7 @@ class TektonClient:
                     "finally": settings.pipeline_finally_timeout,
                 },
                 "taskRunTemplate": {
+                    "serviceAccountName": "fournos",
                     "metadata": {
                         "labels": labels,
                     },

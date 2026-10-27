@@ -65,7 +65,8 @@ spec:
 
 ```bash
 FOURNOS_WORKLOAD_NAMESPACE=fournos-$USER-dev
-oc create -f config/forge/samples/job-full.yaml -n $FOURNOS_WORKLOAD_NAMESPACE     # returns the generated name, e.g. forge-full-sample-x7k2m
+oc create -f config/generic/samples/job-generic.yaml -n $FOURNOS_WORKLOAD_NAMESPACE     # generic pipeline example
+# For FORGE jobs, apply FournosJob YAMLs from the forge repository
 oc get FournosJobs -n $FOURNOS_WORKLOAD_NAMESPACE -w            # watch status transitions
 oc patch FournosJob <name> -n $FOURNOS_WORKLOAD_NAMESPACE --type merge -p '{"spec":{"shutdown":"Stop"}}'        # graceful stop (runs finally tasks)
 oc patch FournosJob <name> -n $FOURNOS_WORKLOAD_NAMESPACE --type merge -p '{"spec":{"shutdown":"Terminate"}}'   # immediate terminate (skips finally tasks)
@@ -298,7 +299,12 @@ make test                        # integration tests (operator must be running)
 
 ## Deployment
 
-**Execution engine on the hub:** [`config/forge/`](config/forge/) is the real OpenShift configuration for this repo — ImageStreams, Builds, Tekton Tasks and Pipelines, and sample jobs you apply to a cluster. It is **not** the same as the lightweight stand-ins under [`dev/mock-pipelines/`](dev/mock-pipelines/), which [`make dev-setup`](#local-development) installs on kind for local testing only.
+**Execution engine assets:** Fournos ships two built-in asset directories:
+
+- [`config/resolve/`](config/resolve/) — the engine-agnostic resolve Job template. Loaded by the operator at startup.
+- [`config/generic/`](config/generic/) — the built-in `fournos-generic` Pipeline, Task, runner, and RBAC. The zero-code path for non-FORGE projects.
+
+Custom engines (like FORGE) deploy their own Pipelines and Tasks from their own repositories. [`dev/mock-pipelines/`](dev/mock-pipelines/) holds lightweight stand-ins that [`make dev-setup`](#local-development) installs on kind for local testing only. See [docs/execution-engine-contract.md](docs/execution-engine-contract.md) for details.
 
 Deploy the full stack (namespaces, CRD, RBAC, Kueue config, workflows, Deployment).
 The operator runs in a dedicated controller namespace; execution resources
@@ -362,16 +368,21 @@ another reason, check the operator logs and the PipelineRun status for details.
 
 ### Deploying the execution engine workflow configuration
 
-Apply the production execution engine assets from `config/forge/` (not the kind mocks in `dev/mock-pipelines/`). Deploy the cluster configuration (Builds + Tekton) to the **execution namespace**:
+Deploy the built-in Fournos assets (resolve template, generic pipeline, RBAC) to the **execution namespace**:
 
 ```bash
-oc apply -n $FOURNOS_WORKLOAD_NAMESPACE -f config/forge/images/is_forge.yaml
-cat config/forge/images/build_forge-main.yaml \
-  | NAMESPACE=$FOURNOS_WORKLOAD_NAMESPACE envsubst '$NAMESPACE' \
-  | oc apply -f- -n $FOURNOS_WORKLOAD_NAMESPACE
-oc create -n $FOURNOS_WORKLOAD_NAMESPACE -f config/forge/images/buildrun_forge-main.yaml
+# Resolve Job template + generic pipeline assets (shipped with Fournos)
+make deploy \
+  FOURNOS_CONTROLLER_NAMESPACE=fournos-controller-$USER \
+  FOURNOS_WORKLOAD_NAMESPACE=fournos-$USER-dev \
+  FOURNOS_SECRETS_NAMESPACE=psap-secrets
+```
 
-for wf_file in config/forge/workflows/*.yaml; do
+For custom engines (e.g. FORGE), deploy their Pipelines and Tasks from the engine's own repository:
+
+```bash
+# Example: FORGE engine assets (from the forge repo, not fournos)
+for wf_file in forge/fournos/gitops/base/workflows/*.yaml; do
   cat "$wf_file" | NAMESPACE=$FOURNOS_WORKLOAD_NAMESPACE envsubst '$NAMESPACE' | oc apply -f- -n $FOURNOS_WORKLOAD_NAMESPACE
 done
 ```
@@ -451,7 +462,7 @@ All settings are read from environment variables with the `FOURNOS_` prefix:
 | `FOURNOS_LOG_LEVEL` | `INFO` | Logging level |
 | `FOURNOS_GC_INTERVAL_SEC` | `300` | Resource GC interval (seconds) |
 | `FOURNOS_RESOLVE_DEADLINE_SEC` | `300` | Deadline for the resolve Job (seconds) |
-| `FOURNOS_RESOLVE_JOB_TEMPLATE` | `config/forge/resolve_job.yaml` | Path (relative to project root) to the Job YAML template for the resolve step. Override with `dev/mock-resolve/resolve_job.yaml` for local dev/CI. |
+| `FOURNOS_RESOLVE_JOB_TEMPLATE` | `config/resolve/resolve_job.yaml` | Path (relative to project root) to the Job YAML template for the resolve step. Override with `dev/mock-resolve/resolve_job.yaml` for local dev/CI. |
 | `FOURNOS_ARTIFACT_PVC_SIZE` | `1Gi` | Size of the per-PipelineRun PVC used for shared artifact storage across pipeline tasks |
 
 ## Architecture

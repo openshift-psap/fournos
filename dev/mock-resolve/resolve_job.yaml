@@ -1,9 +1,8 @@
 # Minimal Job template for local dev / CI with the mock-resolve image.
 #
-# Unlike the production template (config/forge/resolve_job.yaml)
-# this does NOT override command/args, so the image's own ENTRYPOINT runs.
-# The operator still injects metadata, image, env-var values, ownerReferences,
-# and deadline at runtime.
+# Follows the same /opt/fournos/entrypoint contract as the production
+# template (config/resolve/resolve_job.yaml) so CI validates the same
+# entrypoint path that production uses.
 apiVersion: batch/v1
 kind: Job
 spec:
@@ -15,6 +14,12 @@ spec:
       containers:
         - name: resolve
           imagePullPolicy: IfNotPresent
+          command: ["/opt/fournos/entrypoint"]
+          args: []
           env:
             - name: FJOB_NAME
             - name: FOURNOS_WORKLOAD_NAMESPACE
+            - name: FOURNOS_STEP
+              value: resolve-fournos-config
+            - name: FOURNOS_CI
+              value: "true"
