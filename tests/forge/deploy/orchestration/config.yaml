@@ -58,6 +58,9 @@ fournos_deploy:
     - manifests/rbac/clusterrole_fournos.yaml # will be skipped
     - manifests/rbac/rolebinding_fournos.yaml
     - manifests/rbac/role_fournos.yaml
+    - manifests/rbac/sa_pipeline_readonly.yaml
+    - manifests/rbac/role_pipeline_reader.yaml
+    - manifests/rbac/rolebinding_pipeline_reader.yaml
 
     crd:
     - manifests/crd.yaml # will be skipped

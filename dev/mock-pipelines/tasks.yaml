@@ -69,6 +69,9 @@ kind: Task
 metadata:
   name: fournos-cleanup
 spec:
+  results:
+    - name: preemption-cleanup-verified
+      description: Mock cleanup completed; no remote resources are created.
   workspaces:
     - name: artifacts
   params:
@@ -80,6 +83,7 @@ spec:
       script: |
         #!/bin/sh
         echo "[mock-cleanup] nothing to clean up in mock mode"
+        printf true > "$(results.preemption-cleanup-verified.path)"
 
 ---
 # Mock run-only Pipeline.

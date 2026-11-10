@@ -119,6 +119,7 @@ The operator writes status to `.status`:
 | `lastScheduledTime` | For recurring jobs, the timestamp when the last child job was created |
 | `cluster` | Cluster assigned by Kueue (or `[clusterless]` for clusterless jobs) |
 | `pipelineRun` | Name of the Tekton PipelineRun |
+| `stopReason` | `Preempted` or `Evicted` when Kueue interrupted the job; the job is not restarted automatically |
 | `dashboardURL` | Tekton Dashboard link (if configured) |
 | `message` | Error details on failure |
 
@@ -460,8 +461,8 @@ All settings are read from environment variables with the `FOURNOS_` prefix:
 FournosJob CR ──→ Operator ──→ Resolve Job (e.g. FORGE, patches FournosJob spec) ──→ Kueue Workload ──→ (admission) ──→ Tekton PipelineRun ──→ Execution Engine (e.g. FORGE) ──→ target cluster
 ```
 
-The operator runs as a single-replica Deployment using
-[kopf](https://kopf.dev/). On each `FournosJob`, it:
+The operator runs as a single-replica [kopf](https://kopf.dev/) Deployment
+with a `Recreate` rollout strategy. On each `FournosJob`, it:
 
 1. **Resolves** job requirements by launching a resolve K8s Job (using the configured execution engine image) that populates the FournosJob spec with GPU type/count and secret references
 2. **Creates** a Kueue Workload with the resolved GPU resources (owned by the FournosJob via `ownerReferences`)
@@ -477,6 +478,38 @@ PipelineRun and transitions to `phase=Stopping`. `Stop` uses Tekton's
 the Kueue Workload alive until the PipelineRun finishes, ensuring the
 cluster slot is not released prematurely. Once done, the Workload is
 deleted and the job moves to `phase=Stopped`.
+
+When Kueue marks an admitted Workload `Evicted=True`, Fournos starts a
+one-way handoff. It cancels an active PipelineRun with
+`CancelledRunFinally`, keeps the Workload reservation while the PipelineRun
+stops, and marks the FournosJob `Stopped` with `status.stopReason=Preempted`
+(or `Evicted` for other Kueue eviction reasons). The interrupted job is not
+requeued or resumed.
+
+If a PipelineRun exists, Fournos releases the reservation only after
+the PipelineRun is terminal and a declared cleanup `finally` TaskRun has
+succeeded with the result `preemption-cleanup-verified=true`. The Pipeline
+must declare both
+`fournos.dev/preemption-cleanup-project` (matching
+`spec.executionEngine.forge.project`) and
+`fournos.dev/preemption-cleanup-task` (the `finally` task name); Fournos
+copies that contract to the PipelineRun when it starts. If the contract is
+missing, the TaskRun fails, or cleanup cannot be verified, the job stays
+`Stopping` and the Workload remains reserved for investigation; the
+higher-priority replacement remains queued. The shared `forge-full` pipeline
+currently declares the contract for RHAIIS only. Other projects need a
+verified cleanup task before they can complete an automatic handoff. Jobs
+using `PULL_NUMBER` or `PULL_PULL_SHA` run PR code and do not claim the
+deployed-image cleanup contract, so their reservation stays held for manual
+verification if they are evicted. Both RHAIIS source modes use the
+`fournos-pipeline-readonly` Tekton service account, which may read the
+FournosJob and PipelineRun but cannot patch the cleanup contract. After
+manually confirming that a PR run has no target resources left, an operator
+can delete its FournosJob; the owned Workload is then cascade-deleted to
+release the reservation.
+A job
+evicted before its PipelineRun starts releases the Workload on the next
+reconcile cycle.
 
 Deleting a FournosJob automatically cascade-deletes its Workload and
 PipelineRun through Kubernetes owner references.

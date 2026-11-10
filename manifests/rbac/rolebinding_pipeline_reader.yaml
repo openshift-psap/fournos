@@ -1,0 +1,12 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fournos-pipeline-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: fournos-pipeline-reader
+subjects:
+  # PR code runs under this SA, so it may inspect but not patch PipelineRuns.
+  - kind: ServiceAccount
+    name: fournos-pipeline-readonly

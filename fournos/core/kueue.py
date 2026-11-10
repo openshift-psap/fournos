@@ -186,10 +186,27 @@ class KueueClient:
 
     @staticmethod
     def is_admitted(workload: dict) -> bool:
+        # Kueue leaves Admitted=True while an evicted Workload's owner stops
+        # its execution and releases the reservation.
+        if KueueClient.get_eviction_condition(workload):
+            return False
         conditions = workload.get("status", {}).get("conditions", [])
         return any(
             c.get("type") == "Admitted" and c.get("status") == "True"
             for c in conditions
+        )
+
+    @staticmethod
+    def get_eviction_condition(workload: dict) -> dict | None:
+        """Return Kueue's active eviction condition, if present."""
+        conditions = workload.get("status", {}).get("conditions", [])
+        return next(
+            (
+                c
+                for c in conditions
+                if c.get("type") == "Evicted" and c.get("status") == "True"
+            ),
+            None,
         )
 
     @staticmethod

@@ -108,6 +108,17 @@ def on_create(spec, name, namespace, status, patch, body, **_):
 def reconcile(spec, name, namespace, status, patch, body, **_):
     phase = status.get("phase", "")
 
+    if phase in (Phase.PENDING, Phase.ADMITTED, Phase.RUNNING, Phase.STOPPING):
+        workload = ctx.kueue.get_workload_or_none(name)
+        if workload is not None:
+            eviction = KueueClient.get_eviction_condition(workload)
+            if eviction is not None and status.get("stopReason") not in (
+                "Preempted",
+                "Evicted",
+            ):
+                handlers.handle_eviction(name, status, patch, eviction)
+                return
+
     if phase == Phase.STOPPING:
         handlers.reconcile_stopping(name, status, patch)
         return

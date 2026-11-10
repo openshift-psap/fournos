@@ -1,0 +1,12 @@
+# Tekton Tasks inspect their FournosJob and PipelineRun for cleanup verification.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fournos-pipeline-reader
+rules:
+  - apiGroups: ["fournos.dev"]
+    resources: ["fournosjobs"]
+    verbs: ["get"]
+  - apiGroups: ["tekton.dev"]
+    resources: ["pipelineruns"]
+    verbs: ["get"]
