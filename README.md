@@ -479,10 +479,11 @@ the Kueue Workload alive until the PipelineRun finishes, ensuring the
 cluster slot is not released prematurely. Once done, the Workload is
 deleted and the job moves to `phase=Stopped`.
 
-When Kueue marks an admitted Workload `Evicted=True`, Fournos starts a
-one-way handoff. It cancels an active PipelineRun with
-`CancelledRunFinally`, keeps the Workload reservation while the PipelineRun
-stops, and marks the FournosJob `Stopped` with `status.stopReason=Preempted`
+Tekton already runs `finally` tasks after an ordinary task failure. When
+Kueue marks an admitted Workload `Evicted=True`, Fournos uses its existing
+graceful stop path (`CancelledRunFinally`) to stop the PipelineRun and run
+`finally`. It keeps the Workload reservation while the PipelineRun stops,
+then marks the FournosJob `Stopped` with `status.stopReason=Preempted`
 (or `Evicted` for other Kueue eviction reasons). The interrupted job is not
 requeued or resumed.
 

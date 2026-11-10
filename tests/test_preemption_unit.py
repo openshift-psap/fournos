@@ -286,6 +286,19 @@ def test_eviction_during_user_shutdown_switches_to_verified_cleanup(clients) -> 
     assert kueue.deleted == []
 
 
+def test_user_stop_does_not_require_preemption_cleanup_contract(clients) -> None:
+    kueue, tekton = clients
+    kueue.workload = {"status": {"conditions": []}}
+    tekton.pipeline_run = _pipeline_run(completed=True, cleanup_annotation=False)
+
+    result = _reconcile({"phase": Phase.STOPPING, "conditions": []})
+
+    assert result["phase"] == Phase.STOPPED
+    assert result["message"] == "Job stopped by user"
+    assert "stopReason" not in result
+    assert kueue.deleted == [NAME]
+
+
 def test_cleanup_success_releases_workload_and_finishes_preemption(clients) -> None:
     kueue, tekton = clients
     tekton.pipeline_run = _pipeline_run(completed=True)

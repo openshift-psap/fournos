@@ -142,16 +142,21 @@ def handle_shutdown(name, status, patch, shutdown):
 
 
 def reconcile_stopping(name, status, patch):
-    """Poll a cancelled PipelineRun until it finishes, then complete shutdown."""
-    if status.get("stopReason") in ("Preempted", "Evicted"):
-        _reconcile_evicted_stopping(name, status, patch)
-        return
-
+    """Finish a stopped run; evictions also require proof of remote cleanup."""
+    evicted = status.get("stopReason") in ("Preempted", "Evicted")
     pr = ctx.tekton.get_pipeline_run_or_none(name)
-    conditions = list(status.get("conditions") or [])
-
     if pr is None:
-        _finish_stop(name, conditions, patch, "PipelineRun not found")
+        if evicted and status.get("pipelineRun"):
+            _hold_evicted_workload(
+                name,
+                status,
+                patch,
+                "PipelineRun is missing; remote cleanup cannot be verified",
+            )
+            return
+        _finish_stop(
+            name, status, patch, "PipelineRun not found", had_pipeline_run=False
+        )
         return
 
     pr_status, pr_message = TektonClient.extract_status(pr)
@@ -162,61 +167,47 @@ def reconcile_stopping(name, status, patch):
         pr_message,
     )
 
-    if pr_status in ("succeeded", "failed"):
-        _finish_stop(name, conditions, patch, pr_message)
+    if evicted:
+        complete = bool(pr.get("status", {}).get("completionTime"))
     else:
-        new_msg = (
-            f"Stopping, waiting for cleanup: {pr_message}"
-            if pr_message
-            else "Stopping, waiting for PipelineRun cleanup"
-        )
+        complete = pr_status in ("succeeded", "failed")
+    if not complete:
+        if evicted:
+            # An admitted job may have created its PipelineRun after eviction.
+            patch.status["pipelineRun"] = name
+            if pr.get("spec", {}).get("status") not in (
+                "Cancelled",
+                "CancelledRunFinally",
+            ):
+                ctx.tekton.cancel_pipeline_run(name, graceful=True)
+            new_msg = (
+                f"{status['stopReason']} by Kueue, waiting for PipelineRun cleanup"
+            )
+            if pr_message:
+                new_msg = f"{new_msg}: {pr_message}"
+        else:
+            new_msg = (
+                f"Stopping, waiting for cleanup: {pr_message}"
+                if pr_message
+                else "Stopping, waiting for PipelineRun cleanup"
+            )
         if status.get("message") != new_msg:
             patch.status["message"] = new_msg
+        return
 
-
-def _reconcile_evicted_stopping(name, status, patch):
-    """Hold quota until a cancelled PipelineRun's cleanup is proven complete."""
-    pr = ctx.tekton.get_pipeline_run_or_none(name)
-    if pr is None:
-        if status.get("pipelineRun"):
+    if evicted:
+        try:
+            cleanup_verified, detail = _preemption_cleanup_verified(pr)
+        except client.exceptions.ApiException as exc:
             _hold_evicted_workload(
-                name,
-                status,
-                patch,
-                "PipelineRun is missing; remote cleanup cannot be verified",
+                name, status, patch, f"Could not read cleanup TaskRun: {exc.reason}"
             )
             return
-        _finish_eviction(name, status, patch, had_pipeline_run=False)
-        return
+        if not cleanup_verified:
+            _hold_evicted_workload(name, status, patch, detail)
+            return
 
-    if not pr.get("status", {}).get("completionTime"):
-        patch.status["pipelineRun"] = name
-        if pr.get("spec", {}).get("status") not in (
-            "Cancelled",
-            "CancelledRunFinally",
-        ):
-            ctx.tekton.cancel_pipeline_run(name, graceful=True)
-        _, pr_message = TektonClient.extract_status(pr)
-        message = f"{status['stopReason']} by Kueue, waiting for PipelineRun cleanup"
-        if pr_message:
-            message = f"{message}: {pr_message}"
-        if status.get("message") != message:
-            patch.status["message"] = message
-        return
-
-    try:
-        cleanup_verified, detail = _preemption_cleanup_verified(pr)
-    except client.exceptions.ApiException as exc:
-        _hold_evicted_workload(
-            name, status, patch, f"Could not read cleanup TaskRun: {exc.reason}"
-        )
-        return
-
-    if not cleanup_verified:
-        _hold_evicted_workload(name, status, patch, detail)
-        return
-
-    _finish_eviction(name, status, patch, had_pipeline_run=True)
+    _finish_stop(name, status, patch, pr_message, had_pipeline_run=True)
 
 
 def _preemption_cleanup_verified(pr):
@@ -278,56 +269,36 @@ def _hold_evicted_workload(name, status, patch, detail):
     logger.warning("Job %s: %s", name, message)
 
 
-def _finish_eviction(name, status, patch, *, had_pipeline_run):
-    """Release the victim's quota after its remote execution has stopped."""
-    reason = status["stopReason"]
-    message = f"Job {reason.lower()} by Kueue"
+def _finish_stop(name, status, patch, pr_message, *, had_pipeline_run):
+    """Release the Workload and record the reason for stopping."""
+    reason = status.get("stopReason")
+    evicted = reason in ("Preempted", "Evicted")
+    message = f"Job {reason.lower()} by Kueue" if evicted else "Job stopped by user"
+    condition_reason = reason if evicted else Phase.STOPPED
     ctx.kueue.delete_workload(name)
     set_terminal_phase(patch, Phase.STOPPED, message)
-    conditions = list(status.get("conditions") or [])
     set_condition(
         patch,
-        conditions,
+        list(status.get("conditions") or []),
         COND_WORKLOAD_ADMITTED,
         "False",
-        reason,
+        condition_reason,
         message,
     )
-    if had_pipeline_run:
+    if had_pipeline_run or not evicted:
         set_condition(
             patch,
             patch.status["conditions"],
             COND_PIPELINE_RUN_READY,
             "False",
-            reason,
-            "PipelineRun stopped after verified cleanup",
+            condition_reason,
+            (
+                "PipelineRun stopped after verified cleanup"
+                if evicted
+                else pr_message or message
+            ),
         )
-    logger.info("Job %s: %s, phase=Stopped", name, reason.lower())
-
-
-def _finish_stop(name, conditions, patch, pr_message):
-    """Transition from Stopping to Stopped: delete Workload and set terminal status."""
-    ctx.kueue.delete_workload(name)
-
-    set_terminal_phase(patch, Phase.STOPPED, "Job stopped by user")
-
-    set_condition(
-        patch,
-        conditions,
-        COND_WORKLOAD_ADMITTED,
-        "False",
-        Phase.STOPPED,
-        "Job stopped by user",
-    )
-    set_condition(
-        patch,
-        patch.status["conditions"],
-        COND_PIPELINE_RUN_READY,
-        "False",
-        Phase.STOPPED,
-        pr_message or "Job stopped by user",
-    )
-    logger.info("Job %s: stopped, phase=Stopped", name)
+    logger.info("Job %s: %s, phase=Stopped", name, message)
 
 
 def reconcile_admitted(spec, name, namespace, status, patch, body):
