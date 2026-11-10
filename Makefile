@@ -39,7 +39,8 @@ deploy: install
 	kubectl create ns $(FOURNOS_SECRETS_NAMESPACE) --dry-run=client -oyaml | kubectl apply -f-
 	kubectl apply -f manifests/rbac/sa_fournos.yaml -n $(FOURNOS_CONTROLLER_NAMESPACE)
 	kubectl apply -f manifests/rbac/sa_fournos.yaml -n $(FOURNOS_WORKLOAD_NAMESPACE)
-	for rbac_file in manifests/rbac/role_fournos.yaml manifests/rbac/rolebinding_fournos.yaml; do \
+	kubectl apply -f manifests/rbac/sa_pipeline_readonly.yaml -n $(FOURNOS_WORKLOAD_NAMESPACE)
+	for rbac_file in manifests/rbac/role_fournos.yaml manifests/rbac/rolebinding_fournos.yaml manifests/rbac/role_pipeline_reader.yaml manifests/rbac/rolebinding_pipeline_reader.yaml; do \
 		cat $$rbac_file | CONTROLLER_NAMESPACE=$(FOURNOS_CONTROLLER_NAMESPACE) envsubst '$$CONTROLLER_NAMESPACE' | kubectl apply -f- -n $(FOURNOS_WORKLOAD_NAMESPACE); \
 	done
 	cat manifests/rbac/clusterrole_fournos.yaml | kubectl apply -f-

@@ -16,6 +16,10 @@ TEKTON_PIPELINE_PLURAL = "pipelines"
 TEKTON_PIPELINE_RUN_PLURAL = "pipelineruns"
 
 ANNOTATION_RESOLVE_IMAGE = "fournos.dev/resolve-image"
+ANNOTATION_PREEMPTION_CLEANUP_TASK = "fournos.dev/preemption-cleanup-task"
+ANNOTATION_PREEMPTION_CLEANUP_PROJECT = "fournos.dev/preemption-cleanup-project"
+PREEMPTION_CLEANUP_RESULT = "preemption-cleanup-verified"
+PREEMPTION_CLEANUP_SERVICE_ACCOUNT = "fournos-pipeline-readonly"
 
 
 def _build_secrets_volume(resolved: list[ResolvedSecret]) -> dict:
@@ -55,8 +59,34 @@ class TektonClient:
         kubeconfig_secret: str | None,
         resolved_secrets: list[ResolvedSecret],
         cluster: str,
+        engine_project: str | None = None,
+        allow_cleanup_contract: bool = True,
         owner_ref: dict | None = None,
     ) -> dict:
+        pipeline_body = self.get_pipeline(pipeline)
+        pipeline_annotations = (
+            pipeline_body.get("metadata", {}).get("annotations") or {}
+        )
+        declared_cleanup_task = pipeline_annotations.get(
+            ANNOTATION_PREEMPTION_CLEANUP_TASK
+        )
+        cleanup_supported = bool(declared_cleanup_task and engine_project)
+        cleanup_task = (
+            declared_cleanup_task
+            if cleanup_supported and allow_cleanup_contract
+            else None
+        )
+        if cleanup_task:
+            finally_tasks = {
+                task.get("name")
+                for task in pipeline_body.get("spec", {}).get("finally", [])
+            }
+            if cleanup_task not in finally_tasks:
+                raise ValueError(
+                    f"Pipeline {pipeline!r} declares preemption cleanup task "
+                    f"{cleanup_task!r}, but it is not a finally task"
+                )
+
         labels = {
             LABEL_MANAGED_BY: "fournos",
             LABEL_JOB_NAME: name,
@@ -69,6 +99,13 @@ class TektonClient:
                 "fournos.dev/cluster": cluster,
             },
         }
+        if cleanup_task:
+            # Snapshot the contract used by this run; the Pipeline can change
+            # while its PipelineRun is active.
+            metadata["annotations"][ANNOTATION_PREEMPTION_CLEANUP_TASK] = cleanup_task
+            metadata["annotations"][ANNOTATION_PREEMPTION_CLEANUP_PROJECT] = (
+                engine_project
+            )
         if owner_ref:
             metadata["ownerReferences"] = [owner_ref]
 
@@ -124,6 +161,13 @@ class TektonClient:
                 ],
             },
         }
+        if cleanup_supported:
+            # The default Tekton SA may be able to patch PipelineRuns. All
+            # jobs eligible for this contract, including PR runs that do not
+            # claim it, must use a read-only SA instead.
+            body["spec"]["taskRunTemplate"]["serviceAccountName"] = (
+                PREEMPTION_CLEANUP_SERVICE_ACCOUNT
+            )
         result = self._k8s.create_namespaced_custom_object(
             group=TEKTON_GROUP,
             version=TEKTON_VERSION,
@@ -155,6 +199,21 @@ class TektonClient:
     def get_pipeline_run_or_none(self, name: str) -> dict | None:
         try:
             return self.get_pipeline_run(name)
+        except client.exceptions.ApiException as exc:
+            if exc.status == 404:
+                return None
+            raise
+
+    def get_task_run_or_none(self, name: str) -> dict | None:
+        """Return a TaskRun used to verify a cancelled run's cleanup."""
+        try:
+            return self._k8s.get_namespaced_custom_object(
+                group=TEKTON_GROUP,
+                version=TEKTON_VERSION,
+                namespace=settings.workload_namespace,
+                plural="taskruns",
+                name=name,
+            )
         except client.exceptions.ApiException as exc:
             if exc.status == 404:
                 return None
