@@ -470,12 +470,11 @@ def test_pipeline_run_rejects_cleanup_contract_outside_finally() -> None:
     assert api.created_body is None
 
 
-def test_pipeline_run_does_not_claim_another_projects_cleanup_contract() -> None:
+def test_pipeline_run_claims_cleanup_contract_for_any_forge_project() -> None:
     pipeline = {
         "metadata": {
             "annotations": {
                 ANNOTATION_PREEMPTION_CLEANUP_TASK: CLEANUP_TASK,
-                ANNOTATION_PREEMPTION_CLEANUP_PROJECT: CLEANUP_PROJECT,
             }
         },
         "spec": {"finally": [{"name": CLEANUP_TASK}]},
@@ -488,14 +487,16 @@ def test_pipeline_run_does_not_claim_another_projects_cleanup_contract() -> None
         kubeconfig_secret=f"{NAME}-kubeconfig",
         resolved_secrets=[],
         cluster="cluster-1",
-        engine_project="llm-d",
+        engine_project="llm_d",
     )
 
+    annotations = api.created_body["metadata"]["annotations"]
+    assert annotations[ANNOTATION_PREEMPTION_CLEANUP_TASK] == CLEANUP_TASK
+    assert annotations[ANNOTATION_PREEMPTION_CLEANUP_PROJECT] == "llm_d"
     assert (
-        ANNOTATION_PREEMPTION_CLEANUP_TASK
-        not in api.created_body["metadata"]["annotations"]
+        api.created_body["spec"]["taskRunTemplate"]["serviceAccountName"]
+        == PREEMPTION_CLEANUP_SERVICE_ACCOUNT
     )
-    assert "serviceAccountName" not in api.created_body["spec"]["taskRunTemplate"]
 
 
 def test_pr_run_uses_readonly_account_without_contract() -> None:

@@ -489,19 +489,20 @@ requeued or resumed.
 If a PipelineRun exists, Fournos releases the reservation only after
 the PipelineRun is terminal and a declared cleanup `finally` TaskRun has
 succeeded with the result `preemption-cleanup-verified=true`. The Pipeline
-must declare both
-`fournos.dev/preemption-cleanup-project` (matching
-`spec.executionEngine.forge.project`) and
-`fournos.dev/preemption-cleanup-task` (the `finally` task name); Fournos
-copies that contract to the PipelineRun when it starts. If the contract is
+must declare `fournos.dev/preemption-cleanup-task` (the `finally` task name).
+Fournos copies that task and the job's Forge project to the PipelineRun when
+it starts. If the contract is
 missing, the TaskRun fails, or cleanup cannot be verified, the job stays
 `Stopping` and the Workload remains reserved for investigation; the
 higher-priority replacement remains queued. The shared `forge-full` pipeline
-currently declares the contract for RHAIIS only. Other projects need a
-verified cleanup task before they can complete an automatic handoff. Jobs
+declares the contract for every Forge project. A successful deployed-image
+post-cleanup TaskRun provides the common cleanup proof; RHAIIS additionally
+checks target resources before emitting it. Projects without a working
+post-cleanup phase or jobs using a pipeline without a declared cleanup task
+remain held for manual verification. Jobs
 using `PULL_NUMBER` or `PULL_PULL_SHA` run PR code and do not claim the
 deployed-image cleanup contract, so their reservation stays held for manual
-verification if they are evicted. Both RHAIIS source modes use the
+verification if they are evicted. Both source modes on a contracted pipeline use the
 `fournos-pipeline-readonly` Tekton service account, which may read the
 FournosJob and PipelineRun but cannot patch the cleanup contract. After
 manually confirming that a PR run has no target resources left, an operator

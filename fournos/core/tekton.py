@@ -67,15 +67,13 @@ class TektonClient:
         pipeline_annotations = (
             pipeline_body.get("metadata", {}).get("annotations") or {}
         )
-        cleanup_project = pipeline_annotations.get(
-            ANNOTATION_PREEMPTION_CLEANUP_PROJECT
+        declared_cleanup_task = pipeline_annotations.get(
+            ANNOTATION_PREEMPTION_CLEANUP_TASK
         )
-        cleanup_project_matches = bool(
-            cleanup_project and cleanup_project == engine_project
-        )
+        cleanup_supported = bool(declared_cleanup_task and engine_project)
         cleanup_task = (
-            pipeline_annotations.get(ANNOTATION_PREEMPTION_CLEANUP_TASK)
-            if cleanup_project_matches and allow_cleanup_contract
+            declared_cleanup_task
+            if cleanup_supported and allow_cleanup_contract
             else None
         )
         if cleanup_task:
@@ -106,7 +104,7 @@ class TektonClient:
             # while its PipelineRun is active.
             metadata["annotations"][ANNOTATION_PREEMPTION_CLEANUP_TASK] = cleanup_task
             metadata["annotations"][ANNOTATION_PREEMPTION_CLEANUP_PROJECT] = (
-                cleanup_project
+                engine_project
             )
         if owner_ref:
             metadata["ownerReferences"] = [owner_ref]
@@ -163,7 +161,7 @@ class TektonClient:
                 ],
             },
         }
-        if cleanup_project_matches:
+        if cleanup_supported:
             # The default Tekton SA may be able to patch PipelineRuns. All
             # jobs eligible for this contract, including PR runs that do not
             # claim it, must use a read-only SA instead.
