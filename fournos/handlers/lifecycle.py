@@ -333,6 +333,7 @@ def _create_lock_workload(spec, name, patch, body):
             exclusive=True,
             priority=spec.get("priority"),
             owner_ref=owner_ref(body),
+            owner=spec.get("owner"),
         )
     except (ValueError, TypeError) as exc:
         message = str(exc)

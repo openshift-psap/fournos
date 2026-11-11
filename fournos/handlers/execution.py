@@ -223,6 +223,7 @@ def reconcile_admitted(spec, name, namespace, status, patch, body):
                 resolved_secrets=resolved_secrets,
                 cluster=cluster,
                 owner_ref=owner_ref(body),
+                owner=spec.get("owner"),
             )
             if clusterless:
                 logger.info("Job %s: created PipelineRun in clusterless mode", name)

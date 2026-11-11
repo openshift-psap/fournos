@@ -8,6 +8,7 @@ from fournos.core.constants import (
     CLUSTER_SLOT_RESOURCE,
     LABEL_JOB_NAME,
     LABEL_MANAGED_BY,
+    LABEL_OWNER,
     MAX_CLUSTER_SLOTS,
 )
 from fournos.settings import settings
@@ -63,6 +64,7 @@ class KueueClient:
         exclusive: bool = True,
         priority: str | None = None,
         owner_ref: dict | None = None,
+        owner: str | None = None,
     ) -> dict:
         resource_requests: dict[str, str] = {}
         if gpu_type and gpu_count:
@@ -95,6 +97,8 @@ class KueueClient:
                 LABEL_JOB_NAME: name,
             },
         }
+        if owner is not None:
+            metadata["labels"][LABEL_OWNER] = owner
         if owner_ref:
             metadata["ownerReferences"] = [owner_ref]
 

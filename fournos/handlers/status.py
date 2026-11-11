@@ -89,4 +89,5 @@ def create_workload_for_job(spec, name, body):
         exclusive=spec["exclusive"],
         priority=spec.get("priority"),
         owner_ref=owner_ref(body),
+        owner=spec.get("owner"),
     )
