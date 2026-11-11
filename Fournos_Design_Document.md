@@ -6,7 +6,7 @@
 
 The operator is built with [kopf](https://kopf.dev/) (Kubernetes Operator Pythonic Framework) and runs as a single-replica Deployment.
 
-For the mathematical admission algebra, dynamic quota discovery formulas, failover redirection rules, and cleanup-verified preemption reconciliation algorithms, see the [Formal Admission, Resilience, and Preemption Contract](docs/design/formal-admission-contract.md).
+For details on multi-cluster quota discovery, failover rules, and preemption handoff algorithms, see the [Multi-Cluster Scheduling Specification](docs/design/multi-cluster-scheduling.md).
 
 ## 2. Architecture overview
 

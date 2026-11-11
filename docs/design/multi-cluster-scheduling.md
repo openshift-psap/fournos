@@ -1,6 +1,6 @@
-# Formal Admission, Resilience, and Preemption Contract
+# Multi-Cluster Scheduling and Lifecycle Specification
 
-This document provides the formal mathematical specification, operational invariants, and reconciliation algorithm governing multi-cluster admission, dynamic quota discovery, failure resilience, and cleanup-verified preemption in Fournos and Hearth.
+This document details the operational model, scheduling invariants, failure resilience, and preemption handoff algorithms governing multi-cluster admission across Fournos and Hearth.
 
 ---
 
