@@ -6,6 +6,7 @@ import datetime
 import logging
 
 from fournos.core.constants import TERMINAL_PHASES, Phase
+from fournos.core.labels import job_labels
 
 CRD_GROUP = "fournos.dev"
 CRD_VERSION = "v1"
@@ -89,5 +90,5 @@ def create_workload_for_job(spec, name, body):
         exclusive=spec["exclusive"],
         priority=spec.get("priority"),
         owner_ref=owner_ref(body),
-        owner=spec.get("owner"),
+        labels=job_labels(spec),
     )

@@ -6,11 +6,10 @@ from kubernetes import client
 
 from fournos.core.constants import (
     CLUSTER_SLOT_RESOURCE,
-    LABEL_JOB_NAME,
     LABEL_MANAGED_BY,
-    LABEL_OWNER,
     MAX_CLUSTER_SLOTS,
 )
+from fournos.core.labels import base_labels
 from fournos.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -64,7 +63,7 @@ class KueueClient:
         exclusive: bool = True,
         priority: str | None = None,
         owner_ref: dict | None = None,
-        owner: str | None = None,
+        labels: dict[str, str] | None = None,
     ) -> dict:
         resource_requests: dict[str, str] = {}
         if gpu_type and gpu_count:
@@ -93,12 +92,9 @@ class KueueClient:
             "namespace": settings.workload_namespace,
             "labels": {
                 "kueue.x-k8s.io/queue-name": settings.kueue_local_queue_name,
-                LABEL_MANAGED_BY: "fournos",
-                LABEL_JOB_NAME: name,
+                **base_labels(name, labels),
             },
         }
-        if owner is not None:
-            metadata["labels"][LABEL_OWNER] = owner
         if owner_ref:
             metadata["ownerReferences"] = [owner_ref]
 
