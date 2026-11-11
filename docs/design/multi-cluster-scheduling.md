@@ -87,7 +87,7 @@ When an outage occurs on cluster $c$ ($H_c(t) = 0$):
 * Pending pool-scoped jobs are admitted to surviving healthy pool members automatically by Kueue without controller intervention.
 * For pending jobs explicitly pinned to cluster $c$ with a non-zero accelerator request ($r_{j,g} > 0$), Fournos clears the cluster pin on the pending virtual `Workload`, allowing Kueue to re-admit the workload across any compatible cluster with sufficient quota:
   $$\text{Redirect}(j, c) \mapsto c' \in \mathcal{C} \setminus \{c\} \quad \text{s.t.} \quad Q_{c',g}(t) - \sum_{k \in A_{c'}(t)} r_{k,g} \ge r_{j,g}$$
-  Redirection is bounded by a per-job redistribution budget $\theta_{\text{redist}} = 3$; the counter is not reset when the cluster recovers, so a long outage consumes it. Once the budget is exhausted, the job stays queued on its original pin and surfaces through the normal pending-reason conditions rather than failing. Lock-only jobs (exclusive slot without an accelerator request) have no target-agnostic equivalent and remain queued until the pinned cluster recovers.
+  Redirection is bounded by a per-job redistribution budget $\theta_{\text{redist}} = 3$, and a job is never redirected away from the same source cluster twice: Fournos records the source in `redirectedFrom` and suppresses a repeat redirect from it. The counter is not reset when a cluster recovers, so a long campaign consumes it. Once the budget is exhausted, the job stays queued on its original pin and surfaces through the normal pending-reason conditions rather than failing. Lock-only jobs (exclusive slot without an accelerator request) have no target-agnostic equivalent and remain queued until the pinned cluster recovers.
   Because Kueue disallows in-place mutation of `podSets` on active Workload objects, Fournos safely recreates or updates the pending unadmitted virtual Workload's flavor requirements without perturbing active quota reservations of running jobs.
 
 ---
@@ -185,11 +185,11 @@ Ensure:
 26:     end if
 27: 
 28:     // Outage failover: redirect pending, pinned work if its target is quarantined
-29:     if j.pinned != NULL and j.state == "Pending"
-30:        and H_{j.pinned} == 0 and r_{j,g} > 0
-31:        and j.reroutes < theta_redist then
+29:     if j.pinned != NULL and j.redirectedFrom != j.pinned
+30:        and j.state == "Pending" and H_{j.pinned} == 0
+31:        and r_{j,g} > 0 and j.reroutes < theta_redist then
 32:         UnpinTargetFlavor(W_j)           // Allows Kueue to re-admit across healthy flavor
-33:         j.pinned = NULL                  // Clear pin to prevent redundant re-increments
+33:         j.redirectedFrom = j.pinned      // Do not redirect away from the same source twice
 34:         j.reroutes = j.reroutes + 1
 35:     end if
 36: end for
@@ -241,8 +241,8 @@ Ensure:
 82:         j.state = "Failed"
 83:     end if
 84: end for
-82: 
-83: return <A, E>
+85: 
+86: return <A, E>
 ```
 
 ---
