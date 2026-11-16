@@ -6,6 +6,8 @@
 
 The operator is built with [kopf](https://kopf.dev/) (Kubernetes Operator Pythonic Framework) and runs as a single-replica Deployment.
 
+For details on multi-cluster quota discovery, failover rules, and preemption handoff algorithms, see the [Multi-Cluster Scheduling Specification](docs/design/multi-cluster-scheduling.md).
+
 ## 2. Architecture overview
 
 ```mermaid
