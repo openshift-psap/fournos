@@ -1,0 +1,120 @@
+-- allium: 3
+-- cluster-resources.allium
+
+-- Scope: Cluster-side resources tied to a FournosJob, and the label contract
+--        that binds them to the job's owner
+-- Includes: FJob cluster view; job-name and owner label stamping on
+--           controller-managed resources and execution pods
+-- Excludes: FJob lifecycle, scheduling, quota and shutdown handling (existing
+--           controller behaviour, not restated here)
+-- Dependencies: none
+
+------------------------------------------------------------
+-- Enumerations
+------------------------------------------------------------
+
+enum JobPhase {
+    scheduled
+    | recurring
+    | resolving
+    | pending
+    | admitted
+    | running
+    | succeeded
+    | failed
+    | stopping
+    | stopped
+}
+
+enum PodPhase { pending | running | succeeded | failed }
+
+enum Shutdown { stop | terminate }
+
+------------------------------------------------------------
+-- Entities and Variants
+------------------------------------------------------------
+
+external entity FJob {
+    name: String
+    namespace: String
+    owner: String?                -- spec.owner
+    phase: JobPhase
+    cluster: String?              -- status.cluster
+    pipeline_run: String?         -- status.pipelineRun
+    dashboard_url: String?        -- status.dashboardURL
+    created_at: Timestamp
+    shutdown: Shutdown?           -- spec.shutdown, set by shutdown requests
+}
+
+-- Any namespaced resource the controller creates on behalf of a FournosJob
+-- (resolve Job, Kueue Workload, PipelineRun, TaskRun).
+entity ManagedResource {
+    job: FJob
+    job_name: String              -- fournos.dev/job-name label value
+    owner_label: String?          -- fournos.dev/owner label value
+}
+
+-- A pod executing a step of a FournosJob pipeline (resolve step included).
+-- Tekton's affinity-assistant pods are not execution pods even though they
+-- inherit the fournos.dev/job-name label from the PipelineRun: they are
+-- volume-affinity infrastructure, and pod lookup filters them out by their
+-- app.kubernetes.io/component=affinity-assistant label.
+entity ExecutionPod {
+    name: String
+    namespace: String
+    job: FJob
+    job_name: String              -- fournos.dev/job-name label value
+    owner_label: String?          -- fournos.dev/owner label value
+    status: PodPhase
+    started_at: Timestamp?
+    restarts: Integer
+}
+
+------------------------------------------------------------
+-- Rules
+------------------------------------------------------------
+
+rule StampJobLabelsOnManagedResource {
+    when: resource: ManagedResource.created
+    ensures: resource.job_name = resource.job.name
+    ensures:
+        if resource.job.owner != null:
+            resource.owner_label = resource.job.owner
+    @guidance
+        -- Only newly created resources are stamped: editing spec.owner on a
+        -- live FournosJob does not relabel resources that already exist.
+        -- The controller computes an internal set of KV labels per job (today:
+        -- fournos.dev/owner when the job has an owner) and applies it wherever
+        -- fournos.dev/job-name is stamped, so the labels always travel together.
+}
+
+rule StampJobLabelsOnExecutionPod {
+    when: pod: ExecutionPod.created
+    ensures: pod.job_name = pod.job.name
+    ensures:
+        if pod.job.owner != null:
+            pod.owner_label = pod.job.owner
+    @guidance
+        -- Labels reach the pods through the PipelineRun taskRunTemplate (and
+        -- the resolve Job's pod template), which Tekton propagates to TaskRuns
+        -- and their pods. Tekton forces app.kubernetes.io/managed-by=
+        -- tekton-pipelines on the pods it creates, so execution pods are
+        -- identified as fournos pods by the presence of the
+        -- fournos.dev/job-name label, not by managed-by.
+}
+
+------------------------------------------------------------
+-- Invariants
+------------------------------------------------------------
+
+invariant ManagedResourcesCarryJobLabels {
+    for resource in ManagedResources:
+        resource.job_name = resource.job.name
+        and (resource.job.owner = null or resource.owner_label = resource.job.owner)
+}
+
+invariant ExecutionPodsCarryJobLabels {
+    for pod in ExecutionPods:
+        pod.job_name = pod.job.name
+        and (pod.job.owner = null or pod.owner_label = pod.job.owner)
+}

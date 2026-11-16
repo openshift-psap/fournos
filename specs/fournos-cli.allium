@@ -1,0 +1,383 @@
+-- allium: 3
+-- fournos-cli.allium
+
+-- Scope: The fournos CLI — configuration and identity resolution, FournosJob
+--        and pod lookup, log streaming, and lifecycle actions. The CLI is a
+--        replacement for `oc` for day-to-day interaction with FournosJobs.
+-- Includes: owner/namespace/kubeconfig resolution precedence; get fjobs
+--        (all, by owner, single job); get pods; watch mode; logs; stop;
+--        terminate; delete; confirmation flow
+-- Excludes: job submission (oc create -f remains the way to submit); edit;
+--        cluster-side labelling (cluster-resources.allium)
+-- Dependencies: cluster-resources.allium (FJob, ExecutionPod, owner labels)
+
+use "./cluster-resources.allium" as cluster
+
+------------------------------------------------------------
+-- Enumerations
+------------------------------------------------------------
+
+enum FailureReason {
+    owner_unresolved
+    | fjob_not_found
+    | no_running_pod
+    | pod_not_found
+}
+
+enum ConfirmationAction { shutdown | delete }
+
+------------------------------------------------------------
+-- Entities and Variants
+------------------------------------------------------------
+
+-- One run of the fournos binary. Flags, config file, environment and kubeconfig
+-- context are read once per invocation; every derived value below follows the
+-- documented precedence (flag > config file > environment > fallback).
+entity CliInvocation {
+    -- Owner identity sources, in resolution order
+    owner_flag: String?             -- --owner
+    config_file_owner: String?      -- ~/.config/fournos/fournos-cli.yaml
+    env_owner: String?              -- FOURNOS_OWNER
+    system_user: String?            -- $USER
+
+    -- Namespace sources, in resolution order
+    namespace_flag: String?         -- -n / --namespace
+    config_file_namespace: String?  -- ~/.config/fournos/fournos-cli.yaml
+    env_namespace: String?          -- FOURNOS_WORKLOAD_NAMESPACE
+    context_namespace: String       -- active kubeconfig context namespace ("default" when unset)
+
+    -- Kubeconfig sources, in resolution order
+    kubeconfig_flag: String?        -- --kubeconfig
+    config_file_kubeconfig: String? -- ~/.config/fournos/fournos-cli.yaml
+    default_kubeconfig: String      -- client default: KUBECONFIG env var, then ~/.kube/config
+
+    resolved_owner: owner_flag ?? config_file_owner ?? env_owner ?? system_user
+    resolved_namespace: namespace_flag ?? config_file_namespace ?? env_namespace ?? context_namespace
+    resolved_kubeconfig: kubeconfig_flag ?? config_file_kubeconfig ?? default_kubeconfig
+}
+
+-- One row of `fournos get fjobs` output.
+entity FJobRow {
+    invocation: CliInvocation
+    job: cluster/FJob
+    shown_name: job.name
+    shown_owner: job.owner
+    shown_phase: job.phase
+    shown_cluster: job.cluster
+    shown_age: now - job.created_at
+}
+
+-- One row of `fournos get pods` output.
+entity PodRow {
+    invocation: CliInvocation
+    pod: cluster/ExecutionPod
+    shown_name: pod.name
+    shown_fjob: pod.job_name
+    -- pods created before the owner label was stamped fall back to the
+    -- owning FournosJob's owner
+    shown_owner: pod.owner_label ?? pod.job.owner
+    shown_status: pod.status
+    shown_restarts: pod.restarts
+    shown_age: now - pod.started_at
+}
+
+-- A command that could not proceed, with the reason and a hint for the user.
+entity CommandFailed {
+    invocation: CliInvocation
+    reason: FailureReason
+    job: cluster/FJob?
+    hint: String?
+}
+
+-- Interactive confirmation demanded before a mutating action is applied.
+-- Created when the action was not pre-confirmed with --yes (or, for terminate,
+-- always — --yes never skips confirmation of an immediate termination).
+entity ConfirmationPrompt {
+    invocation: CliInvocation
+    job: cluster/FJob
+    action: ConfirmationAction
+    shutdown_mode: cluster/Shutdown?   -- set when action = shutdown
+    warns_foreign_job: job.owner != invocation.resolved_owner
+}
+
+-- A log stream opened on one pod of a FournosJob. The offered pods are the
+-- running pods of the job, newest started first, printed before streaming;
+-- the streamed pod is the offered first, or the one chosen with -C.
+entity LogStream {
+    invocation: CliInvocation
+    job: cluster/FJob
+    offered_pods: List<cluster/ExecutionPod>
+    pod: cluster/ExecutionPod
+    follow: Boolean
+}
+
+------------------------------------------------------------
+-- Rules
+------------------------------------------------------------
+
+-- get fjobs [--all | --owner <owner>] [-w]
+-- mine is the default scope: rows are filtered by the resolved owner unless
+-- --all opts out. --owner always filters, whoever it names.
+
+rule ListAllFJobs {
+    when: GetFJobsRequested(invocation, all, owner_filter?, watch)
+    requires: all and owner_filter = null
+    let selected = cluster/FJobs where namespace = invocation.resolved_namespace
+    ensures:
+        for fjob in selected:
+            FJobRow.created(invocation: invocation, job: fjob)
+    @guidance
+        -- watch = true repeats the listing until the operator interrupts it,
+        -- refreshing the rows on each pass.
+}
+
+rule ListFJobsByOwner {
+    when: GetFJobsRequested(invocation, all, owner_filter?, watch)
+    requires: not all or owner_filter != null
+    let wanted_owner = owner_filter ?? invocation.resolved_owner
+    let selected = cluster/FJobs where namespace = invocation.resolved_namespace
+    ensures:
+        if wanted_owner = null:
+            CommandFailed.created(
+                invocation: invocation,
+                reason: owner_unresolved,
+                job: null,
+                hint: "pass --owner or --all, set FOURNOS_OWNER or $USER, or set owner in the fournos config file"
+            )
+        else:
+            let mine = selected where owner = wanted_owner
+            for fjob in mine:
+                FJobRow.created(invocation: invocation, job: fjob)
+}
+
+-- get fjobs <name> — single-job get
+
+rule ListOneFJob {
+    when: GetOneFJobRequested(invocation, fjob_name)
+    let jobs = cluster/FJobs where name = fjob_name and namespace = invocation.resolved_namespace
+    ensures:
+        if jobs.count = 0:
+            CommandFailed.created(
+                invocation: invocation,
+                reason: fjob_not_found,
+                job: null,
+                hint: "no FournosJob " + fjob_name + " in namespace " + invocation.resolved_namespace
+            )
+        else:
+            FJobRow.created(invocation: invocation, job: jobs.first)
+    @guidance
+        -- Single-job get mirrors `oc get fjob <name>`: the named job is shown
+        -- whoever owns it — no owner filtering applies.
+}
+
+-- get pods [fjob/<name>] [--all | --owner <owner>] [-w]
+
+rule ListAllExecutionPods {
+    when: GetPodsRequested(invocation, fjob_name?, all, owner_filter?, watch)
+    requires: all and owner_filter = null and fjob_name = null
+    let selected = cluster/ExecutionPods where namespace = invocation.resolved_namespace
+    ensures:
+        for pod in selected:
+            PodRow.created(invocation: invocation, pod: pod)
+}
+
+rule ListExecutionPodsFiltered {
+    when: GetPodsRequested(invocation, fjob_name?, all, owner_filter?, watch)
+    requires: not all or owner_filter != null or fjob_name != null
+    let wanted_owner = owner_filter ?? invocation.resolved_owner
+    let selected = cluster/ExecutionPods where namespace = invocation.resolved_namespace
+        and (fjob_name = null or job_name = fjob_name)
+        and (wanted_owner = null or (owner_label ?? job.owner) = wanted_owner)
+    ensures:
+        if (not all or owner_filter != null) and wanted_owner = null:
+            CommandFailed.created(
+                invocation: invocation,
+                reason: owner_unresolved,
+                job: null,
+                hint: "pass --owner or --all, set FOURNOS_OWNER or $USER, or set owner in the fournos config file"
+            )
+        else:
+            for pod in selected:
+                PodRow.created(invocation: invocation, pod: pod)
+    @guidance
+        -- watch = true repeats the listing until the operator interrupts it.
+        -- A pod's owner is its fournos.dev/owner label, falling back to the
+        -- owning FournosJob's owner for pods created before that label was
+        -- stamped. Because of the fallback, owner filtering resolves the
+        -- effective owner per pod — it cannot be a pod label selector.
+}
+
+-- logs fjob/<name> [-C <pod>] [-f]
+
+rule StreamJobLogs {
+    when: JobLogsRequested(invocation, fjob_name, pod_name?, follow)
+    let jobs = cluster/FJobs where name = fjob_name and namespace = invocation.resolved_namespace
+    ensures:
+        if jobs.count = 0:
+            CommandFailed.created(
+                invocation: invocation,
+                reason: fjob_not_found,
+                job: null,
+                hint: "no FournosJob " + fjob_name + " in namespace " + invocation.resolved_namespace
+            )
+        else:
+            let job = jobs.first
+            let running = cluster/ExecutionPods where job_name = fjob_name and status = running
+            if running.count = 0:
+                CommandFailed.created(
+                    invocation: invocation,
+                    reason: no_running_pod,
+                    job: job,
+                    hint: job.dashboard_url
+                )
+            else:
+                let offered = newest_first(running)
+                if pod_name != null:
+                    let named = running where name = pod_name
+                    if named.count = 0:
+                        CommandFailed.created(
+                            invocation: invocation,
+                            reason: pod_not_found,
+                            job: job,
+                            hint: "pod " + pod_name + " is not a running pod of this fjob"
+                        )
+                    else:
+                        LogStream.created(
+                            invocation: invocation,
+                            job: job,
+                            offered_pods: offered,
+                            pod: named.first,
+                            follow: follow
+                        )
+                else:
+                    LogStream.created(
+                        invocation: invocation,
+                        job: job,
+                        offered_pods: offered,
+                        pod: offered.first,
+                        follow: follow
+                    )
+    @guidance
+        -- newest_first(pods) is a black box function returning the pods
+        -- ordered by started_at, newest first. The command prints the offered
+        -- pods before streaming, mirroring how kubectl lists containers when
+        -- a pod has several. The no-running-pod failure hints at the fjob
+        -- phase and the Tekton dashboard URL.
+}
+
+-- stop / terminate fjob/<name> [--yes]
+
+rule RequestJobShutdown {
+    when: JobShutdownRequested(invocation, fjob_name, mode, assume_yes)
+    let jobs = cluster/FJobs where name = fjob_name and namespace = invocation.resolved_namespace
+    ensures:
+        if jobs.count = 0:
+            CommandFailed.created(
+                invocation: invocation,
+                reason: fjob_not_found,
+                job: null,
+                hint: "no FournosJob " + fjob_name + " in namespace " + invocation.resolved_namespace
+            )
+        else:
+            if mode = stop and assume_yes:
+                jobs.first.shutdown = stop
+            else:
+                ConfirmationPrompt.created(
+                    invocation: invocation,
+                    job: jobs.first,
+                    action: shutdown,
+                    shutdown_mode: mode
+                )
+    @guidance
+        -- stop maps to spec.shutdown=Stop (graceful: runs finally tasks);
+        -- terminate maps to spec.shutdown=Terminate (immediate: skips them)
+        -- and is always confirmed interactively — --yes never bypasses it.
+}
+
+rule ApplyConfirmedShutdown {
+    when: ConfirmationGiven(_, prompt)
+    requires: prompt.action = shutdown
+    ensures: prompt.job.shutdown = prompt.shutdown_mode
+}
+
+-- delete fjob/<name> [--yes]
+
+rule RequestJobDeletion {
+    when: JobDeletionRequested(invocation, fjob_name, assume_yes)
+    let jobs = cluster/FJobs where name = fjob_name and namespace = invocation.resolved_namespace
+    ensures:
+        if jobs.count = 0:
+            CommandFailed.created(
+                invocation: invocation,
+                reason: fjob_not_found,
+                job: null,
+                hint: "no FournosJob " + fjob_name + " in namespace " + invocation.resolved_namespace
+            )
+        else:
+            if assume_yes:
+                not exists jobs.first
+            else:
+                ConfirmationPrompt.created(
+                    invocation: invocation,
+                    job: jobs.first,
+                    action: delete,
+                    shutdown_mode: null
+                )
+}
+
+rule ApplyConfirmedDeletion {
+    when: ConfirmationGiven(_, prompt)
+    requires: prompt.action = delete
+    ensures: not exists prompt.job
+}
+
+------------------------------------------------------------
+-- Surfaces
+------------------------------------------------------------
+
+-- The CLI boundary: the command set an operator can invoke, and the output
+-- shapes they get back. The operator is represented by their invocation,
+-- which carries the resolved owner identity, namespace and kubeconfig.
+surface FournosCli {
+    facing operator: CliInvocation
+
+    let job_rows = FJobRows where invocation = operator
+    let pod_rows = PodRows where invocation = operator
+    let prompts = ConfirmationPrompts where invocation = operator
+
+    exposes:
+        for row in job_rows:
+            row.shown_name
+            row.shown_owner
+            row.shown_phase
+            row.shown_cluster
+            row.shown_age
+        for row in pod_rows:
+            row.shown_name
+            row.shown_fjob
+            row.shown_owner
+            row.shown_status
+            row.shown_restarts
+            row.shown_age
+        for prompt in prompts:
+            prompt.warns_foreign_job
+
+    provides:
+        GetFJobsRequested(operator, all, owner_filter?, watch)
+        GetOneFJobRequested(operator, fjob_name)
+        GetPodsRequested(operator, fjob_name?, all, owner_filter?, watch)
+        JobLogsRequested(operator, fjob_name, pod_name?, follow)
+        JobShutdownRequested(operator, fjob_name, mode, assume_yes)
+        JobDeletionRequested(operator, fjob_name, assume_yes)
+        ConfirmationGiven(operator, prompt)
+}
+
+------------------------------------------------------------
+-- Invariants
+------------------------------------------------------------
+
+invariant LogStreamPodBelongsToJob {
+    for stream in LogStreams:
+        stream.pod.job_name = stream.job.name
+        and stream.pod in stream.offered_pods
+}

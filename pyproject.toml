@@ -22,6 +22,9 @@ dev = [
     "pre-commit>=4.0",
 ]
 
+[project.scripts]
+fournos = "fournos.cli.main:main"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
