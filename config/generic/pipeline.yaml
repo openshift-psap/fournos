@@ -1,0 +1,42 @@
+# Built-in Fournos generic Pipeline.
+#
+# This is the Pipeline users reference via `spec.pipeline: fournos-generic`
+# in their FournosJob. It uses the fournos-generic-runner image for both
+# the resolve step AND the run step. The runner reads
+# spec.executionEngine.generic.{image, command, env} and launches the
+# user's container as a child K8s Job.
+#
+# The user's container image is completely Fournos-unaware. Users provide
+# ONLY a FournosJob YAML and their container image. That's it.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: fournos-generic
+  annotations:
+    # The resolve image IS the runner itself — it validates
+    # spec.executionEngine.generic.image and exits 0.
+    fournos.dev/resolve-image: "image-registry.openshift-image-registry.svc:5000/${NAMESPACE}/fournos-generic-runner:latest"
+spec:
+  params:
+    - name: fjob-name
+      type: string
+    - name: fournos-workload-namespace
+      type: string
+    - name: kubeconfig-secret
+      type: string
+  workspaces:
+    - name: artifacts
+  tasks:
+    - name: run-generic-job
+      taskRef:
+        name: fournos-generic-step
+      params:
+        - name: fjob-name
+          value: "$(params.fjob-name)"
+        - name: fournos-workload-namespace
+          value: "$(params.fournos-workload-namespace)"
+        - name: kubeconfig-secret
+          value: "$(params.kubeconfig-secret)"
+      workspaces:
+        - name: artifacts
+          workspace: artifacts

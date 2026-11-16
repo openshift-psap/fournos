@@ -1,0 +1,51 @@
+# RBAC for the fournos-generic runner and its child Jobs.
+#
+# Child Jobs run under the 'fournos' ServiceAccount so users don't need to
+# ship their own RBAC. This role covers:
+#   - Runner internals: read FournosJobs, create/manage child Jobs, stream logs
+#   - Common workload operations: Deployments, Services, Pods (so user
+#     containers can deploy sidecar services, mock servers, etc.)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fournos-generic-runner
+  labels:
+    app.kubernetes.io/part-of: fournos
+rules:
+  # Read FournosJob specs
+  - apiGroups: ["fournos.dev"]
+    resources: ["fournosjobs"]
+    verbs: ["get"]
+  # Create and manage child K8s Jobs
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "create", "delete", "list", "watch"]
+  # Stream child Job pod logs, inspect pods
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+  # Common workload resources — so user containers can deploy services,
+  # mock servers, sidecars, etc. without shipping their own RBAC.
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "create", "delete", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services", "configmaps"]
+    verbs: ["get", "create", "delete", "list", "watch"]
+---
+# Bind the ClusterRole to the 'fournos' ServiceAccount in the workload
+# namespace so the runner and child Jobs can access the resources above.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fournos-generic-runner
+  labels:
+    app.kubernetes.io/part-of: fournos
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fournos-generic-runner
+subjects:
+  - kind: ServiceAccount
+    name: fournos
+    namespace: ${NAMESPACE}

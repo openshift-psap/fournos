@@ -131,6 +131,114 @@ else
 fi
 kind load image-archive "$ARCHIVE" --name "${CLUSTER_NAME}"
 rm -f "$ARCHIVE"
+
+# ---------------------------------------------------------------
+# 8. Build and load mock generic pipeline images
+# ---------------------------------------------------------------
+echo ""
+echo "Building mock generic runner image ($CONTAINER_RUNTIME)..."
+MOCK_GENERIC_RUNNER_IMAGE="fournos-mock-generic-runner:dev"
+"$CONTAINER_RUNTIME" build -t "$MOCK_GENERIC_RUNNER_IMAGE" -f dev/mock-generic/Dockerfile.runner dev/mock-generic/
+
+echo "Building mock generic user image ($CONTAINER_RUNTIME)..."
+MOCK_GENERIC_USER_IMAGE="fournos-mock-generic-user:dev"
+"$CONTAINER_RUNTIME" build -t "$MOCK_GENERIC_USER_IMAGE" dev/mock-generic/
+
+echo "Loading mock generic images into kind..."
+for IMG_NAME in "$MOCK_GENERIC_RUNNER_IMAGE" "$MOCK_GENERIC_USER_IMAGE"; do
+  ARCHIVE=$(mktemp /tmp/fournos-mock-generic-XXXXXX.tar)
+  if [ "$CONTAINER_RUNTIME" = "podman" ]; then
+    "$CONTAINER_RUNTIME" tag "$IMG_NAME" "docker.io/library/$IMG_NAME"
+    "$CONTAINER_RUNTIME" save -o "$ARCHIVE" "docker.io/library/$IMG_NAME"
+  else
+    "$CONTAINER_RUNTIME" save -o "$ARCHIVE" "$IMG_NAME"
+  fi
+  kind load image-archive "$ARCHIVE" --name "${CLUSTER_NAME}"
+  rm -f "$ARCHIVE"
+done
+
+# ---------------------------------------------------------------
+# 9. Apply fournos-generic Pipeline and Task for local dev
+# ---------------------------------------------------------------
+echo ""
+echo "Applying fournos-generic Pipeline and Task..."
+# containerd inside kind resolves bare image names to docker.io/library/
+MOCK_GENERIC_RUNNER_IMAGE_FQDN="docker.io/library/$MOCK_GENERIC_RUNNER_IMAGE"
+cat <<EOF | kubectl apply -n $FOURNOS_WORKLOAD_NAMESPACE -f-
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: fournos-generic-step
+spec:
+  params:
+    - name: fjob-name
+      type: string
+    - name: fournos-workload-namespace
+      type: string
+    - name: kubeconfig-secret
+      type: string
+  workspaces:
+    - name: artifacts
+  steps:
+    - name: run
+      image: $MOCK_GENERIC_RUNNER_IMAGE_FQDN
+      # Explicit command prevents Tekton from resolving the image
+      # entrypoint against the registry (which fails for local images).
+      command: ["python3", "/opt/fournos/entrypoint"]
+      imagePullPolicy: IfNotPresent
+      env:
+        - name: FJOB_NAME
+          value: "\$(params.fjob-name)"
+        - name: FOURNOS_WORKLOAD_NAMESPACE
+          value: "\$(params.fournos-workload-namespace)"
+        - name: FOURNOS_STEP
+          value: run
+        - name: ARTIFACT_DIR
+          value: "\$(workspaces.artifacts.path)"
+      volumeMounts:
+        - name: kubeconfig
+          mountPath: /secrets/kubeconfig
+          readOnly: true
+  volumes:
+    - name: kubeconfig
+      secret:
+        secretName: "\$(params.kubeconfig-secret)"
+        optional: true
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: fournos-generic
+  annotations:
+    fournos.dev/resolve-image: "$MOCK_GENERIC_RUNNER_IMAGE_FQDN"
+spec:
+  params:
+    - name: fjob-name
+      type: string
+    - name: fournos-workload-namespace
+      type: string
+    - name: kubeconfig-secret
+      type: string
+  workspaces:
+    - name: artifacts
+  tasks:
+    - name: run-generic-job
+      taskRef:
+        name: fournos-generic-step
+      params:
+        - name: fjob-name
+          value: "\$(params.fjob-name)"
+        - name: fournos-workload-namespace
+          value: "\$(params.fournos-workload-namespace)"
+        - name: kubeconfig-secret
+          value: "\$(params.kubeconfig-secret)"
+      workspaces:
+        - name: artifacts
+          workspace: artifacts
+EOF
+
+cat config/generic/rbac.yaml | NAMESPACE=$FOURNOS_WORKLOAD_NAMESPACE envsubst '$NAMESPACE' | kubectl apply -f-
+
 # ---------------------------------------------------------------
 # Done
 # ---------------------------------------------------------------
