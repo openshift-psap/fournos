@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import time
 from typing import Any
 
 import pytest
 from kubernetes import client, config
+
+# Allow running pytest without the Makefile wrapper (same default as `make test`).
+os.environ.setdefault("FOURNOS_WORKLOAD_NAMESPACE", "fournos-local-dev")
 
 from fournos.settings import settings
 

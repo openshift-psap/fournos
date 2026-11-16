@@ -55,6 +55,10 @@ entity ManagedResource {
 }
 
 -- A pod executing a step of a FournosJob pipeline (resolve step included).
+-- Tekton's affinity-assistant pods are not execution pods even though they
+-- inherit the fournos.dev/job-name label from the PipelineRun: they are
+-- volume-affinity infrastructure, and pod lookup filters them out by their
+-- app.kubernetes.io/component=affinity-assistant label.
 entity ExecutionPod {
     name: String
     namespace: String
