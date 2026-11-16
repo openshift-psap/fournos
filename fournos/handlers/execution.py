@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from kubernetes import client
 
 from fournos.core.constants import Phase, Shutdown
-from fournos.core.labels import job_labels
+from fournos.core.labels import job_annotations, job_labels
 from fournos.core.tekton import TektonClient
 from fournos.settings import settings
 from fournos.state import ctx
@@ -225,6 +225,7 @@ def reconcile_admitted(spec, name, namespace, status, patch, body):
                 cluster=cluster,
                 owner_ref=owner_ref(body),
                 labels=job_labels(spec),
+                annotations=job_annotations(spec),
             )
             if clusterless:
                 logger.info("Job %s: created PipelineRun in clusterless mode", name)

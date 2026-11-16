@@ -7,6 +7,7 @@ LABEL_EXCLUSIVE_CLUSTER = "fournos.dev/exclusive-cluster"
 LABEL_VAULT_ENTRY = "fournos.dev/vault-entry"
 LABEL_RECURRING_PARENT = "fournos.dev/recurring-parent"
 ANNOTATION_TRIGGER_NOW = "fournos.dev/trigger-now"
+ANNOTATION_ORIGINAL_OWNER = "fournos.dev/original-owner"
 
 CLUSTER_SLOT_RESOURCE = "fournos/cluster-slot"
 MAX_CLUSTER_SLOTS = 100

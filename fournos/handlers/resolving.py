@@ -12,7 +12,7 @@ import logging
 from kubernetes import client
 
 from fournos.core.constants import Phase
-from fournos.core.labels import job_labels
+from fournos.core.labels import job_annotations, job_labels
 from fournos.core.resolve import ResolveClient
 from fournos.core.tekton import ANNOTATION_RESOLVE_IMAGE
 from fournos.state import ctx
@@ -94,6 +94,7 @@ def _ensure_resolve_job(spec, name, conditions, patch, body):
             owner_ref=owner_ref(body),
             image=resolve_image,
             labels=job_labels(spec),
+            annotations=job_annotations(spec),
         )
     except client.exceptions.ApiException as exc:
         if exc.status == 409:
@@ -272,6 +273,7 @@ def _create_workload_and_transition(
             priority=spec.get("priority"),
             owner_ref=owner_ref(body),
             labels=job_labels(spec),
+            annotations=job_annotations(spec),
         )
     except (ValueError, TypeError) as exc:
         message = str(exc)

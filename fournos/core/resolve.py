@@ -51,17 +51,21 @@ class ResolveClient:
         owner_ref: dict,
         image: str,
         labels: dict[str, str] | None = None,
+        annotations: dict[str, str] | None = None,
     ) -> dict:
         job_name = _resolve_job_name(name)
         labels = base_labels(name, labels)
 
         body = copy.deepcopy(_RESOLVE_JOB_TEMPLATE)
-        body["metadata"] = {
+        metadata: dict = {
             "name": job_name,
             "namespace": settings.workload_namespace,
             "labels": labels,
             "ownerReferences": [_make_owner_ref(owner_ref)],
         }
+        if annotations:
+            metadata["annotations"] = annotations
+        body["metadata"] = metadata
         body["spec"]["activeDeadlineSeconds"] = settings.resolve_deadline_sec
         body["spec"]["template"]["metadata"] = {"labels": labels}
 

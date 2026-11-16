@@ -64,6 +64,7 @@ class KueueClient:
         priority: str | None = None,
         owner_ref: dict | None = None,
         labels: dict[str, str] | None = None,
+        annotations: dict[str, str] | None = None,
     ) -> dict:
         resource_requests: dict[str, str] = {}
         if gpu_type and gpu_count:
@@ -95,6 +96,8 @@ class KueueClient:
                 **base_labels(name, labels),
             },
         }
+        if annotations:
+            metadata["annotations"] = annotations
         if owner_ref:
             metadata["ownerReferences"] = [owner_ref]
 

@@ -26,7 +26,7 @@ from fournos.core.constants import (
 )
 from fournos.core.duration import parse_duration
 from fournos.core.kueue import KueueClient
-from fournos.core.labels import job_labels
+from fournos.core.labels import job_annotations, job_labels
 from fournos.settings import settings
 from fournos.state import ctx
 
@@ -335,6 +335,7 @@ def _create_lock_workload(spec, name, patch, body):
             priority=spec.get("priority"),
             owner_ref=owner_ref(body),
             labels=job_labels(spec),
+            annotations=job_annotations(spec),
         )
     except (ValueError, TypeError) as exc:
         message = str(exc)

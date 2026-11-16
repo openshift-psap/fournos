@@ -58,15 +58,17 @@ class TektonClient:
         cluster: str,
         owner_ref: dict | None = None,
         labels: dict[str, str] | None = None,
+        annotations: dict[str, str] | None = None,
     ) -> dict:
         labels = base_labels(name, labels)
+        merged_annotations: dict[str, str] = {"fournos.dev/cluster": cluster}
+        if annotations:
+            merged_annotations.update(annotations)
         metadata: dict = {
             "name": name,
             "namespace": settings.workload_namespace,
             "labels": labels,
-            "annotations": {
-                "fournos.dev/cluster": cluster,
-            },
+            "annotations": merged_annotations,
         }
         if owner_ref:
             metadata["ownerReferences"] = [owner_ref]
