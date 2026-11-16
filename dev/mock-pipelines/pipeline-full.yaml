@@ -5,6 +5,8 @@ metadata:
   name: fournos-full
   annotations:
     fournos.dev/resolve-image: fournos-mock-resolve:dev
+    fournos.dev/preemption-cleanup-task: cleanup
+    fournos.dev/preemption-cleanup-project: testproj/llmd
 spec:
   workspaces:
     - name: artifacts

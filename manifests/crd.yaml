@@ -216,6 +216,14 @@ spec:
                   type: string
                 pipelineRun:
                   type: string
+                stopReason:
+                  type: string
+                  enum:
+                    - Preempted
+                    - Evicted
+                  description: >-
+                    Kueue eviction reason while a job is stopping or after it
+                    was stopped. Evicted jobs are not restarted automatically.
                 dashboardURL:
                   type: string
                 message:

@@ -1,6 +1,7 @@
 """Phase handlers package — re-exports for operator.py wiring."""
 
 from .execution import (
+    handle_eviction,
     handle_shutdown,
     reconcile_admitted,
     reconcile_running,
@@ -15,6 +16,7 @@ from .lifecycle import (
 from .resolving import reconcile_resolving
 
 __all__ = [
+    "handle_eviction",
     "handle_shutdown",
     "on_create",
     "reconcile_admitted",
