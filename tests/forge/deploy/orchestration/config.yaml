@@ -10,6 +10,10 @@ secrets:
       name: psap-forge-fournos-deploy
       key: kubeconfig
 
+fournos:
+  job:
+    owner: null
+
 fournos_deploy:
   controller_namespace:
     name: fournos-controller-wip

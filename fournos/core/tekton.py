@@ -5,7 +5,8 @@ import logging
 from kubernetes import client
 
 from fournos.core.clusters import ResolvedSecret
-from fournos.core.constants import LABEL_JOB_NAME, LABEL_MANAGED_BY
+from fournos.core.constants import LABEL_MANAGED_BY
+from fournos.core.labels import base_labels
 from fournos.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -56,18 +57,18 @@ class TektonClient:
         resolved_secrets: list[ResolvedSecret],
         cluster: str,
         owner_ref: dict | None = None,
+        labels: dict[str, str] | None = None,
+        annotations: dict[str, str] | None = None,
     ) -> dict:
-        labels = {
-            LABEL_MANAGED_BY: "fournos",
-            LABEL_JOB_NAME: name,
-        }
+        labels = base_labels(name, labels)
+        merged_annotations: dict[str, str] = {"fournos.dev/cluster": cluster}
+        if annotations:
+            merged_annotations.update(annotations)
         metadata: dict = {
             "name": name,
             "namespace": settings.workload_namespace,
             "labels": labels,
-            "annotations": {
-                "fournos.dev/cluster": cluster,
-            },
+            "annotations": merged_annotations,
         }
         if owner_ref:
             metadata["ownerReferences"] = [owner_ref]

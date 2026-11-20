@@ -9,7 +9,7 @@ from pathlib import Path
 import yaml
 from kubernetes import client
 
-from fournos.core.constants import LABEL_JOB_NAME, LABEL_MANAGED_BY
+from fournos.core.labels import base_labels
 from fournos.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -50,17 +50,22 @@ class ResolveClient:
         name: str,
         owner_ref: dict,
         image: str,
+        labels: dict[str, str] | None = None,
+        annotations: dict[str, str] | None = None,
     ) -> dict:
         job_name = _resolve_job_name(name)
-        labels = {LABEL_MANAGED_BY: "fournos", LABEL_JOB_NAME: name}
+        labels = base_labels(name, labels)
 
         body = copy.deepcopy(_RESOLVE_JOB_TEMPLATE)
-        body["metadata"] = {
+        metadata: dict = {
             "name": job_name,
             "namespace": settings.workload_namespace,
             "labels": labels,
             "ownerReferences": [_make_owner_ref(owner_ref)],
         }
+        if annotations:
+            metadata["annotations"] = annotations
+        body["metadata"] = metadata
         body["spec"]["activeDeadlineSeconds"] = settings.resolve_deadline_sec
         body["spec"]["template"]["metadata"] = {"labels": labels}
 
