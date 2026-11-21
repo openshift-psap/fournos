@@ -90,9 +90,7 @@ def _extract_forge_fields(job: dict) -> dict:
         "name": meta.get("name", ""),
         "project": forge.get("project", ""),
         "preset": preset,
-        "cluster": status.get("cluster")
-        or spec.get("cluster")
-        or spec.get("gpuPool", ""),
+        "cluster": spec.get("cluster", ""),
         "pipeline": spec.get("pipeline", ""),
         "owner": spec.get("owner", ""),
         "status": status.get("phase", "Unknown"),

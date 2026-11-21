@@ -332,7 +332,7 @@ async def jobs_list(
         if project:
             jobs = [j for j in jobs if _extract_forge_info(j).get("project") == project]
         if cluster:
-            jobs = [j for j in jobs if _job_matches_target(j, cluster)]
+            jobs = [j for j in jobs if j.get("spec", {}).get("cluster") == cluster]
         if status:
             jobs = [j for j in jobs if j.get("status", {}).get("phase") == status]
         if owner:
@@ -390,7 +390,7 @@ async def jobs_table_partial(
     if project:
         jobs = [j for j in jobs if _extract_forge_info(j).get("project") == project]
     if cluster:
-        jobs = [j for j in jobs if _job_matches_target(j, cluster)]
+        jobs = [j for j in jobs if j.get("spec", {}).get("cluster") == cluster]
     if status:
         jobs = [j for j in jobs if j.get("status", {}).get("phase") == status]
     if owner:
@@ -567,12 +567,6 @@ async def submit_form(request: Request):
     )
 
 
-@app.get("/api/gpu-pools")
-async def gpu_pools_api():
-    """List GPU pools configured through Kueue ResourceFlavor labels."""
-    return await asyncio.to_thread(k8s_client.list_gpu_pools)
-
-
 @app.get("/api/project-info/{project_name}")
 async def project_info_api(project_name: str):
     from app.forge_discovery import get_project
@@ -619,8 +613,7 @@ async def github_open_prs():
 async def submit_job(
     request: Request,
     project: str = Form(...),
-    cluster: str = Form(""),
-    gpu_pool: str = Form(""),
+    cluster: str = Form(...),
     pipeline: str = Form("forge-test-only"),
     preset: str = Form(""),
     version: str = Form(""),
@@ -629,16 +622,6 @@ async def submit_job(
     config_overrides_raw: str = Form(""),
     pull_sha: str = Form(""),
 ):
-    cluster = cluster.strip()
-    gpu_pool = gpu_pool.strip()
-    if bool(cluster) == bool(gpu_pool):
-        return _render(
-            "submit_job.html",
-            projects=discover_projects(),
-            pipelines=list(settings.default_pipelines),
-            error="Choose exactly one target: a cluster or a GPU pool.",
-        )
-
     exclusive_bool = exclusive.lower() in ("true", "on", "1", "yes")
 
     config_overrides: dict[str, Any] = {}
@@ -662,24 +645,6 @@ async def submit_job(
     if pull_sha:
         env["PULL_PULL_SHA"] = pull_sha
 
-    job_spec = {
-        "displayName": f"{project} {preset}".strip(),
-        "owner": owner or "fournos-dashboard",
-        "pipeline": pipeline,
-        "exclusive": exclusive_bool,
-        "executionEngine": {
-            "forge": {
-                "project": project,
-                "args": args,
-                "configOverrides": config_overrides,
-            }
-        },
-    }
-    if cluster:
-        job_spec["cluster"] = cluster
-    if gpu_pool:
-        job_spec["gpuPool"] = gpu_pool
-
     body = {
         "apiVersion": f"{settings.fournos_api_group}/{settings.fournos_api_version}",
         "kind": "FournosJob",
@@ -687,7 +652,20 @@ async def submit_job(
             "name": job_name,
             "namespace": settings.fournos_namespace,
         },
-        "spec": job_spec,
+        "spec": {
+            "cluster": cluster,
+            "displayName": f"{project} {preset}".strip(),
+            "owner": owner or "fournos-dashboard",
+            "pipeline": pipeline,
+            "exclusive": exclusive_bool,
+            "executionEngine": {
+                "forge": {
+                    "project": project,
+                    "args": args,
+                    "configOverrides": config_overrides,
+                }
+            },
+        },
     }
 
     if env:
@@ -713,7 +691,7 @@ async def submit_job(
                 name=created_name,
                 project=project,
                 preset=preset,
-                cluster=cluster or gpu_pool,
+                cluster=cluster,
                 pipeline=pipeline,
                 owner=owner or "fournos-dashboard",
                 status="Pending",
@@ -773,8 +751,7 @@ async def create_schedule(
     request: Request,
     name: str = Form(...),
     project: str = Form(...),
-    cluster: str = Form(""),
-    gpu_pool: str = Form(""),
+    cluster: str = Form(...),
     pipeline: str = Form("forge-test-only"),
     preset: str = Form(""),
     cron_expr: str = Form(...),
@@ -786,10 +763,6 @@ async def create_schedule(
     edit_target: str = Form(""),
 ):
     try:
-        cluster = cluster.strip()
-        gpu_pool = gpu_pool.strip()
-        if bool(cluster) == bool(gpu_pool):
-            raise ValueError("Choose exactly one target: a cluster or a GPU pool.")
         if edit_target and edit_target != name:
             await asyncio.to_thread(
                 k8s_client.create_cronjob,
@@ -797,7 +770,6 @@ async def create_schedule(
                 schedule=cron_expr,
                 project=project,
                 cluster=cluster,
-                gpu_pool=gpu_pool,
                 pipeline=pipeline,
                 preset=preset,
                 image=image_source,
@@ -825,7 +797,6 @@ async def create_schedule(
                 schedule=cron_expr,
                 project=project,
                 cluster=cluster,
-                gpu_pool=gpu_pool,
                 pipeline=pipeline,
                 preset=preset,
                 image=image_source,
@@ -899,26 +870,13 @@ async def delete_schedule(name: str):
 
 
 def _collect_clusters(live_jobs: list[dict]) -> list[str]:
-    """Collect target clusters and GPU pools from live jobs."""
+    """Collect unique cluster names from live jobs."""
     clusters = set()
     for j in live_jobs:
-        spec = j.get("spec", {})
-        status = j.get("status", {})
-        for target in (status.get("cluster"), spec.get("cluster"), spec.get("gpuPool")):
-            if target:
-                clusters.add(target)
+        c = j.get("spec", {}).get("cluster", "")
+        if c:
+            clusters.add(c)
     return sorted(clusters)
-
-
-def _job_matches_target(job: dict, target: str) -> bool:
-    """Match a filter against an assigned cluster, pinned cluster, or GPU pool."""
-    spec = job.get("spec", {})
-    status = job.get("status", {})
-    return target in {
-        status.get("cluster", ""),
-        spec.get("cluster", ""),
-        spec.get("gpuPool", ""),
-    }
 
 
 def _db_job_to_dict(job: db.Job) -> dict:
@@ -957,8 +915,7 @@ def _db_job_to_fjob_dict(job: db.Job) -> dict:
         }
         spec.setdefault("executionEngine", {})["forge"] = forge
 
-    if not spec.get("cluster") and not spec.get("gpuPool"):
-        spec["cluster"] = job.cluster
+    spec.setdefault("cluster", job.cluster)
     spec.setdefault("pipeline", job.pipeline)
     spec.setdefault("owner", job.owner)
     spec.setdefault("displayName", f"{job.project} {job.preset}".strip())
