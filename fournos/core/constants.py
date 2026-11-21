@@ -6,6 +6,9 @@ LABEL_EXCLUSIVE_CLUSTER = "fournos.dev/exclusive-cluster"
 LABEL_VAULT_ENTRY = "fournos.dev/vault-entry"
 LABEL_RECURRING_PARENT = "fournos.dev/recurring-parent"
 ANNOTATION_TRIGGER_NOW = "fournos.dev/trigger-now"
+# Published by Hearth on the ResourceFlavor: JSON dict mapping a GPU short
+# name to the free GPU counts of the nodes that hold it.
+ANNOTATION_FREE_GPU_BLOCKS = "fournos.dev/free-gpu-blocks"
 
 CLUSTER_SLOT_RESOURCE = "fournos/cluster-slot"
 MAX_CLUSTER_SLOTS = 100

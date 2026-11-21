@@ -93,6 +93,22 @@ spec:
                     gpuCount:
                       type: integer
                       minimum: 1
+                    replicas:
+                      type: integer
+                      minimum: 1
+                      default: 1
+                      description: >-
+                        Number of serving replicas. Each replica is one pod
+                        requesting gpusPerReplica GPUs. Fournos uses this to
+                        check that every replica fits on a single node before
+                        admitting the job.
+                    gpusPerReplica:
+                      type: integer
+                      minimum: 1
+                      description: >-
+                        GPUs requested by one replica. Defaults to gpuCount
+                        when omitted, for jobs resolved before Forge reported
+                        the replica shape.
                 executionEngine:
                   type: object
                   description: >-
