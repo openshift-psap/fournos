@@ -13,6 +13,7 @@ CRD_VERSION = "v1"
 COND_RESOLVED = "Resolved"
 COND_WORKLOAD_ADMITTED = "WorkloadAdmitted"
 COND_PIPELINE_RUN_READY = "PipelineRunReady"
+COND_NODE_CAPACITY = "NodeCapacity"
 
 logger = logging.getLogger(__name__)
 

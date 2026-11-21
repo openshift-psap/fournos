@@ -5,11 +5,13 @@ import logging
 from kubernetes import client
 
 from fournos.core.constants import (
+    ANNOTATION_FREE_GPU_BLOCKS,
     CLUSTER_SLOT_RESOURCE,
     LABEL_JOB_NAME,
     LABEL_MANAGED_BY,
     MAX_CLUSTER_SLOTS,
 )
+from fournos.core.node_fit import parse_free_blocks
 from fournos.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -167,6 +169,29 @@ class KueueClient:
             plural=KUEUE_RESOURCE_FLAVOR_PLURAL,
         )
         return {item["metadata"]["name"] for item in result.get("items", [])}
+
+    def get_flavor_free_blocks(self, flavor_name: str) -> dict[str, list[int]] | None:
+        """Return the per-node free GPU blocks Hearth published for a flavor.
+
+        ``None`` means the data is unavailable (flavor or annotation missing),
+        and the caller must not infer that the cluster is full.
+        """
+        try:
+            flavor = self._k8s.get_cluster_custom_object(
+                group=KUEUE_GROUP,
+                version=KUEUE_VERSION,
+                plural=KUEUE_RESOURCE_FLAVOR_PLURAL,
+                name=flavor_name,
+            )
+        except client.exceptions.ApiException as exc:
+            if exc.status == 404:
+                logger.warning("ResourceFlavor %s not found", flavor_name)
+                return None
+            raise
+        annotation = (flavor.get("metadata", {}).get("annotations") or {}).get(
+            ANNOTATION_FREE_GPU_BLOCKS
+        )
+        return parse_free_blocks(annotation)
 
     def list_gpu_types(self) -> set[str]:
         """Return the set of GPU type short names that have quota in any ClusterQueue."""

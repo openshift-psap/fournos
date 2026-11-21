@@ -129,6 +129,20 @@ Each ResourceFlavor has `spec.nodeLabels: { fournos.dev/cluster: <name> }`. When
 
 Because `exclusive` defaults to `true`, any job with `spec.cluster` automatically locks the assigned cluster — including jobs that also specify `spec.hardware`. To get shared access (multiple jobs on the same cluster), set `exclusive: false` explicitly. Jobs without `spec.cluster` must set `exclusive: false` (since exclusive mode requires a cluster target). Hardware is always required for non-exclusive jobs — only exclusive cluster-locked jobs and clusterless jobs (`clusterless: true`) may omit it.
 
+### Per-node GPU capacity
+
+Kueue quota is per cluster, not per node, so quota alone admits a job whose GPUs are spread as 4+4 across two nodes when it needs 8 on one. The pod then stays Pending until the job's readiness timeout. Hearth closes that gap by publishing the free GPUs of every Ready node on the cluster's ResourceFlavor:
+
+```yaml
+metadata:
+  annotations:
+    fournos.dev/free-gpu-blocks: '{"a100": [4, 4], "h200": [8]}'
+```
+
+The value maps each GPU short name to the free GPU count of each node holding it. Before creating the Workload for a job pinned to a cluster, Fournos checks the job's shape — `hardware.replicas` (default `1`) replicas of `hardware.gpusPerReplica` (default `gpuCount`) GPUs — against those blocks, filling the largest nodes first. If the replicas cannot all be placed, the job stays in `Resolving` with the `NodeCapacity` condition set to `False` / `InsufficientNodeCapacity`, and the check reruns on every reconcile tick, so the job is admitted once enough capacity frees up.
+
+When the annotation is absent (Hearth has no pod data, or an older Hearth is deployed), the check is skipped and Kueue's cluster-level decision stands. Only jobs pinned to a cluster are checked: a job without `spec.cluster` lets Kueue pick the flavor, so there is no single cluster to inspect.
+
 ### Clusterless Jobs
 
 Clusterless jobs (`clusterless: true`) bypass Kueue entirely and run on the hub cluster without target cluster access. They skip the Pending phase and go directly from Resolving to Admitted.

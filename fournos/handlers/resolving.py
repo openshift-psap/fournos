@@ -12,11 +12,13 @@ import logging
 from kubernetes import client
 
 from fournos.core.constants import Phase
+from fournos.core.node_fit import fits_on_nodes, replica_shape, shape_message
 from fournos.core.resolve import ResolveClient
 from fournos.core.tekton import ANNOTATION_RESOLVE_IMAGE
 from fournos.state import ctx
 
 from .status import (
+    COND_NODE_CAPACITY,
     COND_RESOLVED,
     COND_WORKLOAD_ADMITTED,
     owner_ref,
@@ -256,6 +258,81 @@ def _validate_secret_refs(spec, name, conditions, patch):
     return True
 
 
+def _fits_free_nodes(spec, name, conditions, patch, gpu_type, gpu_count):
+    """Check that every replica fits on a single node of the pinned cluster.
+
+    Kueue reserves GPU quota per cluster, so cluster-level capacity alone
+    admits a job whose replicas no node can hold. Hearth publishes the free
+    GPUs of each node on the ResourceFlavor; when that data is absent the
+    check is skipped and Kueue decides. Returning ``False`` keeps the job in
+    Resolving, and the check reruns on every tick until capacity appears.
+
+    Only jobs pinned to one cluster are checked; a job without ``spec.cluster``
+    lets Kueue pick the flavor, so there is no single cluster to inspect.
+    """
+    cluster = spec.get("cluster")
+    if not cluster or not gpu_type or not gpu_count:
+        return True
+
+    try:
+        # A Workload may already exist if a previous tick created it but its
+        # status patch did not persist. The admission decision is taken, so
+        # the gate must not block the 409/idempotent path that follows.
+        if ctx.kueue.get_workload_or_none(name) is not None:
+            logger.debug("Job %s: Workload already exists, skipping node check", name)
+            return True
+        published = ctx.kueue.get_flavor_free_blocks(cluster)
+    except client.exceptions.ApiException as exc:
+        logger.warning(
+            "Job %s: could not read free GPU blocks of cluster %s: %s",
+            name,
+            cluster,
+            exc,
+        )
+        return True
+    if published is None:
+        set_condition(
+            patch,
+            conditions,
+            COND_NODE_CAPACITY,
+            "Unknown",
+            "CapacityUnknown",
+            "Free GPU blocks unavailable, Kueue decides admission",
+        )
+        logger.debug(
+            "Job %s: cluster %s has no free-block data, skipping node check",
+            name,
+            cluster,
+        )
+        return True
+
+    replicas, gpus_per_replica = replica_shape(spec.get("hardware") or {})
+    free_blocks = published.get(gpu_type, [])
+    if fits_on_nodes(free_blocks, replicas, gpus_per_replica):
+        set_condition(
+            patch,
+            conditions,
+            COND_NODE_CAPACITY,
+            "True",
+            "Fits",
+            "Free nodes can host every replica",
+        )
+        return True
+
+    message = shape_message(gpu_type, replicas, gpus_per_replica, free_blocks)
+    set_condition(
+        patch,
+        conditions,
+        COND_NODE_CAPACITY,
+        "False",
+        "InsufficientNodeCapacity",
+        message,
+    )
+    patch.status["message"] = message
+    logger.info("Job %s: staying in Resolving, %s", name, message)
+    return False
+
+
 def _create_workload_and_transition(
     spec, name, conditions, patch, body, gpu_type, gpu_count
 ):
@@ -360,6 +437,8 @@ def reconcile_resolving(spec, name, status, patch, body):
         )
         logger.info("Job %s: clusterless job bypassing Kueue, phase=Admitted", name)
     else:
+        if not _fits_free_nodes(spec, name, conditions, patch, gpu_type, gpu_count):
+            return
         _create_workload_and_transition(
             spec, name, conditions, patch, body, gpu_type, gpu_count
         )
